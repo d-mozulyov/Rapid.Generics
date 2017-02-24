@@ -203,11 +203,15 @@ type
     P = ^T;
   private class var
     FOptions: TRAIIHelper;
+    class function GetIsManaged: Boolean; static; inline;
   public
     class constructor Create;
     class property Options: TRAIIHelper read FOptions;
-    class procedure Init(Value: P); static; inline;
-    class procedure Clear(Value: P); static; inline;
+    class property IsManaged: Boolean read GetIsManaged;
+    class procedure Init(Item: P); static; inline;
+    class procedure InitArray(Items: P; Count: NativeUInt; Offset: NativeUInt = 0); static;
+    class procedure Clear(Item: P); static; inline;
+    class procedure ClearArray(Items: P; Count: NativeUInt; Offset: NativeUInt = 0); static;
   end;
 
 
@@ -449,10 +453,6 @@ type
   end;
 
   TEnumerable<T> = class abstract
-  private
-  {$HINTS OFF}
-    function ToArrayImpl(Count: Integer): TArray<T>; // used by descendants
-  {$HINTS ON}
   protected
     function DoGetEnumerator: TEnumerator<T>; virtual; abstract;
   public
@@ -470,7 +470,8 @@ type
   PObject = ^TObject;
 
 
-{ TCustomDictionary<TKey,TValue> class }
+{ TCustomDictionary<TKey,TValue> class
+  Basic class for TDictionary<TKey,TValue>, TRapidDictionary<TKey,TValue> }
 
   TCustomDictionary<TKey,TValue> = class(TEnumerable<TPair<TKey,TValue>>)
   public type
@@ -557,8 +558,8 @@ type
       property Count: Integer read GetCount;
     end;
   protected
-    FList: PItemList;
-    FListCount: NativeInt;
+    FItems: PItemList;
+    FCapacity: NativeInt;
     FHashTable: TArray<PItem>;
     FHashTableMask: NativeInt;
     FCount: packed record
@@ -604,7 +605,7 @@ type
     procedure ItemNotifyEvents(const Item: TItem; Action: TCollectionNotification);
     procedure ItemNotifyKey(const Item: TItem; Action: TCollectionNotification);
     procedure ItemNotifyValue(const Item: TItem; Action: TCollectionNotification);
-    procedure SetNotifyMethods;
+    procedure SetNotifyMethods; virtual;
   protected const
     FOUND_NONE = 0;
     FOUND_EXCEPTION = 1;
@@ -640,7 +641,7 @@ type
   Included 3 members:
     function Find(const Key: TKey): PItem;
     function FindOrAdd(const Key: TKey): PItem;
-    property List: PItemList read FList; }
+    property List: PItemList read FItems; }
 
   TDictionary<TKey,TValue> = class(TCustomDictionary<TKey,TValue>)
   public type
@@ -673,7 +674,7 @@ type
     function ContainsKey(const Key: TKey): Boolean;
 
     property Items[const Key: TKey]: TValue read GetItem write SetItem; default;
-    property List: PItemList read FList;
+    property List: PItemList read FItems;
     property Count: Integer read FCount.Int;
     property OnKeyNotify: TCollectionNotifyEvent<TKey> read FOnKeyNotify write SetKeyNotify;
     property OnValueNotify: TCollectionNotifyEvent<TValue> read FOnValueNotify write SetValueNotify;
@@ -712,8 +713,8 @@ type
     function ContainsKey(const Key: TKey): Boolean; inline;
 
     property Items[const Key: TKey]: TValue read GetItem write SetItem; default;
-    property List: PItemList read FList;
-    property Count: NativeInt read FCount.Native;
+    property List: PItemList read FItems;
+    property Count: Integer read FCount.Int;
     property OnKeyNotify: TCollectionNotifyEvent<TKey> read FOnKeyNotify write SetKeyNotify;
     property OnValueNotify: TCollectionNotifyEvent<TValue> read FOnValueNotify write SetValueNotify;
   end;
@@ -723,8 +724,7 @@ type
 
   TArray = class
   private
-    class procedure QuickSort<T>(var Values: array of T; const Comparer: IComparer<T>;
-      L, R: Integer); static;
+    class procedure QuickSort<T>(var ValuesArray; const Comparer: IComparer<T>; L, R: Integer); static;
     class procedure CheckArrays(Source, Destination: Pointer; SourceIndex, SourceLength, DestIndex, DestLength, Count: NativeInt); static;
   public
     class procedure Sort<T>(var Values: array of T); overload; static;
@@ -745,342 +745,129 @@ type
   end;
 
 
-  [HPPGEN(HPPGenAttribute.mkFriend, 'DELPHICLASS TList__1<T>')]
-  TListHelper = record
-  private type
-    TInternalNotifyEvent = procedure (const Item; Action: TCollectionNotification) of object;
-    TInternalCompareEvent = function (const Left, Right): Integer of object;
-    TInternalEmptyFunc = reference to function(const Item): Boolean;
-    PInterface = ^IInterface;
-    PBytes = ^TBytes;
-  private var
-    FCount: Integer;
-    FTypeInfo: Pointer;
-    FNotify: TInternalNotifyEvent;
-    FCompare: TInternalCompareEvent;
-    function GetFItems: PPointer; inline;
-    function GetElType: Pointer; inline;
-    function GetElSize: Integer; inline;
-    function CheckDeleteRange(AIndex, ACount: Integer): Boolean; inline;
-    procedure CheckItemRangeInline(AIndex: Integer); inline;
-    procedure CheckInsertRange(AIndex: Integer); inline;
-    procedure CheckItemRange(AIndex: Integer);
-    function DoIndexOfFwd1(const Value): Integer;
-    function DoIndexOfFwd2(const Value): Integer;
-    function DoIndexOfFwd4(const Value): Integer;
-    function DoIndexOfFwd8(const Value): Integer;
-    function DoIndexOfFwdN(const Value): Integer;
-    function DoIndexOfFwdMRef(const Value): Integer;
-    function DoIndexOfRev1(const Value): Integer;
-    function DoIndexOfRev2(const Value): Integer;
-    function DoIndexOfRev4(const Value): Integer;
-    function DoIndexOfRev8(const Value): Integer;
-    function DoIndexOfRevN(const Value): Integer;
-    function DoIndexOfRevMRef(const Value): Integer;
-    procedure DoExtractItemFwd1(const Value; out Item);
-    procedure DoExtractItemFwd2(const Value; out Item);
-    procedure DoExtractItemFwd4(const Value; out Item);
-    procedure DoExtractItemFwd8(const Value; out Item);
-    procedure DoExtractItemFwdN(const Value; out Item);
-    procedure DoExtractItemFwdString(const Value; out Item);
-    procedure DoExtractItemFwdInterface(const Value; out Item);
-    procedure DoExtractItemFwdVariant(const Value; out Item);
-{$IF not Defined(NEXTGEN)}
-    procedure DoExtractItemFwdAnsiString(const Value; out Item);
-    procedure DoExtractItemFwdWideString(const Value; out Item);
-{$IFEND}
-{$IF Defined(AUTOREFCOUNT)}
-    procedure DoExtractItemFwdObject(const Value; out Item);
-{$IFEND}
-    procedure DoExtractItemFwdManaged(const Value; out Item);
-    procedure DoExtractItemRev1(const Value; out Item);
-    procedure DoExtractItemRev2(const Value; out Item);
-    procedure DoExtractItemRev4(const Value; out Item);
-    procedure DoExtractItemRev8(const Value; out Item);
-    procedure DoExtractItemRevN(const Value; out Item);
-    procedure DoExtractItemRevString(const Value; out Item);
-    procedure DoExtractItemRevInterface(const Value; out Item);
-    procedure DoExtractItemRevVariant(const Value; out Item);
-{$IF not Defined(NEXTGEN)}
-    procedure DoExtractItemRevAnsiString(const Value; out Item);
-    procedure DoExtractItemRevWideString(const Value; out Item);
-{$IFEND}
-{$IF Defined(AUTOREFCOUNT)}
-    procedure DoExtractItemRevObject(const Value; out Item);
-{$IFEND}
-    procedure DoExtractItemRevManaged(const Value; out Item);
-    procedure DoExchangeStringInline(Index1, Index2: Integer); inline;
-    procedure DoExchangeInterfaceInline(Index1, Index2: Integer); inline;
-    procedure DoExchangeVariantInline(Index1, Index2: Integer); inline;
-    procedure DoExchangeDynArrayInline(Index1, Index2: Integer); inline;
-{$IF not Defined(NEXTGEN)}
-    procedure DoExchangeAnsiStringInline(Index1, Index2: Integer); inline;
-    procedure DoExchangeWideStringInline(Index1, Index2: Integer); inline;
-{$IFEND}
-{$IF Defined(AUTOREFCOUNT)}
-    procedure DoExchangeObjectInline(Index1, Index2: Integer); inline;
-{$IFEND}
-    procedure DoExchangeString(Index1, Index2: Integer);
-    procedure DoExchangeInterface(Index1, Index2: Integer);
-    procedure DoExchangeVariant(Index1, Index2: Integer);
-    procedure DoExchangeDynArray(Index1, Index2: Integer);
-{$IF not Defined(NEXTGEN)}
-    procedure DoExchangeAnsiString(Index1, Index2: Integer);
-    procedure DoExchangeWideString(Index1, Index2: Integer);
-{$IFEND}
-{$IF Defined(AUTOREFCOUNT)}
-    procedure DoExchangeObject(Index1, Index2: Integer);
-{$IFEND}
-    function DoRemoveFwd1(const Value): Integer;
-    function DoRemoveFwd2(const Value): Integer;
-    function DoRemoveFwd4(const Value): Integer;
-    function DoRemoveFwd8(const Value): Integer;
-    function DoRemoveFwdN(const Value): Integer;
-    function DoRemoveFwdMRef(const Value): Integer;
-    function DoRemoveRev1(const Value): Integer;
-    function DoRemoveRev2(const Value): Integer;
-    function DoRemoveRev4(const Value): Integer;
-    function DoRemoveRev8(const Value): Integer;
-    function DoRemoveRevN(const Value): Integer;
-    function DoRemoveRevMRef(const Value): Integer;
-    procedure SetItem1(const Value; AIndex: Integer);
-    procedure SetItem2(const Value; AIndex: Integer);
-    procedure SetItem4(const Value; AIndex: Integer);
-    procedure SetItem8(const Value; AIndex: Integer);
-    procedure SetItemManaged(const Value; AIndex: Integer);
-    procedure SetItemN(const Value; AIndex: Integer);
-{$IF Defined(AUTOREFCOUNT)}
-    procedure DoInsertObject(AIndex: Integer; const Value);
-    procedure DoSetItemObject(const Value; AIndex: Integer);
-    function DoAddObject(const Value): Integer;
-{$IFEND}
-{$IF not Defined(NEXTGEN)}
-    procedure DoInsertAnsiString(AIndex: Integer; const Value);
-    procedure DoInsertWideString(AIndex: Integer; const Value);
-    procedure DoSetItemAnsiString(const Value; AIndex: Integer);
-    procedure DoSetItemWideString(const Value; AIndex: Integer);
-    function DoAddAnsiString(const Value): Integer;
-    function DoAddWideString(const Value): Integer;
-{$IFEND}
-    procedure DoInsertInterface(AIndex: Integer; const Value);
-    procedure DoSetItemInterface(const Value; AIndex: Integer);
-    procedure DoInsertString(AIndex: Integer; const Value);
-    procedure DoSetItemString(const Value; AIndex: Integer);
-    procedure DoInsertDynArray(AIndex: Integer; const Value);
-    procedure DoSetItemDynArray(const Value; AIndex: Integer);
-    procedure SetItemVariant(const Value; AIndex: Integer);
-    procedure SetItemMRef(const Value; AIndex: Integer; TypeKind: TTypeKind); inline;
-    function DoAddInterface(const Value): Integer;
-    function DoAddString(const Value): Integer;
-    function DoAddDynArray(const Value): Integer;
-    procedure DoReverseMRef(Kind: TTypeKind); inline;
-    procedure DoReverseString;
-    procedure DoReverseInterface;
-    procedure DoReverseVariant;
-    procedure DoReverseDynArray;
-{$IF not Defined(NEXTGEN)}
-    procedure DoReverseAnsiString;
-    procedure DoReverseWideString;
-{$IFEND}
-{$IF Defined(AUTOREFCOUNT)}
-    procedure DoReverseObject;
-{$IFEND}
-    function InternalAdd1(const Value): Integer;
-    function InternalAdd2(const Value): Integer;
-    function InternalAdd4(const Value): Integer;
-    function InternalAdd8(const Value): Integer;
-    function InternalAddN(const Value): Integer;
-    function InternalAddVariant(const Value): Integer;
-    function InternalAddMRef(const Value; TypeKind: TTypeKind): Integer; inline;
-    function InternalAddManaged(const Value): Integer;
-    procedure InternalGrow(ANewCount: Integer);
-    procedure InternalGrowCheck(ANewCount: Integer);
-    procedure InternalDeleteRange1(AIndex, ACount: Integer);
-    procedure InternalDeleteRange2(AIndex, ACount: Integer);
-    procedure InternalDeleteRange4(AIndex, ACount: Integer);
-    procedure InternalDeleteRange8(AIndex, ACount: Integer);
-    procedure InternalDeleteRangeN(AIndex, ACount: Integer);
-    procedure InternalDeleteRangeMRef(AIndex, ACount: Integer);
-    procedure InternalDeleteRangeManaged(AIndex, ACount: Integer);
-{$IF Defined(WEAKREF)}
-    procedure InternalDeleteRangeWeak(AIndex, ACount: Integer);
-{$IFEND}
-    procedure InternalDoDelete1(AIndex: Integer; Action: TCollectionNotification);
-    procedure InternalDoDelete2(AIndex: Integer; Action: TCollectionNotification);
-    procedure InternalDoDelete4(AIndex: Integer; Action: TCollectionNotification);
-    procedure InternalDoDelete8(AIndex: Integer; Action: TCollectionNotification);
-    procedure InternalDoDeleteN(AIndex: Integer; Action: TCollectionNotification);
-    procedure InternalDoDeleteMRef(AIndex: Integer; Action: TCollectionNotification);
-    procedure InternalDoDeleteManaged(AIndex: Integer; Action: TCollectionNotification);
-{$IF Defined(WEAKREF)}
-    procedure InternalDoDeleteWeak(AIndex: Integer; Action: TCollectionNotification);
-{$IFEND}
-    procedure InternalSetCapacity(Value: NativeInt);
-    procedure InternalSetCount1(Value: Integer);
-    procedure InternalSetCount2(Value: Integer);
-    procedure InternalSetCount4(Value: Integer);
-    procedure InternalSetCount8(Value: Integer);
-    procedure InternalSetCountN(Value: Integer);
-    procedure InternalSetCountMRef(Value: Integer);
-    procedure InternalSetCountManaged(Value: Integer);
-{$IF Defined(WEAKREF)}
-    procedure InternalSetCountWeak(Value: Integer);
-{$IFEND}
-    procedure InternalClear1;
-    procedure InternalClear2;
-    procedure InternalClear4;
-    procedure InternalClear8;
-    procedure InternalClearN;
-    procedure InternalClearMRef;
-    procedure InternalClearManaged;
-{$IF Defined(WEAKREF)}
-    procedure InternalClearWeak;
-{$IFEND}
-    procedure InternalInsert1(AIndex: Integer; const Value);
-    procedure InternalInsert2(AIndex: Integer; const Value);
-    procedure InternalInsert4(AIndex: Integer; const Value);
-    procedure InternalInsert8(AIndex: Integer; const Value);
-    procedure InternalInsertN(AIndex: Integer; const Value);
-    procedure InternalInsertVariant(AIndex: Integer; const Value);
-    procedure InternalInsertMRef(AIndex: Integer; const Value; TypeKind: TTypeKind); inline;
-    procedure InternalInsertManaged(AIndex: Integer; const Value);
-    procedure InternalInsertRange1(AIndex: Integer; Values: Pointer; ACount: Integer);
-    procedure InternalInsertRange2(AIndex: Integer; Values: Pointer; ACount: Integer);
-    procedure InternalInsertRange4(AIndex: Integer; Values: Pointer; ACount: Integer);
-    procedure InternalInsertRange8(AIndex: Integer; Values: Pointer; ACount: Integer);
-    procedure InternalInsertRangeN(AIndex: Integer; Values: Pointer; ACount: Integer);
-    procedure InternalInsertRangeManaged(AIndex: Integer; Values: Pointer; ACount: Integer);
-    function InternalIndexOf1(const Value; Direction: Byte): Integer; inline;
-    function InternalIndexOf2(const Value; Direction: Byte): Integer; inline;
-    function InternalIndexOf4(const Value; Direction: Byte): Integer; inline;
-    function InternalIndexOf8(const Value; Direction: Byte): Integer; inline;
-    function InternalIndexOfN(const Value; Direction: Byte): Integer; inline;
-    function InternalIndexOfMRef(const Value; Direction: Byte): Integer; inline;
-    procedure InternalExtractItem1(const Value; out Item; Direction: Byte); inline;
-    procedure InternalExtractItem2(const Value; out Item; Direction: Byte); inline;
-    procedure InternalExtractItem4(const Value; out Item; Direction: Byte); inline;
-    procedure InternalExtractItem8(const Value; out Item; Direction: Byte); inline;
-    procedure InternalExtractItemN(const Value; out Item; Direction: Byte); inline;
-    procedure InternalExtractItemMRef(const Value; Kind: TTypeKind; out Item; Direction: Byte); inline;
-    procedure InternalExtractItemVariant(const Value; out Item; Direction: Byte); inline;
-    procedure InternalExtractItemManaged(const Value; out Item; Direction: Byte); inline;
-    procedure InternalExchange1(Index1, Index2: Integer);
-    procedure InternalExchange2(Index1, Index2: Integer);
-    procedure InternalExchange4(Index1, Index2: Integer);
-    procedure InternalExchange8(Index1, Index2: Integer);
-    procedure InternalExchangeN(Index1, Index2: Integer);
-    procedure InternalExchangeMRef(Index1, Index2: Integer; Kind: TTypeKind); inline;
-    procedure InternalExchangeManaged(Index1, Index2: Integer);
-    procedure InternalMove1(CurIndex, NewIndex: Integer);
-    procedure InternalMove2(CurIndex, NewIndex: Integer);
-    procedure InternalMove4(CurIndex, NewIndex: Integer);
-    procedure InternalMove8(CurIndex, NewIndex: Integer);
-    procedure InternalMoveN(CurIndex, NewIndex: Integer);
-    procedure InternalMoveMRef(CurIndex, NewIndex: Integer);
-    procedure InternalMoveManaged(CurIndex, NewIndex: Integer);
-    procedure InternalPackInline(const IsEmpty: TInternalEmptyFunc);
-    procedure InternalPack1(const IsEmpty: TInternalEmptyFunc);
-    procedure InternalPack2(const IsEmpty: TInternalEmptyFunc);
-    procedure InternalPack4(const IsEmpty: TInternalEmptyFunc);
-    procedure InternalPack8(const IsEmpty: TInternalEmptyFunc);
-    procedure InternalPackN(const IsEmpty: TInternalEmptyFunc);
-    procedure InternalPackManaged(const IsEmpty: TInternalEmptyFunc);
-    function InternalRemove1(const Value; Direction: Byte): Integer; inline;
-    function InternalRemove2(const Value; Direction: Byte): Integer; inline;
-    function InternalRemove4(const Value; Direction: Byte): Integer; inline;
-    function InternalRemove8(const Value; Direction: Byte): Integer; inline;
-    function InternalRemoveN(const Value; Direction: Byte): Integer; inline;
-    function InternalRemoveMRef(const Value; Direction: Byte): Integer; inline;
-    procedure InternalReverse1;
-    procedure InternalReverse2;
-    procedure InternalReverse4;
-    procedure InternalReverse8;
-    procedure InternalReverseN;
-    procedure InternalReverseMRef(Kind: TTypeKind); inline;
-    procedure InternalReverseManaged;
-    procedure InternalToArray(var Dest: Pointer);
-    procedure InternalToArrayManaged(var Dest: Pointer);
-    property FItems: PPointer read GetFItems;
-    property ElType: Pointer read GetElType;
-    property ElSize: Integer read GetElSize;
+{ TCustomList<T> class
+  Basic class for TList<T>, TQueue<T>, TStack<T> }
+
+  TCustomList<T> = class(TEnumerable<T>)
+  public type
+    TItem = T;
+    PItem = ^TItem;
+    TItemList = array[0..0] of TItem;
+    PItemList = ^TItemList;
+
+    TEnumerator = class(TEnumerator<T>)
+    private
+      FList: TCustomList<T>;
+      FIndex: NativeInt;
+      function GetCurrent: T; inline;
+    protected
+      function DoGetCurrent: T; override;
+      function DoMoveNext: Boolean; override;
+    public
+      constructor Create(const AList: TCustomList<T>);
+      property Current: T read GetCurrent;
+      function MoveNext: Boolean; inline;
+    end;
+  protected
+    FItems: PItemList;
+    FCapacity, FCount: packed record
+    case Boolean of
+     False: (Int: Integer);
+      True: (Native: NativeInt);
+    end;
+    FTail: NativeInt;
+    FHead: NativeInt;
+    FOnNotify: TCollectionNotifyEvent<T>;
+    FInternalNotify: TCollectionNotifyEvent<T>;
+
+    class procedure ClearMethod(var Method); static; inline;
+    class function EmptyException: Exception; static;
+    procedure SetCapacity(Value: Integer);
+    procedure Grow;
+    procedure GrowTo(Value: Integer);
+    function DoGetEnumerator: TEnumerator<T>; override;
+    procedure SetOnNotify(const Value: TCollectionNotifyEvent<T>);
+    procedure Notify(const Item: T; Action: TCollectionNotification); virtual;
+    procedure NotifyCaller(Sender: TObject; const Item: T; Action: TCollectionNotification);
+    procedure SetNotifyMethods; virtual;
+
+    property List: PItemList read FItems;
+  public
+    constructor Create;
+    destructor Destroy; override;
+    procedure Clear;
+    procedure TrimExcess; inline;
+    function ToArray: TArray<T>; override; final;
+    function GetEnumerator: TEnumerator; reintroduce; inline;
+
+    property Count: Integer read FCount.Int;
+    property Capacity: Integer read FCapacity.Int write SetCapacity;
+    property OnNotify: TCollectionNotifyEvent<T> read FOnNotify write SetOnNotify;
   end;
 
-  TList<T> = class(TEnumerable<T>)
-  private type
-    arrayofT = array of T;
-  var
-    FListHelper: TListHelper; // FListHelper must always be followed by FItems
-    FItems: arrayofT; // FItems must always be preceded by FListHelper
-    FComparer: IComparer<T>;
-    FOnNotify: TCollectionNotifyEvent<T>;
 
-    function GetCapacity: Integer; inline;
-    procedure SetCapacity(Value: Integer); overload; inline;
-    procedure SetCount(Value: Integer); inline;
+{ TList<T>
+  System.Generics.Collections equivalent }
+
+  TList<T> = class(TCustomList<T>)
+  protected
+    FComparer: IComparer<T>;
+
     function GetItem(Index: Integer): T; inline;
     procedure SetItem(Index: Integer; const Value: T); inline;
-    procedure GrowCheck(ACount: Integer); inline;
-    procedure DoDelete(Index: Integer; Notification: TCollectionNotification); inline;
-    procedure InternalNotify(const Item; Action: TCollectionNotification);
-    function InternalCompare(const Left, Right): Integer;
-    property FCount: Integer read FListHelper.FCount write FListHelper.FCount;
-  protected
     function ItemValue(const Item: T): NativeInt;
-    function DoGetEnumerator: TEnumerator<T>; override;
-    procedure Notify(const Item: T; Action: TCollectionNotification); virtual;
+    function InternalInsert(Index: NativeInt; const Value: T): Integer;
+    procedure InternalDelete(Index: NativeInt; Action: TCollectionNotification);
+    procedure SetCount(Value: Integer);
+    procedure InternalExchange(Index1, Index2: Integer);
+    procedure InternalExchange40(Index1, Index2: Integer);
+    procedure InternalMove(CurIndex, NewIndex: Integer);
+    procedure InternalMove40(CurIndex, NewIndex: Integer);
+    procedure InternalReverse;
+    procedure InternalReverse40;
+    function InternalBinarySearch(const Item: T; const Comparer: IComparer<T>): NativeInt;
+    function InternalIndexOf(const Value: T): NativeInt; overload;
+    function InternalIndexOf(const Value: T; const Comparer: IComparer<T>): NativeInt; overload;
+    function InternalIndexOfRev(const Value: T): NativeInt; overload;
+    function InternalIndexOfRev(const Value: T; const Comparer: IComparer<T>): NativeInt; overload;
+    class function InternalIsEmpty(Inst: Pointer; const Left, Right: T): Boolean; static;
+    {$ifdef SMARTGENERICS}
+    procedure InternalPackDifficults;
+    {$endif}
   public
-  type
-    TDirection = System.Types.TDirection;
-    TEmptyFunc = reference to function (const L, R: T): Boolean;
-    TListCompareFunc = reference to function (const L, R: T): Integer;
+    type
+      TDirection = System.Types.TDirection;
+      TEmptyFunc = reference to function (const L, R: T): Boolean;
+      TListCompareFunc = reference to function (const L, R: T): Integer;
 
     constructor Create; overload;
     constructor Create(const AComparer: IComparer<T>); overload;
     constructor Create(const Collection: TEnumerable<T>); overload;
-    destructor Destroy; override;
 
     class procedure Error(const Msg: string; Data: NativeInt); overload; virtual;
-{$IFNDEF NEXTGEN}
+    {$ifNdef NEXTGEN}
     class procedure Error(Msg: PResStringRec; Data: NativeInt); overload;
-{$ENDIF  NEXTGEN}
-
-    function Add(const Value: T): Integer; inline;
-
-    procedure AddRange(const Values: array of T); overload;
-    procedure AddRange(const Collection: IEnumerable<T>); overload; inline;
-    procedure AddRange(const Collection: TEnumerable<T>); overload; inline;
-
-    procedure Insert(Index: Integer; const Value: T); inline;
-
-    procedure InsertRange(Index: Integer; const Values: array of T); overload;
-    procedure InsertRange(Index: Integer; const Collection: IEnumerable<T>); overload;
-    procedure InsertRange(Index: Integer; const Collection: TEnumerable<T>); overload;
-
-    procedure Pack; overload;
-    procedure Pack(const IsEmpty: TEmptyFunc); overload;
-
-    function Remove(const Value: T): Integer; inline;
-    function RemoveItem(const Value: T; Direction: TDirection): Integer; inline;
-    procedure Delete(Index: Integer); inline;
-    procedure DeleteRange(AIndex, ACount: Integer); inline;
-    function ExtractItem(const Value: T; Direction: TDirection): T; inline;
-    function Extract(const Value: T): T; inline;
-
-    procedure Exchange(Index1, Index2: Integer); inline;
-    procedure Move(CurIndex, NewIndex: Integer); inline;
+    {$endif}
 
     function First: T; inline;
     function Last: T; inline;
 
-    procedure Clear; inline;
+    function Add(const Value: T): Integer; inline;
+    procedure AddRange(const Values: array of T); overload;
+    procedure AddRange(const Collection: IEnumerable<T>); overload;
+    procedure AddRange(const Collection: TEnumerable<T>); overload;
+
+    procedure Insert(Index: Integer; const Value: T); inline;
+    procedure InsertRange(Index: Integer; const Values: array of T); overload;
+    procedure InsertRange(Index: Integer; const Collection: IEnumerable<T>); overload;
+    procedure InsertRange(Index: Integer; const Collection: TEnumerable<T>); overload;
+
+    procedure Delete(Index: Integer); inline;
+    procedure DeleteRange(AIndex, ACount: Integer);
 
     function Expand: TList<T>; inline;
-
-    function Contains(const Value: T): Boolean; inline;
-    function IndexOf(const Value: T): Integer; inline;
-    function IndexOfItem(const Value: T; Direction: TDirection): Integer; inline;
-    function LastIndexOf(const Value: T): Integer; inline;
-
+    procedure Exchange(Index1, Index2: Integer); inline;
+    procedure Move(CurIndex, NewIndex: Integer); inline;
     procedure Reverse; inline;
 
     procedure Sort; overload;
@@ -1088,34 +875,59 @@ type
     function BinarySearch(const Item: T; out Index: Integer): Boolean; overload;
     function BinarySearch(const Item: T; out Index: Integer; const AComparer: IComparer<T>): Boolean; overload;
 
-    procedure TrimExcess; inline;
+    function Contains(const Value: T): Boolean; inline;
+    function IndexOf(const Value: T): Integer; inline;
+    function IndexOfItem(const Value: T; Direction: TDirection): Integer; inline;
+    function LastIndexOf(const Value: T): Integer; inline;
+    function Remove(const Value: T): Integer;
+    function RemoveItem(const Value: T; Direction: TDirection): Integer;
+    function Extract(const Value: T): T;
+    function ExtractItem(const Value: T; Direction: TDirection): T;
 
-    function ToArray: TArray<T>; override; final;
+    procedure Pack; overload;
+    procedure Pack(const IsEmpty: TEmptyFunc); overload;
 
-    property Capacity: Integer read GetCapacity write SetCapacity;
-    property Count: Integer read FListHelper.FCount write SetCount;
+    property Count: Integer read FCount.Int write SetCount;
     property Items[Index: Integer]: T read GetItem write SetItem; default;
-    property List: arrayofT read FItems;
-
-    property OnNotify: TCollectionNotifyEvent<T> read FOnNotify write FOnNotify;
-
-    type
-      TEnumerator = class(TEnumerator<T>)
-      private
-        FList: TList<T>;
-        FIndex: Integer;
-        function GetCurrent: T;
-      protected
-        function DoGetCurrent: T; override;
-        function DoMoveNext: Boolean; override;
-      public
-        constructor Create(const AList: TList<T>);
-        property Current: T read GetCurrent;
-        function MoveNext: Boolean;
-      end;
-
-    function GetEnumerator: TEnumerator; reintroduce; inline;
+    property List;
   end;
+
+
+{ TStack<T>
+  System.Generics.Collections equivalent }
+
+  TStack<T> = class(TCustomList<T>)
+  protected
+    procedure InternalPush(const Value: T);
+    function InternalPop(const Action: TCollectionNotification): T;
+  public
+    constructor Create; overload;
+    constructor Create(const Collection: TEnumerable<T>); overload;
+
+    procedure Push(const Value: T); inline;
+    function Pop: T; inline;
+    function Extract: T; inline;
+    function Peek: T; inline;
+  end;
+
+{ TQueue<T>
+  System.Generics.Collections equivalent }
+
+  TQueue<T> = class(TCustomList<T>)
+  protected
+    procedure InternalEnqueue(const Value: T);
+    function InternalDequeue(const Action: TCollectionNotification): T;
+  public
+    constructor Create; overload;
+    constructor Create(const Collection: TEnumerable<T>); overload;
+
+    procedure Enqueue(const Value: T); inline;
+    function Dequeue: T; inline;
+    function Extract: T; inline;
+    function Peek: T; inline;
+  end;
+
+
 
   TThreadList<T> = class
   private
@@ -1132,136 +944,6 @@ type
     procedure RemoveItem(const Item: T; Direction: TDirection);
     procedure UnlockList; inline;
     property Duplicates: TDuplicates read FDuplicates write FDuplicates;
-  end;
-
-  TQueueHelper = record
-  private
-    FHead, FTail: Integer;
-    FLH: TListHelper;
-    procedure DynArraySetLength(Value: NativeInt); inline;
-    function GetFItems: PPointer; inline;
-    function GetElType: Pointer; inline;
-    function GetElSize: Integer; inline;
-    function GetNewCap: Integer; inline;
-    procedure CheckEmpty; inline;
-    procedure DequeueAdjust(Notification: TCollectionNotification; const Item); inline;
-    procedure InternalDequeueString(Notification: TCollectionNotification; Peek: Boolean; out Item);
-    procedure InternalDequeueInterface(Notification: TCollectionNotification; Peek: Boolean; out Item);
-{$IF not Defined(NEXTGEN)}
-    procedure InternalDequeueAnsiString(Notification: TCollectionNotification; Peek: Boolean; out Item);
-    procedure InternalDequeueWideString(Notification: TCollectionNotification; Peek: Boolean; out Item);
-{$IFEND}
-{$IF Defined(AUTOREFCOUNT)}
-    procedure InternalDequeueObject(Notification: TCollectionNotification; Peek: Boolean; out Item);
-{$IFEND}
-    procedure InternalDequeue1(Notification: TCollectionNotification; Peek: Boolean; out Item);
-    procedure InternalDequeue2(Notification: TCollectionNotification; Peek: Boolean; out Item);
-    procedure InternalDequeue4(Notification: TCollectionNotification; Peek: Boolean; out Item);
-    procedure InternalDequeue8(Notification: TCollectionNotification; Peek: Boolean; out Item);
-    procedure InternalDequeueN(Notification: TCollectionNotification; Peek: Boolean; out Item);
-    procedure InternalDequeueMRef(Notification: TCollectionNotification; Peek: Boolean; out Item; Kind: TTypeKind); inline;
-    procedure InternalDequeueManaged(Notification: TCollectionNotification; Peek: Boolean; out Item);
-    procedure InternalClearString;
-    procedure InternalClearInterface;
-{$IF not Defined(NEXTGEN)}
-    procedure InternalClearAnsiString;
-    procedure InternalClearWideString;
-{$IFEND}
-{$IF Defined(AUTOREFCOUNT)}
-    procedure InternalClearObject;
-{$IFEND}
-    procedure InternalClear1;
-    procedure InternalClear2;
-    procedure InternalClear4;
-    procedure InternalClear8;
-    procedure InternalClearN;
-    procedure InternalClearMRef(Kind: TTypeKind); inline;
-    procedure InternalClearManaged;
-    procedure EnqueueAdjust(const Value); inline;
-    procedure InternalEnqueueString(const Value);
-    procedure InternalEnqueueInterface(const Value);
-{$IF not Defined(NEXTGEN)}
-    procedure InternalEnqueueAnsiString(const Value);
-    procedure InternalEnqueueWideString(const Value);
-{$IFEND}
-{$IF Defined(AUTOREFCOUNT)}
-    procedure InternalEnqueueObject(const Value);
-{$IFEND}
-    procedure InternalEnqueue1(const Value);
-    procedure InternalEnqueue2(const Value);
-    procedure InternalEnqueue4(const Value);
-    procedure InternalEnqueue8(const Value);
-    procedure InternalEnqueueN(const Value);
-    procedure InternalEnqueueMRef(const Value; Kind: TTypeKind); inline;
-    procedure InternalEnqueueManaged(const Value);
-    procedure InternalGrow1;
-    procedure InternalGrow2;
-    procedure InternalGrow4;
-    procedure InternalGrow8;
-    procedure InternalGrowN;
-    procedure InternalGrowMRef;
-    procedure InternalGrowManaged;
-    procedure InternalSetCapacityInline(Value: Integer; ElemSize: Integer); inline;
-    procedure InternalSetCapacity1(Value: Integer);
-    procedure InternalSetCapacity2(Value: Integer);
-    procedure InternalSetCapacity4(Value: Integer);
-    procedure InternalSetCapacity8(Value: Integer);
-    procedure InternalSetCapacityN(Value: Integer);
-    procedure InternalSetCapacityMRef(Value: Integer);
-    procedure InternalSetCapacityManaged(Value: Integer);
-    property FItems: PPointer read GetFItems;
-    property ElType: Pointer read GetElType;
-    property ElSize: Integer read GetElSize;
-  end;
-
-  // Queue implemented over array, using wrapping.
-  TQueue<T> = class(TEnumerable<T>)
-  private type
-    arrayOfT = array of T;
-  private
-    FQueueHelper: TQueueHelper; // FQueueHelper must always be followed by FItems
-    FItems: arrayOfT; // FItems must always be preceded by FListHelper
-    FOnNotify: TCollectionNotifyEvent<T>;
-    procedure SetCapacity(Value: Integer); inline;
-    function DoDequeue(Notification: TCollectionNotification): T; inline;
-    procedure DoSetCapacity(Value: Integer); inline;
-    function GetCapacity: Integer; inline;
-    procedure InternalNotify(const Item; Action: TCollectionNotification);
-    function InternalCompare(const Left, Right): Integer;
-  protected
-    function DoGetEnumerator: TEnumerator<T>; override;
-    procedure Notify(const Item: T; Action: TCollectionNotification); virtual;
-  public
-    constructor Create; overload;
-    constructor Create(const Collection: TEnumerable<T>); overload;
-    destructor Destroy; override;
-    procedure Enqueue(const Value: T); inline;
-    function Dequeue: T; inline;
-    function Extract: T; inline;
-    function Peek: T; inline;
-    procedure Clear; inline;
-    procedure TrimExcess; inline;
-    property Count: Integer read FQueueHelper.FLH.FCount;
-    property Capacity: Integer read GetCapacity write DoSetCapacity;
-    property OnNotify: TCollectionNotifyEvent<T> read FOnNotify write FOnNotify;
-    function ToArray: TArray<T>; override; final;
-
-    type
-      TEnumerator = class(TEnumerator<T>)
-      private
-        FQueue: TQueue<T>;
-        FIndex: Integer;
-        function GetCurrent: T;
-      protected
-        function DoGetCurrent: T; override;
-        function DoMoveNext: Boolean; override;
-      public
-        constructor Create(const AQueue: TQueue<T>);
-        property Current: T read GetCurrent;
-        function MoveNext: Boolean;
-      end;
-
-    function GetEnumerator: TEnumerator; reintroduce;
   end;
 
   TThreadedQueue<T> = class
@@ -1293,168 +975,92 @@ type
     property TotalItemsPopped: LongWord read FTotalItemsPopped;
   end;
 
-  TStackHelper = record
-  private
-    FLH: TListHelper;
-    function GetFItems: PPointer; inline;
-    function GetElType: Pointer; inline;
-    function GetElSize: Integer; inline;
-    procedure CheckEmpty; inline;
-    procedure CheckGrow; inline;
-    procedure InternalGrow;
-    procedure InternalSetCapacity(Value: Integer);
-    procedure PopAdjust(const Value; Notification: TCollectionNotification); inline;
-    procedure InternalDoPopString(Notification: TCollectionNotification; Peek: Boolean; out Item);
-    procedure InternalDoPopInterface(Notification: TCollectionNotification; Peek: Boolean; out Item);
-{$IF not Defined(NEXTGEN)}
-    procedure InternalDoPopAnsiString(Notification: TCollectionNotification; Peek: Boolean; out Item);
-    procedure InternalDoPopWideString(Notification: TCollectionNotification; Peek: Boolean; out Item);
-{$IFEND}
-{$IF Defined(AUTOREFCOUNT)}
-    procedure InternalDoPopObject(Notification: TCollectionNotification; Peek: Boolean; out Item);
-{$IFEND}
-    procedure InternalDoPop1(Notification: TCollectionNotification; Peek: Boolean; out Item);
-    procedure InternalDoPop2(Notification: TCollectionNotification; Peek: Boolean; out Item);
-    procedure InternalDoPop4(Notification: TCollectionNotification; Peek: Boolean; out Item);
-    procedure InternalDoPop8(Notification: TCollectionNotification; Peek: Boolean; out Item);
-    procedure InternalDoPopN(Notification: TCollectionNotification; Peek: Boolean; out Item);
-    procedure InternalDoPopMRef(Notification: TCollectionNotification; Peek: Boolean; out Item; Kind: TTypeKind); inline;
-    procedure InternalDoPopManaged(Notification: TCollectionNotification; Peek: Boolean; out Item);
-    procedure InternalClearString;
-    procedure InternalClearInterface;
-{$IF not Defined(NEXTGEN)}
-    procedure InternalClearAnsiString;
-    procedure InternalClearWideString;
-{$IFEND}
-{$IF Defined(AUTOREFCOUNT)}
-    procedure InternalClearObject;
-{$IFEND}
-    procedure InternalClear1;
-    procedure InternalClear2;
-    procedure InternalClear4;
-    procedure InternalClear8;
-    procedure InternalClearN;
-    procedure InternalClearMRef(Kind: TTypeKind); inline;
-    procedure InternalClearManaged;
-    procedure PushAdjust(const Value); inline;
-    procedure InternalPushString(const Value);
-    procedure InternalPushInterface(const Value);
-{$IF not Defined(NEXTGEN)}
-    procedure InternalPushAnsiString(const Value);
-    procedure InternalPushWideString(const Value);
-{$IFEND}
-{$IF Defined(AUTOREFCOUNT)}
-    procedure InternalPushObject(const Value);
-{$IFEND}
-    procedure InternalPush1(const Value);
-    procedure InternalPush2(const Value);
-    procedure InternalPush4(const Value);
-    procedure InternalPush8(const Value);
-    procedure InternalPushN(const Value);
-    procedure InternalPushMRef(const Value; Kind: TTypeKind); inline;
-    procedure InternalPushManaged(const Value);
-    property FItems: PPointer read GetFItems;
-    property ElType: Pointer read GetElType;
-    property ElSize: Integer read GetElSize;
-  end;
-
-  TStack<T> = class(TEnumerable<T>)
-  private type
-    arrayOfT = array of T;
-  private
-    FStackHelper: TStackHelper;
-    FItems: arrayOfT;
-    FOnNotify: TCollectionNotifyEvent<T>;
-    function DoPop(Notification: TCollectionNotification): T; inline;
-    procedure DoSetCapacity(Value: Integer); inline;
-    function GetCapacity: Integer; inline;
-    procedure InternalNotify(const Item; Action: TCollectionNotification);
-  protected
-    function DoGetEnumerator: TEnumerator<T>; override;
-    procedure Notify(const Item: T; Action: TCollectionNotification); virtual;
-  public
-    constructor Create; overload;
-    constructor Create(const Collection: TEnumerable<T>); overload;
-    destructor Destroy; override;
-    procedure Clear; inline;
-    procedure Push(const Value: T); inline;
-    function Pop: T; inline;
-    function Peek: T; inline;
-    function Extract: T; inline;
-    procedure TrimExcess; inline;
-    function ToArray: TArray<T>; override; final;
-    property Count: Integer read FStackHelper.FLH.FCount;
-    property Capacity: Integer read GetCapacity write DoSetCapacity;
-    property OnNotify: TCollectionNotifyEvent<T> read FOnNotify write FOnNotify;
-
-    type
-      TEnumerator = class(TEnumerator<T>)
-      private
-        FStack: TStack<T>;
-        FIndex: Integer;
-        function GetCurrent: T;
-      protected
-        function DoGetCurrent: T; override;
-        function DoMoveNext: Boolean; override;
-      public
-        constructor Create(const AStack: TStack<T>);
-        property Current: T read GetCurrent;
-        function MoveNext: Boolean;
-      end;
-
-    function GetEnumerator: TEnumerator; reintroduce;
-  end;
-
   TObjectList<T: class> = class(TList<T>)
-  private
-    FOwnsObjects: Boolean;
   protected
-    procedure Notify(const Value: T; Action: TCollectionNotification); override;
+    FOwnsObjects: Boolean;
+    procedure SetOwnsObjects(const Value: Boolean);
+    procedure DisposeNotifyEvent(Sender: TObject; const Item: TObject; Action: TCollectionNotification);
+    procedure DisposeOnly(Sender: TObject; const Item: TObject; Action: TCollectionNotification);
+    procedure SetNotifyMethods; override;
   public
     constructor Create(AOwnsObjects: Boolean = True); overload;
     constructor Create(const AComparer: IComparer<T>; AOwnsObjects: Boolean = True); overload;
     constructor Create(const Collection: TEnumerable<T>; AOwnsObjects: Boolean = True); overload;
-    property OwnsObjects: Boolean read FOwnsObjects write FOwnsObjects;
-  end;
-
-  TObjectQueue<T: class> = class(TQueue<T>)
-  private
-    FOwnsObjects: Boolean;
-  protected
-    procedure Notify(const Value: T; Action: TCollectionNotification); override;
-  public
-    constructor Create(AOwnsObjects: Boolean = True); overload;
-    constructor Create(const Collection: TEnumerable<T>; AOwnsObjects: Boolean = True); overload;
-    procedure Dequeue;
-    property OwnsObjects: Boolean read FOwnsObjects write FOwnsObjects;
+    property OwnsObjects: Boolean read FOwnsObjects write SetOwnsObjects;
   end;
 
   TObjectStack<T: class> = class(TStack<T>)
-  private
-    FOwnsObjects: Boolean;
   protected
-    procedure Notify(const Value: T; Action: TCollectionNotification); override;
+    FOwnsObjects: Boolean;
+    procedure SetOwnsObjects(const Value: Boolean);
+    procedure DisposeNotifyEvent(Sender: TObject; const Item: TObject; Action: TCollectionNotification);
+    procedure DisposeOnly(Sender: TObject; const Item: TObject; Action: TCollectionNotification);
+    procedure SetNotifyMethods; override;
   public
     constructor Create(AOwnsObjects: Boolean = True); overload;
     constructor Create(const Collection: TEnumerable<T>; AOwnsObjects: Boolean = True); overload;
     procedure Pop;
-    property OwnsObjects: Boolean read FOwnsObjects write FOwnsObjects;
+    property OwnsObjects: Boolean read FOwnsObjects write SetOwnsObjects;
+  end;
+
+  TObjectQueue<T: class> = class(TQueue<T>)
+  protected
+    FOwnsObjects: Boolean;
+    procedure SetOwnsObjects(const Value: Boolean);
+    procedure DisposeNotifyEvent(Sender: TObject; const Item: TObject; Action: TCollectionNotification);
+    procedure DisposeOnly(Sender: TObject; const Item: TObject; Action: TCollectionNotification);
+    procedure SetNotifyMethods; override;
+  public
+    constructor Create(AOwnsObjects: Boolean = True); overload;
+    constructor Create(const Collection: TEnumerable<T>; AOwnsObjects: Boolean = True); overload;
+    procedure Dequeue;
+    property OwnsObjects: Boolean read FOwnsObjects write SetOwnsObjects;
   end;
 
   TDictionaryOwnerships = set of (doOwnsKeys, doOwnsValues);
 
   TObjectDictionary<TKey,TValue> = class(TDictionary<TKey,TValue>)
-  private
-    FOwnerships: TDictionaryOwnerships;
+  public type
+    TItem = TCustomDictionary<TKey,TValue>.TItem;
   protected
-    procedure KeyNotify(const Key: TKey; Action: TCollectionNotification); override;
-    procedure ValueNotify(const Value: TValue; Action: TCollectionNotification); override;
+    FOwnerships: TDictionaryOwnerships;
+    procedure DisposeKeyEvent(Sender: TObject; const Key: TObject; Action: TCollectionNotification);
+    procedure DisposeKeyOnly(Sender: TObject; const Key: TObject; Action: TCollectionNotification);
+    procedure DisposeValueEvent(Sender: TObject; const Value: TObject; Action: TCollectionNotification);
+    procedure DisposeValueOnly(Sender: TObject; const Value: TObject; Action: TCollectionNotification);
+    procedure DisposeItemNotifyKeyCaller(const Item: TItem; Action: TCollectionNotification);
+    procedure DisposeItemNotifyKeyEvent(const Item: TItem; Action: TCollectionNotification);
+    procedure DisposeItemNotifyKeyOnly(const Item: TItem; Action: TCollectionNotification);
+    procedure DisposeItemNotifyValueCaller(const Item: TItem; Action: TCollectionNotification);
+    procedure DisposeItemNotifyValueEvent(const Item: TItem; Action: TCollectionNotification);
+    procedure DisposeItemNotifyValueOnly(const Item: TItem; Action: TCollectionNotification);
+    procedure SetNotifyMethods; override;
   public
     constructor Create(Ownerships: TDictionaryOwnerships; ACapacity: Integer = 0); overload;
     constructor Create(Ownerships: TDictionaryOwnerships;
       const AComparer: IEqualityComparer<TKey>); overload;
     constructor Create(Ownerships: TDictionaryOwnerships; ACapacity: Integer;
       const AComparer: IEqualityComparer<TKey>); overload;
+  end;
+
+  TRapidObjectDictionary<TKey,TValue> = class(TRapidDictionary<TKey,TValue>)
+  public type
+    TItem = TCustomDictionary<TKey,TValue>.TItem;
+  protected
+    FOwnerships: TDictionaryOwnerships;
+    procedure DisposeKeyEvent(Sender: TObject; const Key: TObject; Action: TCollectionNotification);
+    procedure DisposeKeyOnly(Sender: TObject; const Key: TObject; Action: TCollectionNotification);
+    procedure DisposeValueEvent(Sender: TObject; const Value: TObject; Action: TCollectionNotification);
+    procedure DisposeValueOnly(Sender: TObject; const Value: TObject; Action: TCollectionNotification);
+    procedure DisposeItemNotifyKeyCaller(const Item: TItem; Action: TCollectionNotification);
+    procedure DisposeItemNotifyKeyEvent(const Item: TItem; Action: TCollectionNotification);
+    procedure DisposeItemNotifyKeyOnly(const Item: TItem; Action: TCollectionNotification);
+    procedure DisposeItemNotifyValueCaller(const Item: TItem; Action: TCollectionNotification);
+    procedure DisposeItemNotifyValueEvent(const Item: TItem; Action: TCollectionNotification);
+    procedure DisposeItemNotifyValueOnly(const Item: TItem; Action: TCollectionNotification);
+    procedure SetNotifyMethods; override;
+  public
+    constructor Create(Ownerships: TDictionaryOwnerships; ACapacity: Integer = 0);
   end;
 
 
@@ -2331,24 +1937,210 @@ begin
   FOptions.TypeInfo := TypeInfo(T);
 end;
 
-class procedure TRAIIHelper<T>.Init(Value: P);
+class function TRAIIHelper<T>.GetIsManaged: Boolean;
+begin
+  {$ifdef SMARTGENERICS}
+  Result := System.IsManagedType(T) or System.HasWeakRef(T);
+  {$else}
+  Result := Assigned(FOptions.ClearProc);
+  {$endif}
+end;
+
+class procedure TRAIIHelper<T>.Init(Item: P);
 begin
   {$ifdef SMARTGENERICS}
   if (System.IsManagedType(T) or System.HasWeakRef(T)) then
   {$else}
   if (Assigned(FOptions.InitProc)) then
   {$endif}
-    FOptions.InitProc(FOptions, Value);
+    FOptions.InitProc(FOptions, Item);
 end;
 
-class procedure TRAIIHelper<T>.Clear(Value: P);
+class procedure TRAIIHelper<T>.InitArray(Items: P; Count: NativeUInt; Offset: NativeUInt);
+type
+  T16 = packed record
+  case Integer of
+    0: (Bytes: array[0..15] of Byte);
+    1: (Words: array[0..7] of Word);
+    2: (Integers: array[0..3] of Integer);
+    3: (Int64s: array[0..1] of Int64);
+  end;
+  P16 = ^T16;
+var
+  i: NativeUInt;
+  Item: P16;
+  Null: NativeInt;
+begin
+  {$ifdef SMARTGENERICS}
+  if (System.IsManagedType(T) or System.HasWeakRef(T)) then
+  {$else}
+  if (Assigned(FOptions.InitProc)) then
+  {$endif}
+  begin
+    if (Offset = 0) then Offset := SizeOf(T);
+    Item := Pointer(Items);
+    Null := 0;
+
+    {$ifdef SMARTGENERICS}
+    if (GetTypeKind(T) = tkVariant) then
+    begin
+      for i := 1 to Count do
+      begin
+        Item.Integers[0] := Null;
+        Inc(NativeUInt(Item), Offset);
+      end;
+    end else
+    {$endif}
+    if (SizeOf(T) <= 16) then
+    begin
+      if (SizeOf(T) = Offset) then
+      begin
+        FillChar(Item^, Count * SizeOf(T), #0);
+      end else
+      for i := 1 to Count do
+      begin
+        {$ifdef SMALLINT}
+          if (SizeOf(T) >= SizeOf(Integer) * 1) then Item.Integers[0] := Null;
+          if (SizeOf(T) >= SizeOf(Integer) * 2) then Item.Integers[1] := Null;
+          if (SizeOf(T) >= SizeOf(Integer) * 3) then Item.Integers[2] := Null;
+          if (SizeOf(T)  = SizeOf(Integer) * 4) then Item.Integers[3] := Null;
+        {$else .LARGEINT}
+          if (SizeOf(T) >= SizeOf(Int64) * 1) then Item.Int64s[0] := Null;
+          if (SizeOf(T)  = SizeOf(Int64) * 2) then Item.Int64s[1] := Null;
+          case SizeOf(T) of
+             4..7: Item.Integers[0] := Null;
+           12..15: Item.Integers[2] := Null;
+          end;
+        {$endif}
+        case SizeOf(T) of
+           2,3: Item.Words[0] := 0;
+           6,7: Item.Words[2] := 0;
+         10,11: Item.Words[4] := 0;
+         14,15: Item.Words[6] := 0;
+        end;
+        case SizeOf(T) of
+           1: Item.Bytes[ 1-1] := 0;
+           3: Item.Bytes[ 3-1] := 0;
+           5: Item.Bytes[ 5-1] := 0;
+           7: Item.Bytes[ 7-1] := 0;
+           9: Item.Bytes[ 9-1] := 0;
+          11: Item.Bytes[11-1] := 0;
+          13: Item.Bytes[13-1] := 0;
+          15: Item.Bytes[15-1] := 0;
+        end;
+
+        Inc(NativeUInt(Item), Offset);
+      end;
+    end else
+    for i := 1 to Count do
+    begin
+      FOptions.InitProc(FOptions, Item);
+      Inc(NativeUInt(Item), Offset);
+    end;
+  end;
+end;
+
+class procedure TRAIIHelper<T>.Clear(Item: P);
 begin
   {$ifdef SMARTGENERICS}
   if (System.IsManagedType(T) or System.HasWeakRef(T)) then
   {$else}
   if (Assigned(FOptions.ClearProc)) then
   {$endif}
-    FOptions.ClearProc(FOptions, Value);
+    FOptions.ClearProc(FOptions, Item);
+end;
+
+class procedure TRAIIHelper<T>.ClearArray(Items: P; Count: NativeUInt; Offset: NativeUInt);
+type
+  TRec = packed record
+  case Integer of
+    0: (Native: NativeInt);
+    1: (Method: TMethod);
+    2: (VarData: TVarData);
+  end;
+  PRec = ^TRec;
+var
+  i: NativeUInt;
+  Item: PRec;
+  {$ifdef SMARTGENERICS}
+  VType: Integer;
+  {$endif}
+begin
+  {$ifdef SMARTGENERICS}
+  if (System.IsManagedType(T) or System.HasWeakRef(T)) then
+  {$else}
+  if (Assigned(FOptions.ClearProc)) then
+  {$endif}
+  begin
+    if (Offset = 0) then Offset := SizeOf(T);
+    Item := Pointer(Items);
+
+    for i := 1 to Count do
+    begin
+      {$ifdef SMARTGENERICS}
+      case GetTypeKind(T) of
+        {$ifdef AUTOREFCOUNT}
+        tkClass,
+        {$endif}
+        tkWString, tkLString, tkUString, tkInterface, tkDynArray:
+        begin
+          if (Item.Native <> 0) then
+          case GetTypeKind(T) of
+            {$ifdef AUTOREFCOUNT}
+            tkClass:
+            begin
+              TRAIIHelper.RefObjClear(@Item.Native);
+            end;
+            {$endif}
+            {$ifdef MSWINDOWS}
+            tkWString:
+            begin
+              TRAIIHelper.WStrClear(@Item.Native);
+            end;
+            {$else}
+            tkWString,
+            {$endif}
+            tkLString, tkUString:
+            begin
+              TRAIIHelper.ULStrClear(@Item.Native);
+            end;
+            tkInterface:
+            begin
+              IInterface(Item.Native)._Release;
+            end;
+            tkDynArray:
+            begin
+              TRAIIHelper.DynArrayClear(@Item.Native, TypeInfo(T));
+            end;
+          end;
+        end;
+        {$ifdef WEAKREF}
+        tkMethod:
+        begin
+          if (Item.Method.Data <> nil) then
+            TRAIIHelper.WeakMethodClear(@Item.Method.Data);
+        end;
+        {$endif}
+        tkVariant:
+        begin
+          VType := Item.VarData.VType;
+          if (VType and TRAIIHelper.varDeepData <> 0) then
+          case VType of
+            varBoolean, varUnknown+1..varUInt64: ;
+          else
+            System.VarClear(Variant(Item.VarData));
+          end;
+        end;
+      else
+        FOptions.ClearProc(FOptions, Item);
+      end;
+      {$else}
+      FOptions.ClearProc(FOptions, Item);
+      {$endif}
+
+      Inc(NativeUInt(Item), Offset);
+    end;
+  end;
 end;
 
 
@@ -3004,7 +2796,7 @@ begin
     end else
     if (not Equal) then
     begin
-      Result := Ord(Left^ > Right^);
+      Result := 2 * Ord(Left^ > Right^) - 1;
     end else
     begin
       Result := 1;
@@ -3349,6 +3141,7 @@ begin
     end;
     varUInt64:
     begin
+      V64 := Value.VUInt64;
     write_uint64:
       S := @Buffer[High(Buffer)];
       V32 := V64;
@@ -5466,9 +5259,10 @@ var
   Count, Buffered: NativeUInt;
   Value: T;
 begin
-  Result := nil;
   Count := 0;
   Buffered := 16;
+  Result := nil;
+  SetLength(Result, Buffered);
 
   for Value in Self do
   begin
@@ -5483,20 +5277,6 @@ begin
   end;
 
   SetLength(Result, Count);
-end;
-
-function TEnumerable<T>.ToArrayImpl(Count: Integer): TArray<T>;
-var
-  Value: T;
-begin
-  // We assume our caller has passed correct Count
-  SetLength(Result, Count);
-  Count := 0;
-  for Value in Self do
-  begin
-    Result[Count] := Value;
-    Inc(Count);
-  end;
 end;
 
 { TPair<TKey,TValue> }
@@ -5530,18 +5310,20 @@ function TCustomDictionary<TKey,TValue>.TPairEnumerator.GetCurrent: TPair<TKey,T
 var
   Item: PItem;
 begin
-  Item := @FDictionary.FList[FIndex];
+  Item := @FDictionary.FItems[FIndex];
   Result.Key := Item.Key;
   Result.Value := Item.Value;
 end;
 
 function TCustomDictionary<TKey,TValue>.TPairEnumerator.MoveNext: Boolean;
 var
-  N: NativeInt;
+  N, R: NativeInt;
 begin
   N := FIndex + 1;
+  R := Byte(N < FDictionary.FCount.Native);
+  Dec(N, R);
   FIndex := N;
-  Result := (N < FDictionary.FCount.Native);
+  Result := Boolean(R);
 end;
 
 { TCustomDictionary<TKey,TValue>.TKeyEnumerator }
@@ -5565,7 +5347,7 @@ end;
 
 function TCustomDictionary<TKey,TValue>.TKeyEnumerator.GetCurrent: TKey;
 begin
-  Result := FDictionary.FList[FIndex].Key;
+  Result := FDictionary.FItems[FIndex].Key;
 end;
 
 function TCustomDictionary<TKey,TValue>.TKeyEnumerator.MoveNext: Boolean;
@@ -5599,7 +5381,7 @@ end;
 
 function TCustomDictionary<TKey,TValue>.TValueEnumerator.GetCurrent: TValue;
 begin
-  Result := FDictionary.FList[FIndex].Value;
+  Result := FDictionary.FItems[FIndex].Value;
 end;
 
 function TCustomDictionary<TKey,TValue>.TValueEnumerator.MoveNext: Boolean;
@@ -5644,7 +5426,7 @@ begin
   Count := Self.FDictionary.FCount.Native;
 
   SetLength(Result, Count);
-  Src := Pointer(FDictionary.FList);
+  Src := Pointer(FDictionary.FItems);
   Dest := Pointer(Result);
   for i := 0 to Count - 1 do
   begin
@@ -5686,7 +5468,7 @@ begin
   Count := Self.FDictionary.FCount.Native;
 
   SetLength(Result, Count);
-  Src := Pointer(FDictionary.FList);
+  Src := Pointer(FDictionary.FItems);
   Dest := Pointer(Result);
   for i := 0 to Count - 1 do
   begin
@@ -5731,7 +5513,7 @@ begin
   Count := Self.FCount.Native;
 
   SetLength(Result, Count);
-  Src := Pointer(FList);
+  Src := Pointer(FItems);
   Dest := Pointer(Result);
   for i := 0 to Count - 1 do
   begin
@@ -5748,6 +5530,7 @@ begin
   inherited Create;
   FDefaultValue := Default(TValue);
   FHashTableMask := -1;
+  SetNotifyMethods;
 
   if (ACapacity > 3) then
   begin
@@ -5773,7 +5556,7 @@ procedure TCustomDictionary<TKey,TValue>.Rehash(NewTableCount{power of 2}: Nativ
 type
   THashList = array[0..0] of Pointer{PItem};
 var
-  NewListCount: NativeInt;
+  NewCapacity: NativeInt;
   NewHashTable: TArray<PItem>;
 
   i, HashTableMask, Index: NativeInt;
@@ -5781,30 +5564,30 @@ var
   HashList: ^THashList;
 begin
   // grow threshold
-  NewListCount := NewTableCount shr 1 + NewTableCount shr 2; // 75%
-  if (NewListCount < Self.FCount.Native) then
+  NewCapacity := NewTableCount shr 1 + NewTableCount shr 2; // 75%
+  if (NewCapacity < Self.FCount.Native) then
     raise EArgumentOutOfRangeException.CreateRes(Pointer(@SArgumentOutOfRange));
 
   // reallocations
   if (NewTableCount < FHashTableMask + 1{Length(FHashTable)}) then
   begin
-    ReallocMem(FList, NewListCount * SizeOf(TItem));
+    ReallocMem(FItems, NewCapacity * SizeOf(TItem));
     SetLength(FHashTable, NewTableCount);
     NewHashTable := FHashTable;
   end else
   begin
     SetLength(NewHashTable, NewTableCount);
-    ReallocMem(FList, NewListCount * SizeOf(TItem));
+    ReallocMem(FItems, NewCapacity * SizeOf(TItem));
   end;
 
   // apply new
   FillChar(Pointer(NewHashTable)^, NewTableCount * SizeOf(Pointer), #0);
   FHashTable := NewHashTable;
-  FListCount := NewListCount;
+  FCapacity := NewCapacity;
   FHashTableMask := NewTableCount - 1;
 
   // regroup items
-  Item := Pointer(FList);
+  Item := Pointer(FItems);
   HashList := Pointer(FHashTable);
   HashTableMask := FHashTableMask;
   for i := 1 to Self.FCount.Native do
@@ -5853,7 +5636,7 @@ procedure TCustomDictionary<TKey, TValue>.Clear;
 begin
   if (FCount.Native <> 0) then
   begin
-    Self.DoCleanupItems(Pointer(FList), FCount.Native);
+    Self.DoCleanupItems(Pointer(FItems), FCount.Native);
   end;
 
   FCount.Native := 0;
@@ -5899,7 +5682,7 @@ begin
   begin
     if Assigned(FInternalValueNotify) then
     begin
-      if (TMethod(FInternalItemNotify).Code = @TDictionary<TKey,TValue>.ItemNotifyCaller) then
+      if (TMethod(FInternalItemNotify).Code = @TCustomDictionary<TKey,TValue>.ItemNotifyCaller) then
       begin
         for i := 1 to Count do
         begin
@@ -5919,7 +5702,7 @@ begin
     end else
     begin
       // Key
-      if (TMethod(FInternalKeyNotify).Code = @TDictionary<TKey,TKey>.KeyNotifyCaller) then
+      if (TMethod(FInternalKeyNotify).Code = @TCustomDictionary<TKey,TKey>.KeyNotifyCaller) then
       begin
         for i := 1 to Count do
         begin
@@ -6100,71 +5883,7 @@ begin
     end else
     begin
       // Keys only
-      for i := 1 to Count do
-      begin
-        {$ifdef SMARTGENERICS}
-        case GetTypeKind(TKey) of
-          {$ifdef AUTOREFCOUNT}
-          tkClass,
-          {$endif}
-          tkWString, tkLString, tkUString, tkInterface, tkDynArray:
-          begin
-            if (PKeyRec(Item).Native <> 0) then
-            case GetTypeKind(TKey) of
-              {$ifdef AUTOREFCOUNT}
-              tkClass:
-              begin
-                TRAIIHelper.RefObjClear(@PKeyRec(Item).Native);
-              end;
-              {$endif}
-              {$ifdef MSWINDOWS}
-              tkWString:
-              begin
-                TRAIIHelper.WStrClear(@PKeyRec(Item).Native);
-              end;
-              {$else}
-              tkWString,
-              {$endif}
-              tkLString, tkUString:
-              begin
-                TRAIIHelper.ULStrClear(@PKeyRec(Item).Native);
-              end;
-              tkInterface:
-              begin
-                IInterface(PKeyRec(Item).Native)._Release;
-              end;
-              tkDynArray:
-              begin
-                TRAIIHelper.DynArrayClear(@PKeyRec(Item).Native, TypeInfo(TKey));
-              end;
-            end;
-          end;
-          {$ifdef WEAKREF}
-          tkMethod:
-          begin
-            if (PKeyRec(Item).Method.Data <> nil) then
-              TRAIIHelper.WeakMethodClear(@PKeyRec(Item).Method.Data);
-          end;
-          {$endif}
-          tkVariant:
-          begin
-            VType := PKeyRec(Item).VarData.VType;
-            if (VType and TRAIIHelper.varDeepData <> 0) then
-            case VType of
-              varBoolean, varUnknown+1..varUInt64: ;
-            else
-              System.VarClear(Variant(PKeyRec(Item).VarData));
-            end;
-          end;
-        else
-          TRAIIHelper<TKey>.FOptions.ClearProc(TRAIIHelper<TKey>.FOptions, @Item.FKey);
-        end;
-        {$else}
-        TRAIIHelper<TKey>.FOptions.ClearProc(TRAIIHelper<TKey>.FOptions, @Item.FKey);
-        {$endif}
-
-        Inc(Item);
-      end;
+      TRAIIHelper<TKey>.ClearArray(@Item.Key, Count, SizeOf(TItem));
     end;
   end else
   {$ifdef SMARTGENERICS}
@@ -6173,72 +5892,8 @@ begin
   if Assigned(TRAIIHelper<TValue>.FOptions.ClearProc) then
   {$endif}
   begin
-   // Values only
-    for i := 1 to Count do
-    begin
-       {$ifdef SMARTGENERICS}
-      case GetTypeKind(TValue) of
-        {$ifdef AUTOREFCOUNT}
-        tkClass,
-        {$endif}
-        tkWString, tkLString, tkUString, tkInterface, tkDynArray:
-        begin
-          if (PValueRec(Item).Native <> 0) then
-          case GetTypeKind(TValue) of
-            {$ifdef AUTOREFCOUNT}
-            tkClass:
-            begin
-              TRAIIHelper.RefObjClear(@PValueRec(Item).Native);
-            end;
-            {$endif}
-            {$ifdef MSWINDOWS}
-            tkWString:
-            begin
-              TRAIIHelper.WStrClear(@PValueRec(Item).Native);
-            end;
-            {$else}
-            tkWString,
-            {$endif}
-            tkLString, tkUString:
-            begin
-              TRAIIHelper.ULStrClear(@PValueRec(Item).Native);
-            end;
-            tkInterface:
-            begin
-              IInterface(PValueRec(Item).Native)._Release;
-            end;
-            tkDynArray:
-            begin
-              TRAIIHelper.DynArrayClear(@PValueRec(Item).Native, TypeInfo(TValue));
-            end;
-          end;
-        end;
-        {$ifdef WEAKREF}
-        tkMethod:
-        begin
-          if (PValueRec(Item).Method.Data <> nil) then
-            TRAIIHelper.WeakMethodClear(@PValueRec(Item).Method.Data);
-        end;
-        {$endif}
-        tkVariant:
-        begin
-          VType := PValueRec(Item).VarData.VType;
-          if (VType and TRAIIHelper.varDeepData <> 0) then
-          case VType of
-            varBoolean, varUnknown+1..varUInt64: ;
-          else
-            System.VarClear(Variant(PValueRec(Item).VarData));
-          end;
-        end;
-      else
-        TRAIIHelper<TValue>.FOptions.ClearProc(TRAIIHelper<TValue>.FOptions, @Item.FValue);
-      end;
-      {$else}
-      TRAIIHelper<TValue>.FOptions.ClearProc(TRAIIHelper<TValue>.FOptions, @Item.FValue);
-      {$endif}
-
-      Inc(Item);
-    end;
+    // Values only
+    TRAIIHelper<TValue>.ClearArray(@Item.Value, Count, SizeOf(TItem));
   end;
 end;
 
@@ -6293,10 +5948,10 @@ begin
   Instance := Self;
 start:
   Count := Instance.FCount.Native;
-  if (Count <> Instance.FListCount) then
+  if (Count <> Instance.FCapacity) then
   begin
     Instance.FCount.Native := Count + 1;
-    Result := @Instance.FList[Count];
+    Result := @Instance.FItems[Count];
 
     {$ifdef SMARTGENERICS}
     if (System.IsManagedType(TKey) or System.HasWeakRef(TKey)) then
@@ -6554,7 +6209,7 @@ begin
   Count := Self.FCount.Native;
   Dec(Count);
   Self.FCount.Native := Count;
-  TopItem := @FList[Count];
+  TopItem := @FItems[Count];
   if (Item <> TopItem) then
   begin
     // change TopItem.Parent.Next --> Item
@@ -6645,7 +6300,7 @@ var
   ComparerEquals: function(const Left, Right: TValue): Boolean of object;
   {$endif}
 begin
-  Item := @Self.FList[0].FValue;
+  Item := @Self.FItems[0].FValue;
 
   {$ifdef SMARTGENERICS}
   begin
@@ -7060,20 +6715,20 @@ begin
   // FInternalKeyNotify, FInternalValueNotify
   VMTKeyNotify := Self.KeyNotify;
   VMTValueNotify := Self.ValueNotify;
-  if (TMethod(VMTKeyNotify).Code <> @TDictionary<TKey,TValue>.KeyNotify) then
+  if (TMethod(VMTKeyNotify).Code <> @TCustomDictionary<TKey,TValue>.KeyNotify) then
   begin
     // FInternalKeyNotify := Self.KeyNotifyCaller;
     TMethod(FInternalKeyNotify).Data := Pointer(Self);
-    TMethod(FInternalKeyNotify).Code := @TDictionary<TKey,TValue>.KeyNotifyCaller;
+    TMethod(FInternalKeyNotify).Code := @TCustomDictionary<TKey,TValue>.KeyNotifyCaller;
   end else
   begin
     TMethod(FInternalKeyNotify) := TMethod(Self.FOnKeyNotify);
   end;
-  if (TMethod(VMTValueNotify).Code <> @TDictionary<TKey,TValue>.ValueNotify) then
+  if (TMethod(VMTValueNotify).Code <> @TCustomDictionary<TKey,TValue>.ValueNotify) then
   begin
     // FInternalValueNotify := Self.ValueNotifyCaller;
     TMethod(FInternalValueNotify).Data := Pointer(Self);
-    TMethod(FInternalValueNotify).Code := @TDictionary<TKey,TValue>.ValueNotifyCaller;
+    TMethod(FInternalValueNotify).Code := @TCustomDictionary<TKey,TValue>.ValueNotifyCaller;
   end else
   begin
     TMethod(FInternalValueNotify) := TMethod(Self.FOnValueNotify);
@@ -7084,18 +6739,18 @@ begin
   begin
     // FInternalItemNotify := Self.ItemNotifyKey;
     TMethod(FInternalItemNotify).Data := Pointer(Self);
-    TMethod(FInternalItemNotify).Code := @TDictionary<TKey,TValue>.ItemNotifyKey;
+    TMethod(FInternalItemNotify).Code := @TCustomDictionary<TKey,TValue>.ItemNotifyKey;
 
     if Assigned(FInternalValueNotify) then
     begin
       // FInternalItemNotify := Self.ItemNotifyEvents;
-      TMethod(FInternalItemNotify).Code := @TDictionary<TKey,TValue>.ItemNotifyEvents;
+      TMethod(FInternalItemNotify).Code := @TCustomDictionary<TKey,TValue>.ItemNotifyEvents;
 
-      if (TMethod(VMTKeyNotify).Code <> @TDictionary<TKey,TValue>.KeyNotify) or
-        (TMethod(VMTValueNotify).Code <> @TDictionary<TKey,TValue>.ValueNotify) then
+      if (TMethod(VMTKeyNotify).Code <> @TCustomDictionary<TKey,TValue>.KeyNotify) or
+        (TMethod(VMTValueNotify).Code <> @TCustomDictionary<TKey,TValue>.ValueNotify) then
       begin
         // FInternalItemNotify := Self.ItemNotifyCaller;
-        TMethod(FInternalItemNotify).Code := @TDictionary<TKey,TValue>.ItemNotifyCaller;
+        TMethod(FInternalItemNotify).Code := @TCustomDictionary<TKey,TValue>.ItemNotifyCaller;
       end;
     end;
   end else
@@ -7103,7 +6758,7 @@ begin
   begin
     // FInternalItemNotify := Self.ItemNotifyValue;
     TMethod(FInternalItemNotify).Data := Pointer(Self);
-    TMethod(FInternalItemNotify).Code := @TDictionary<TKey,TValue>.ItemNotifyValue;
+    TMethod(FInternalItemNotify).Code := @TCustomDictionary<TKey,TValue>.ItemNotifyValue;
   end else
   begin
     // FInternalItemNotify := nil;
@@ -7396,10 +7051,9 @@ function TRapidDictionary<TKey,TValue>.InternalFindItem(const Key: TKey; const F
 label
   {$ifdef SMARTGENERICS}
   hash0, hash1, hash2, hash3, hash4, hash5, hash6, hash7, hash8, hash9, hash10,
-  hash_calculated,
   cmp0, cmp1, cmp2, cmp3, cmp4, cmp5, {$ifdef SMALLINT}cmp6, cmp7, cmp8, cmp9, cmp10,{$endif}
   {$endif}
-  next_item, not_found;
+  hash_calculated, next_item, not_found;
 type
   TSingleRec = packed record
     Exponent: Integer;
@@ -8280,14 +7934,20 @@ begin
   Copy<T>(Source, Destination, 0, 0, Count);
 end;
 
-class procedure TArray.QuickSort<T>(var Values: array of T; const Comparer: IComparer<T>;
+class procedure TArray.QuickSort<T>(var ValuesArray; const Comparer: IComparer<T>;
   L, R: Integer);
+type
+  TItemList = array[0..0] of T;
+  PItemList = ^TItemList;
 var
   I, J: Integer;
   pivot, temp: T;
+  Values: PItemList;
 begin
-  if (Length(Values) = 0) or ((R - L) <= 0) then
+  if (@ValuesArray = nil) or ((R - L) <= 0) then
     Exit;
+  Values := @ValuesArray;
+
   repeat
     I := L;
     J := R;
@@ -8310,19 +7970,21 @@ begin
       end;
     until I > J;
     if L < J then
-      QuickSort<T>(Values, Comparer, L, J);
+      QuickSort<T>(Values^, Comparer, L, J);
     L := I;
   until I >= R;
 end;
 
 class procedure TArray.Sort<T>(var Values: array of T);
 begin
-  QuickSort<T>(Values, TComparer<T>.Default, Low(Values), High(Values));
+  if (High(Values) > 0) then
+    QuickSort<T>(Values, TComparer<T>.Default, Low(Values), High(Values));
 end;
 
 class procedure TArray.Sort<T>(var Values: array of T; const Comparer: IComparer<T>);
 begin
-  QuickSort<T>(Values, Comparer, Low(Values), High(Values));
+  if (High(Values) > 0) then
+    QuickSort<T>(Values, Comparer, Low(Values), High(Values));
 end;
 
 class procedure TArray.Sort<T>(var Values: array of T; const Comparer: IComparer<T>;
@@ -8337,2975 +7999,349 @@ begin
   QuickSort<T>(Values, Comparer, Index, Index + Count - 1);
 end;
 
-{ TListHelper }
 
-type
-  TLocalDynArray = packed record
-  {$IFDEF CPUX64}
-    _Padding: Integer; // Make 16 byte align for payload..
-  {$ENDIF}
-    RefCnt: Integer;
-    Length: NativeInt;
-    Data: array[0..1023] of Byte;
-  end;
+{ TCustomList<T>.TEnumerator }
 
-procedure CopyArray(Dest, Source, TypeInfo: Pointer; ElemSize: Integer; Count: NativeInt);
+constructor TCustomList<T>.TEnumerator.Create(const AList: TCustomList<T>);
 begin
-  if Count > 0 then
-    if PByte(Dest) > PByte(Source) then
-    begin
-      Dest := PByte(Dest) + (Count - 1) * ElemSize;
-      Source := PByte(Source) + (Count - 1) * ElemSize;
-      while Count > 0 do
-      begin
-        System.CopyArray(Dest, Source, TypeInfo, 1);
-        Dec(PByte(Dest), ElemSize);
-        Dec(PByte(Source), ElemSize);
-        Dec(Count);
-      end;
-    end else
-      System.CopyArray(Dest, Source, TypeInfo, Count);
+  inherited Create;
+  FIndex := -1;
+  FList := AList;
 end;
 
-function TListHelper.GetElSize: Integer;
+function TCustomList<T>.TEnumerator.DoGetCurrent: T;
 begin
-  Result := PDynArrayTypeInfo(PByte(FTypeInfo) + PDynArrayTypeInfo(FTypeInfo).name).elSize;
+  Result := GetCurrent;
 end;
 
-function TListHelper.GetElType: Pointer;
+function TCustomList<T>.TEnumerator.DoMoveNext: Boolean;
 begin
-  Result := PDynArrayTypeInfo(PByte(FTypeInfo) + PDynArrayTypeInfo(FTypeInfo).name).elType^;
+  Result := MoveNext;
 end;
 
-function TListHelper.GetFItems: PPointer;
-begin
-  Result := PPointer(PByte(@Self) + SizeOf(Self));
-end;
-
-function TListHelper.CheckDeleteRange(AIndex, ACount: Integer): Boolean;
-begin
-  if (AIndex < 0) or (ACount < 0) or (AIndex + ACount > FCount) or (AIndex + ACount < 0) then
-    raise EArgumentOutOfRangeException.CreateRes(Pointer(@SArgumentOutOfRange));
-  Result := ACount > 0;
-end;
-
-procedure TListHelper.CheckItemRangeInline(AIndex: Integer);
-begin
-  if (AIndex < 0) or (AIndex >= FCount) then
-    raise EArgumentOutOfRangeException.CreateRes(Pointer(@SArgumentOutOfRange));
-end;
-
-procedure TListHelper.CheckInsertRange(AIndex: Integer);
-begin
-  if (AIndex < 0) or (AIndex > FCount) then
-    raise EArgumentOutOfRangeException.CreateRes(Pointer(@SArgumentOutOfRange));
-end;
-
-procedure TListHelper.CheckItemRange(AIndex: Integer);
-begin
-  CheckItemRangeInline(AIndex);
-end;
-
-procedure TListHelper.SetItem1(const Value; AIndex: Integer);
+function TCustomList<T>.TEnumerator.GetCurrent: T;
 var
-  OldItem: Byte;
+  Index, Cap: NativeInt;
 begin
-  CheckItemRangeInline(AIndex);
-
-  OldItem := PByte(FItems^)[AIndex];
-  PByte(FItems^)[AIndex] := Byte(Value);
-
-  FNotify(OldItem, cnRemoved);
-  FNotify(Value, cnAdded);
-end;
-
-procedure TListHelper.SetItem2(const Value; AIndex: Integer);
-var
-  OldItem: Word;
-begin
-  CheckItemRangeInline(AIndex);
-
-  OldItem := PWord(FItems^)[AIndex];
-  PWord(FItems^)[AIndex] := Word(Value);
-
-  FNotify(OldItem, cnRemoved);
-  FNotify(Value, cnAdded);
-end;
-
-procedure TListHelper.SetItem4(const Value; AIndex: Integer);
-var
-  OldItem: Cardinal;
-begin
-  CheckItemRangeInline(AIndex);
-
-  OldItem := PCardinal(FItems^)[AIndex];
-  PCardinal(FItems^)[AIndex] := Cardinal(Value);
-
-  FNotify(OldItem, cnRemoved);
-  FNotify(Value, cnAdded);
-end;
-
-procedure TListHelper.SetItem8(const Value; AIndex: Integer);
-var
-  OldItem: UInt64;
-begin
-  CheckItemRangeInline(AIndex);
-
-  OldItem := PUInt64(FItems^)[AIndex];
-  PUInt64(FItems^)[AIndex] := UInt64(Value);
-
-  FNotify(OldItem, cnRemoved);
-  FNotify(Value, cnAdded);
-end;
-
-procedure TListHelper.DoSetItemDynArray(const Value; AIndex: Integer);
-type
-  PBytes = ^TBytes;
-var
-  OldItem: Pointer;
-begin
-  OldItem := nil;
-  try
-    CheckItemRangeInline(AIndex);
-
-    // Yes, this is "safe" to do without actually knowing the true dynamic array type for the assignments.
-    // The first assignment is to a nil reference, so all that happens is the source array's reference count
-    // is incremented. At this point I know that there are at least two references to the source array, so I
-    // know that the second assignment won't try and deallocate the array. After the second assignment, the
-    // old array reference will have at least 1 refcount.
-    TBytes(OldItem) := PBytes(FItems^)[AIndex];
-    PBytes(FItems^)[AIndex] := TBytes(Value);
-
-    FNotify(OldItem, cnRemoved);
-    FNotify(Value, cnAdded);
-  finally
-    // Here we do care about the type of the dynamic array since it is likely that the array will need to be
-    // finalized. If the reference count of the array is 1, it will be properly freed here. If it is > 1, then
-    // this will merely drop the local OldItem reference and set it to nil.
-    // NOTE:  TBytes(OldItem) := nil; CANNOT be used here since that would pass in the type info for TBytes
-    // into _DynArrayClear instead of the actual dynamic array type. Explicitly call DynArrayClear.
-    DynArrayClear(OldItem, FTypeInfo);
-  end;
-end;
-
-procedure TListHelper.DoSetItemInterface(const Value; AIndex: Integer);
-var
-  OldItem: IInterface;
-begin
-  CheckItemRangeInline(AIndex);
-
-  OldItem := PInterface(FItems^)[AIndex];
-  PInterface(FItems^)[AIndex] := IInterface(Value);
-
-  FNotify(OldItem, cnRemoved);
-  FNotify(Value, cnAdded);
-end;
-
-procedure TListHelper.SetItemManaged(const Value; AIndex: Integer);
-var
-  SOldItem: array[0..63] of Byte;
-  DOldItem: PByte;
-  POldItem: PByte;
-  ElemSize: Integer;
-begin
-  CheckItemRangeInline(AIndex);
-
-  DOldItem := nil;
-  POldItem := Pointer(@SOldItem);
-  FillChar(SOldItem, SizeOf(SOldItem), 0);
-  try
-    ElemSize := ElSize;
-    if ElemSize > SizeOf(SOldItem) then
-    begin
-      DOldItem := AllocMem(ElemSize);
-      POldItem := DOldItem;
-    end;
-    System.CopyArray(POldItem, PByte(FItems^) + (AIndex * ElemSize), ElType, 1); // oldItem := FItems[Index];
-    System.CopyArray(PByte(FItems^) + (AIndex * ElemSize), @Value, ElType, 1); // FItems[Index] := Value;
-
-    FNotify(POldItem[0], cnRemoved);
-    FNotify(Value, cnAdded);
-  finally
-    FinalizeArray(POldItem, ElType, 1);
-    FreeMem(DOldItem);
-  end;
-end;
-
-procedure TListHelper.SetItemN(const Value; AIndex: Integer);
-var
-  SOldItem: array[0..64] of Byte;
-  DOldItem: PByte;
-  POldItem: PByte;
-  ElemSize: Integer;
-begin
-  CheckItemRangeInline(AIndex);
-
-  DOldItem := nil;
-  POldItem := @SOldItem[0];
-  try
-    ElemSize := ElSize;
-    if ElemSize > SizeOf(SOldItem) then
-    begin
-      GetMem(DOldItem, ElemSize);
-      POldItem := DOldItem;
-    end;
-    Move(PByte(FItems^)[AIndex * ElemSize], POldItem[0], ElemSize);
-    Move(Value, PByte(FItems^)[AIndex * ElemSize], ElemSize);
-
-    FNotify(POldItem[0], cnRemoved);
-    FNotify(Value, cnAdded);
-  finally
-    FreeMem(DOldItem);
-  end;
-end;
-
-procedure TListHelper.DoSetItemString(const Value; AIndex: Integer);
-var
-  OldItem: string;
-begin
-  CheckItemRangeInline(AIndex);
-
-  OldItem := PString(FItems^)[AIndex];
-  PString(FItems^)[AIndex] := string(Value);
-
-  FNotify(OldItem, cnRemoved);
-  FNotify(Value, cnAdded);
-end;
-
-procedure TListHelper.InternalExchange1(Index1, Index2: Integer);
-var
-  Temp: Byte;
-begin
-  Temp := PByte(FItems^)[Index1];
-  PByte(FItems^)[Index1] := PByte(FItems^)[Index2];
-  PByte(FItems^)[Index2] := Temp;
-end;
-
-procedure TListHelper.InternalExchange2(Index1, Index2: Integer);
-var
-  Temp: Word;
-begin
-  Temp := PWord(FItems^)[Index1];
-  PWord(FItems^)[Index1] := PWord(FItems^)[Index2];
-  PWord(FItems^)[Index2] := Temp;
-end;
-
-procedure TListHelper.InternalExchange4(Index1, Index2: Integer);
-var
-  Temp: Cardinal;
-begin
-  Temp := PCardinal(FItems^)[Index1];
-  PCardinal(FItems^)[Index1] := PCardinal(FItems^)[Index2];
-  PCardinal(FItems^)[Index2] := Temp;
-end;
-
-procedure TListHelper.InternalExchange8(Index1, Index2: Integer);
-var
-  Temp: UInt64;
-begin
-  Temp := PUInt64(FItems^)[Index1];
-  PUInt64(FItems^)[Index1] := PUInt64(FItems^)[Index2];
-  PUInt64(FItems^)[Index2] := Temp;
-end;
-
-procedure TListHelper.InternalExchangeManaged(Index1, Index2: Integer);
-var
-  STemp: array[0..63] of Byte;
-  DTemp: PByte;
-  PTemp: PByte;
-  ElemSize: Integer;
-begin
-  DTemp := nil;
-  PTemp := Pointer(@STemp);
-  try
-    ElemSize := ElSize;
-    if ElemSize > SizeOf(STemp) then
-    begin
-      DTemp := AllocMem(ElemSize);
-      PTemp := DTemp;
-    end else
-      FillChar(STemp, ElemSize, 0);
-    System.CopyArray(@PTemp[0], @PByte(FItems^)[Index1 * ElemSize], ElType, 1);
-    System.CopyArray(@PByte(FItems^)[Index1 * ElemSize], @PByte(FItems^)[Index2 * ElemSize], ElType, 1);
-    System.CopyArray(@PByte(FItems^)[Index2 * ElemSize], @PTemp[0], ElType, 1);
-  finally
-    FinalizeArray(PTemp, ElType, 1);
-    FreeMem(DTemp);
-  end;
-end;
-
-procedure TListHelper.InternalExchangeMRef(Index1, Index2: Integer; Kind: TTypeKind);
-begin
-  case Kind of
-    TTypeKind.tkUString: DoExchangeString(Index1, Index2);
-    TTypeKind.tkInterface: DoExchangeInterface(Index1, Index2);
-    TTypeKind.tkVariant: DoExchangeVariant(Index1, Index2);
-    TTypeKind.tkDynArray: DoExchangeDynArray(Index1, Index2);
-{$IF Defined(AUTOREFCOUNT)}
-    TTypeKind.tkClass: DoExchangeObject(Index1, Index2);
-{$IFEND}
-{$IF not Defined(NEXTGEN)}
-    TTypeKind.tkLString: DoExchangeAnsiString(Index1, Index2);
-    TTypeKind.tkWString: DoExchangeWideString(Index1, Index2);
-{$IFEND}
-  end;
-end;
-
-procedure TListHelper.InternalExchangeN(Index1, Index2: Integer);
-var
-  STemp: array[0..63] of Byte;
-  DTemp: PByte;
-  PTemp: PByte;
-  ElemSize: Integer;
-begin
-  DTemp := nil;
-  PTemp := Pointer(@STemp);
-  try
-    ElemSize := ElSize;
-    if ElemSize > SizeOf(STemp) then
-    begin
-      GetMem(DTemp, ElemSize);
-      PTemp := DTemp;
-    end;
-    Move(PByte(FItems^)[Index1 * ElemSize], PTemp[0], ElemSize);
-    Move(PByte(FItems^)[Index2 * ElemSize], PByte(FItems^)[Index1 * ElemSize], ElemSize);
-    Move(PTemp[0], PByte(FItems^)[Index2 * ElemSize], ElemSize);
-  finally
-    FreeMem(DTemp);
-  end;
-end;
-
-procedure TListHelper.InternalExtractItem1(const Value; out Item; Direction: Byte);
-begin
-  if Direction = Byte(TDirection.FromBeginning) then
-    DoExtractItemFwd1(Value, Item)
-  else
-    DoExtractItemRev1(Value, Item);
-end;
-
-procedure TListHelper.InternalExtractItem2(const Value; out Item; Direction: Byte);
-begin
-  if Direction = Byte(TDirection.FromBeginning) then
-    DoExtractItemFwd2(Value, Item)
-  else
-    DoExtractItemRev2(Value, Item);
-end;
-
-procedure TListHelper.InternalExtractItem4(const Value; out Item; Direction: Byte);
-begin
-  if Direction = Byte(TDirection.FromBeginning) then
-    DoExtractItemFwd4(Value, Item)
-  else
-    DoExtractItemRev4(Value, Item);
-end;
-
-procedure TListHelper.InternalExtractItem8(const Value; out Item; Direction: Byte);
-begin
-  if Direction = Byte(TDirection.FromBeginning) then
-    DoExtractItemFwd8(Value, Item)
-  else
-    DoExtractItemRev8(Value, Item);
-end;
-
-procedure TListHelper.InternalExtractItemManaged(const Value; out Item; Direction: Byte);
-begin
-  if Direction = Byte(TDirection.FromBeginning) then
-    DoExtractItemFwdManaged(Value, Item)
-  else
-    DoExtractItemRevManaged(Value, Item);
-end;
-
-procedure TListHelper.InternalExtractItemMRef(const Value; Kind: TTypeKind; out Item; Direction: Byte);
-begin
-  case Kind of
-    TTypeKind.tkUString:
-      if Direction = Byte(TDirection.FromBeginning) then
-        DoExtractItemFwdString(Value, Item)
-      else
-        DoExtractItemRevString(Value, Item);
-    TTypeKind.tkInterface:
-      if Direction = Byte(TDirection.FromBeginning) then
-        DoExtractItemFwdInterface(Value, Item)
-      else
-        DoExtractItemRevInterface(Value, Item);
-{$IF not Defined(NEXTGEN)}
-    TTypeKind.tkString:
-      if Direction = Byte(TDirection.FromBeginning) then
-        DoExtractItemFwdAnsiString(Value, Item)
-      else
-        DoExtractItemRevAnsiString(Value, Item);
-    TTypeKind.tkWString:
-      if Direction = Byte(TDirection.FromBeginning) then
-        DoExtractItemFwdWideString(Value, Item)
-      else
-        DoExtractItemRevWideString(Value, Item);
-{$IFEND}
-{$IF Defined(AUTOREFCOUNT)}
-    TTypeKind.tkClass:
-      if Direction = Byte(TDirection.FromBeginning) then
-        DoExtractItemFwdObject(Value, Item)
-      else
-        DoExtractItemRevObject(Value, Item);
-{$IFEND}
-  end;
-end;
-
-procedure TListHelper.InternalExtractItemN(const Value; out Item; Direction: Byte);
-begin
-  if Direction = Byte(TDirection.FromBeginning) then
-    DoExtractItemFwdN(Value, Item)
-  else
-    DoExtractItemRevN(Value, Item);
-end;
-
-procedure TListHelper.InternalExtractItemVariant(const Value; out Item; Direction: Byte);
-begin
-  if Direction = Byte(TDirection.FromBeginning) then
-    DoExtractItemFwdVariant(Value, Item)
-  else
-    DoExtractItemRevVariant(Value, Item);
-end;
-
-procedure TListHelper.SetItemVariant(const Value; AIndex: Integer);
-var
-  OldItem: Variant;
-begin
-  CheckItemRangeInline(AIndex);
-
-  OldItem := PVariant(FItems^)[AIndex];
-  PVariant(FItems^)[AIndex] := Variant(Value);
-
-  FNotify(OldItem, cnRemoved);
-  FNotify(Value, cnAdded);
-end;
-
-{$IF Defined(AUTOREFCOUNT)}
-procedure TListHelper.DoSetItemObject(const Value; AIndex: Integer);
-var
-  OldItem: TObject;
-begin
-  CheckItemRangeInline(AIndex);
-
-  OldItem := PObject(FItems^)[AIndex];
-  PObject(FItems^)[AIndex] := TObject(Value);
-
-  FNotify(OldItem, cnRemoved);
-  FNotify(Value, cnAdded);
-end;
-
-procedure TListHelper.DoInsertObject(AIndex: Integer; const Value);
-begin
-  CheckInsertRange(AIndex);
-
-  InternalGrowCheck(FCount + 1);
-  if AIndex <> FCount then
-    Move(PPointer(FItems^)[AIndex], PPointer(FItems^)[AIndex + 1], (FCount - AIndex) * SizeOf(Pointer));
-  PPointer(FItems^)[AIndex] := nil;
-  PObject(FItems^)[AIndex] := TObject(Value);
-  Inc(FCount);
-  FNotify(Value, cnAdded);
-end;
-
-function TListHelper.DoAddObject(const Value): Integer;
-begin
-  InternalGrowCheck(FCount + 1);
-  Result := FCount;
-  PObject(FItems^)[FCount] := TObject(Value);
-  Inc(FCount);
-  FNotify(Value, cnAdded);
-end;
-{$IFEND}
-
-{$IF not Defined(NEXTGEN)}
-procedure TListHelper.DoSetItemAnsiString(const Value; AIndex: Integer);
-var
-  OldItem: AnsiString;
-begin
-  CheckItemRangeInline(AIndex);
-
-  OldItem := PAnsiString(FItems^)[AIndex];
-  PAnsiString(FItems^)[AIndex] := AnsiString(Value);
-
-  FNotify(OldItem, cnRemoved);
-  FNotify(Value, cnAdded);
-end;
-
-procedure TListHelper.DoSetItemWideString(const Value; AIndex: Integer);
-var
-  OldItem: WideString;
-begin
-  CheckItemRangeInline(AIndex);
-
-  OldItem := PWideString(FItems^)[AIndex];
-  PWideString(FItems^)[AIndex] := WideString(Value);
-
-  FNotify(OldItem, cnRemoved);
-  FNotify(Value, cnAdded);
-end;
-
-procedure TListHelper.DoInsertAnsiString(AIndex: Integer; const Value);
-begin
-  CheckInsertRange(AIndex);
-
-  InternalGrowCheck(FCount + 1);
-  if AIndex <> FCount then
-    Move(PPointer(FItems^)[AIndex], PPointer(FItems^)[AIndex + 1], (FCount - AIndex) * SizeOf(Pointer));
-  PAnsiString(FItems^)[AIndex] := AnsiString(Value);
-  Inc(FCount);
-  FNotify(Value, cnAdded);
-end;
-
-procedure TListHelper.DoInsertWideString(AIndex: Integer; const Value);
-begin
-  CheckInsertRange(AIndex);
-
-  InternalGrowCheck(FCount + 1);
-  if AIndex <> FCount then
-    Move(PPointer(FItems^)[AIndex], PPointer(FItems^)[AIndex + 1], (FCount - AIndex) * SizeOf(Pointer));
-  PWideString(FItems^)[AIndex] := WideString(Value);
-  Inc(FCount);
-  FNotify(Value, cnAdded);
-end;
-
-function TListHelper.DoAddAnsiString(const Value): Integer;
-begin
-  InternalGrowCheck(FCount + 1);
-  Result := FCount;
-  PAnsiString(FItems^)[FCount] := AnsiString(Value);
-  Inc(FCount);
-  FNotify(Value, cnAdded);
-end;
-
-function TListHelper.DoAddWideString(const Value): Integer;
-begin
-  InternalGrowCheck(FCount + 1);
-  Result := FCount;
-  PWideString(FItems^)[FCount] := WideString(Value);
-  Inc(FCount);
-  FNotify(Value, cnAdded);
-end;
-{$IFEND}
-
-function TListHelper.DoAddDynArray(const Value): Integer;
-begin
-  InternalGrowCheck(FCount + 1);
-  Result := FCount;
-  PBytes(FItems^)[FCount] := TBytes(Value);
-  Inc(FCount);
-  FNotify(Value, cnAdded);
-end;
-
-function TListHelper.DoAddInterface(const Value): Integer;
-begin
-  InternalGrowCheck(FCount + 1);
-  Result := FCount;
-  PInterface(FItems^)[FCount] := IInterface(Value);
-  Inc(FCount);
-  FNotify(Value, cnAdded);
-end;
-
-function TListHelper.DoAddString(const Value): Integer;
-begin
-  InternalGrowCheck(FCount + 1);
-  Result := FCount;
-  PString(FItems^)[FCount] := string(Value);
-  Inc(FCount);
-  FNotify(Value, cnAdded);
-end;
-
-procedure TListHelper.DoExchangeInterfaceInline(Index1, Index2: Integer);
-var
-  Temp: IInterface;
-begin
-  Temp := PInterface(FItems^)[Index1];
-  PInterface(FItems^)[Index1] := PInterface(FItems^)[Index2];
-  PInterface(FItems^)[Index2] := Temp;
-end;
-
-procedure TListHelper.DoExchangeStringInline(Index1, Index2: Integer);
-var
-  Temp: string;
-begin
-  Temp := PString(FItems^)[Index1];
-  PString(FItems^)[Index1] := PString(FItems^)[Index2];
-  PString(FItems^)[Index2] := Temp;
-end;
-
-procedure TListHelper.DoExchangeVariantInline(Index1, Index2: Integer);
-var
-  Temp: Variant;
-begin
-  Temp := PVariant(FItems^)[Index1];
-  PVariant(FItems^)[Index1] := PVariant(FItems^)[Index2];
-  PVariant(FItems^)[Index2] := Temp;
-end;
-
-procedure TListHelper.DoExchangeDynArrayInline(Index1, Index2: Integer);
-var
-  Temp: TBytes;
-begin
-  Temp := PBytes(FItems^)[Index1];
-  PBytes(FItems^)[Index1] := PBytes(FItems^)[Index2];
-  PBytes(FItems^)[Index2] := Temp;
-end;
-
-{$IF not Defined(NEXTGEN)}
-procedure TListHelper.DoExchangeAnsiStringInline(Index1, Index2: Integer);
-var
-  Temp: AnsiString;
-begin
-  Temp := PAnsiString(FItems^)[Index1];
-  PAnsiString(FItems^)[Index1] := PAnsiString(FItems^)[Index2];
-  PAnsiString(FItems^)[Index2] := Temp;
-end;
-
-procedure TListHelper.DoExchangeWideStringInline(Index1, Index2: Integer);
-var
-  Temp: WideString;
-begin
-  Temp := PWideString(FItems^)[Index1];
-  PWideString(FItems^)[Index1] := PWideString(FItems^)[Index2];
-  PWideString(FItems^)[Index2] := Temp;
-end;
-{$IFEND}
-
-{$IF Defined(AUTOREFCOUNT)}
-procedure TListHelper.DoExchangeObjectInline(Index1, Index2: Integer);
-var
-  Temp: TObject;
-begin
-  Temp := PObject(FItems^)[Index1];
-  PObject(FItems^)[Index1] := PObject(FItems^)[Index2];
-  PObject(FItems^)[Index2] := Temp;
-end;
-{$IFEND}
-
-procedure TListHelper.DoExchangeInterface(Index1, Index2: Integer);
-begin
-  DoExchangeInterfaceInline(Index1, Index2);
-end;
-
-procedure TListHelper.DoExchangeString(Index1, Index2: Integer);
-begin
-  DoExchangeStringInline(Index1, Index2);
-end;
-
-procedure TListHelper.DoExchangeVariant(Index1, Index2: Integer);
-begin
-  DoExchangeVariantInline(Index1, Index2);
-end;
-
-procedure TListHelper.DoExchangeDynArray(Index1, Index2: Integer);
-begin
-  DoExchangeDynArrayInline(Index1, Index2);
-end;
-
-{$IF not Defined(NEXTGEN)}
-procedure TListHelper.DoExchangeAnsiString(Index1, Index2: Integer);
-begin
-  DoExchangeAnsiStringInline(Index1, Index2);
-end;
-
-procedure TListHelper.DoExchangeWideString(Index1, Index2: Integer);
-begin
-  DoExchangeWideStringInline(Index1, Index2);
-end;
-{$IFEND}
-
-{$IF Defined(AUTOREFCOUNT)}
-procedure TListHelper.DoExchangeObject(Index1, Index2: Integer);
-begin
-  DoExchangeObjectInline(Index1, Index2);
-end;
-{$IFEND}
-
-procedure TListHelper.DoExtractItemFwd1(const Value; out Item);
-var
-  Index: Integer;
-begin
-  Index := DoIndexOfFwd1(Value);
-  if Index < 0 then
-    Byte(Item) := 0
-  else
+  with FList do
   begin
-    Byte(Item) := PByte(FItems^)[Index];
-    InternalDoDelete1(Index, cnExtracted);
+    Index := FTail + FIndex;
+    Cap := FCapacity.Native;
+    if (Index > Cap) then Dec(Index, Cap);
+    Result := FItems[Index];
   end;
 end;
 
-procedure TListHelper.DoExtractItemRev1(const Value; out Item);
+function TCustomList<T>.TEnumerator.MoveNext: Boolean;
 var
-  Index: Integer;
+  N, R: NativeInt;
 begin
-  Index := DoIndexOfRev1(Value);
-  if Index < 0 then
-    Byte(Item) := 0
-  else
-  begin
-    Byte(Item) := PByte(FItems^)[Index];
-    InternalDoDelete1(Index, cnExtracted);
-  end;
+  N := FIndex + 1;
+  R := Byte(N < FList.FCount.Native);
+  Dec(N, R);
+  FIndex := N;
+  Result := Boolean(R);
 end;
 
-procedure TListHelper.DoExtractItemFwd2(const Value; out Item);
-var
-  Index: Integer;
-begin
-  Index := DoIndexOfFwd2(Value);
-  if Index < 0 then
-    Word(Item) := 0
-  else
-  begin
-    Word(Item) := PWord(FItems^)[Index];
-    InternalDoDelete2(Index, cnExtracted);
-  end;
-end;
-
-procedure TListHelper.DoExtractItemRev2(const Value; out Item);
-var
-  Index: Integer;
-begin
-  Index := DoIndexOfRev2(Value);
-  if Index < 0 then
-    Word(Item) := 0
-  else
-  begin
-    Word(Item) := PWord(FItems^)[Index];
-    InternalDoDelete2(Index, cnExtracted);
-  end;
-end;
-
-procedure TListHelper.DoExtractItemFwd4(const Value; out Item);
-var
-  Index: Integer;
-begin
-  Index := DoIndexOfFwd4(Value);
-  if Index < 0 then
-    Cardinal(Item) := 0
-  else
-  begin
-    Cardinal(Item) := PCardinal(FItems^)[Index];
-    InternalDoDelete4(Index, cnExtracted);
-  end;
-end;
-
-procedure TListHelper.DoExtractItemRev4(const Value; out Item);
-var
-  Index: Integer;
-begin
-  Index := DoIndexOfRev4(Value);
-  if Index < 0 then
-    Cardinal(Item) := 0
-  else
-  begin
-    Cardinal(Item) := PCardinal(FItems^)[Index];
-    InternalDoDelete4(Index, cnExtracted);
-  end;
-end;
-
-procedure TListHelper.DoExtractItemFwd8(const Value; out Item);
-var
-  Index: Integer;
-begin
-  Index := DoIndexOfFwd8(Value);
-  if Index < 0 then
-    UInt64(Item) := 0
-  else
-  begin
-    UInt64(Item) := PUInt64(FItems^)[Index];
-    InternalDoDelete8(Index, cnExtracted);
-  end;
-end;
-
-procedure TListHelper.DoExtractItemRev8(const Value; out Item);
-var
-  Index: Integer;
-begin
-  Index := DoIndexOfRev8(Value);
-  if Index < 0 then
-    UInt64(Item) := 0
-  else
-  begin
-    UInt64(Item) := PUInt64(FItems^)[Index];
-    InternalDoDelete8(Index, cnExtracted);
-  end;
-end;
-
-procedure TListHelper.DoExtractItemFwdN(const Value; out Item);
-var
-  Index, ElemSize: Integer;
-begin
-  Index := DoIndexOfFwdN(Value);
-  ElemSize := ElSize;
-  if Index < 0 then
-    FillChar(Item, ElemSize, 0)
-  else
-  begin
-    Move(PByte(FItems^)[Index * ElemSize], Item, ElemSize);
-    InternalDoDeleteN(Index, cnExtracted);
-  end;
-end;
-
-procedure TListHelper.DoExtractItemRevN(const Value; out Item);
-var
-  Index, ElemSize: Integer;
-begin
-  Index := DoIndexOfRevN(Value);
-  ElemSize := ElSize;
-  if Index < 0 then
-    FillChar(Item, ElemSize, 0)
-  else
-  begin
-    Move(PByte(FItems^)[Index * ElemSize], Item, ElemSize);
-    InternalDoDeleteN(Index, cnExtracted);
-  end;
-end;
-
-procedure TListHelper.DoExtractItemFwdInterface(const Value; out Item);
-var
-  Index: Integer;
-begin
-  Index := DoIndexOfFwdMRef(Value);
-  if Index < 0 then
-    IInterface(Item) := nil
-  else
-  begin
-    IInterface(Item) := PInterface(FItems^)[Index];
-    InternalDoDeleteMRef(Index, cnExtracted);
-  end;
-end;
-
-procedure TListHelper.DoExtractItemRevInterface(const Value; out Item);
-var
-  Index: Integer;
-begin
-  Index := DoIndexOfRevMRef(Value);
-  if Index < 0 then
-    IInterface(Item) := nil
-  else
-  begin
-    IInterface(Item) := PInterface(FItems^)[Index];
-    InternalDoDeleteMRef(Index, cnExtracted);
-  end;
-end;
-
-procedure TListHelper.DoExtractItemFwdManaged(const Value; out Item);
-var
-  Index: Integer;
-begin
-  Index := DoIndexOfFwdN(Value);
-  if Index < 0 then
-    FinalizeArray(@Item, ElType, 1)
-  else
-  begin
-    System.CopyArray(@Item, PByte(FItems^) + (Index * ElSize), ElType, 1);
-    InternalDoDeleteManaged(Index, cnExtracted);
-  end;
-end;
-
-procedure TListHelper.DoExtractItemRevManaged(const Value; out Item);
-var
-  Index: Integer;
-begin
-  Index := DoIndexOfRevN(Value);
-  if Index < 0 then
-    FinalizeArray(@Item, ElType, 1)
-  else
-  begin
-    System.CopyArray(@Item, PByte(FItems^) + (Index * ElSize), ElType, 1);
-    InternalDoDeleteManaged(Index, cnExtracted);
-  end;
-end;
-
-procedure TListHelper.DoExtractItemFwdString(const Value; out Item);
-var
-  Index: Integer;
-begin
-  Index := DoIndexOfFwdMRef(Value);
-  if Index < 0 then
-    string(Item) := ''
-  else
-  begin
-    string(Item) := PString(FItems^)[Index];
-    InternalDoDeleteMRef(Index, cnExtracted);
-  end;
-end;
-
-procedure TListHelper.DoExtractItemRevString(const Value; out Item);
-var
-  Index: Integer;
-begin
-  Index := DoIndexOfRevMRef(Value);
-  if Index < 0 then
-    string(Item) := ''
-  else
-  begin
-    string(Item) := PString(FItems^)[Index];
-    InternalDoDeleteMRef(Index, cnExtracted);
-  end;
-end;
-
-procedure TListHelper.DoExtractItemFwdVariant(const Value; out Item);
-var
-  Index: Integer;
-begin
-  Index := DoIndexOfFwdN(Value);
-  if Index < 0 then
-    VarClear(Variant(Item))
-  else
-  begin
-    Variant(Item) := PVariant(FItems^)[Index];
-    InternalDoDeleteManaged(Index, cnExtracted);
-  end;
-end;
-
-procedure TListHelper.DoExtractItemRevVariant(const Value; out Item);
-var
-  Index: Integer;
-begin
-  Index := DoIndexOfRevN(Value);
-  if Index < 0 then
-    VarClear(Variant(Item))
-  else
-  begin
-    Variant(Item) := PVariant(FItems^)[Index];
-    InternalDoDeleteManaged(Index, cnExtracted);
-  end;
-end;
-
-{$IF Defined(NEXTGEN)}
-procedure TListHelper.DoExtractItemFwdObject(const Value; out Item);
-var
-  Index: Integer;
-begin
-  Index := DoIndexOfFwdMRef(Value);
-  if Index < 0 then
-    TObject(Item) := nil
-  else
-  begin
-    TObject(Item) := PObject(FItems^)[Index];
-    InternalDoDeleteMRef(Index, cnExtracted);
-  end;
-end;
-
-procedure TListHelper.DoExtractItemRevObject(const Value; out Item);
-var
-  Index: Integer;
-begin
-  Index := DoIndexOfRevMRef(Value);
-  if Index < 0 then
-    TObject(Item) := nil
-  else
-  begin
-    TObject(Item) := PObject(FItems^)[Index];
-    InternalDoDeleteMRef(Index, cnExtracted);
-  end;
-end;
-{$IFEND}
-
-{$IF not Defined(AUTOREFCOUNT)}
-procedure TListHelper.DoExtractItemFwdAnsiString(const Value; out Item);
-var
-  Index: Integer;
-begin
-  Index := DoIndexOfFwdMRef(Value);
-  if Index < 0 then
-    AnsiString(Item) := ''
-  else
-  begin
-    AnsiString(Item) := PAnsiString(FItems^)[Index];
-    InternalDoDeleteMRef(Index, cnExtracted);
-  end;
-end;
-
-procedure TListHelper.DoExtractItemRevAnsiString(const Value; out Item);
-var
-  Index: Integer;
-begin
-  Index := DoIndexOfRevMRef(Value);
-  if Index < 0 then
-    AnsiString(Item) := ''
-  else
-  begin
-    AnsiString(Item) := PAnsiString(FItems^)[Index];
-    InternalDoDeleteMRef(Index, cnExtracted);
-  end;
-end;
-
-procedure TListHelper.DoExtractItemFwdWideString(const Value; out Item);
-var
-  Index: Integer;
-begin
-  Index := DoIndexOfFwdMRef(Value);
-  if Index < 0 then
-    WideString(Item) := ''
-  else
-  begin
-    WideString(Item) := PWideString(FItems^)[Index];
-    InternalDoDeleteMRef(Index, cnExtracted);
-  end;
-end;
-
-procedure TListHelper.DoExtractItemRevWideString(const Value; out Item);
-var
-  Index: Integer;
-begin
-  Index := DoIndexOfRevMRef(Value);
-  if Index < 0 then
-    WideString(Item) := ''
-  else
-  begin
-    WideString(Item) := PWideString(FItems^)[Index];
-    InternalDoDeleteMRef(Index, cnExtracted);
-  end;
-end;
-{$IFEND}
-
-function TListHelper.DoIndexOfFwd1(const Value): Integer;
-var
-  I: Integer;
-begin
-  for I := 0 to FCount - 1 do
-    if FCompare(PByte(FItems^)[I], Byte(Value)) = 0 then
-      Exit(I);
-  Result := -1;
-end;
-
-function TListHelper.DoIndexOfFwd2(const Value): Integer;
-var
-  I: Integer;
-begin
-  for I := 0 to FCount - 1 do
-    if FCompare(PWord(FItems^)[I], Word(Value)) = 0 then
-      Exit(I);
-  Result := -1;
-end;
-
-function TListHelper.DoIndexOfFwd4(const Value): Integer;
-var
-  I: Integer;
-begin
-  for I := 0 to FCount - 1 do
-    if FCompare(PCardinal(FItems^)[I], Cardinal(Value)) = 0 then
-      Exit(I);
-  Result := -1;
-end;
-
-function TListHelper.DoIndexOfFwd8(const Value): Integer;
-var
-  I: Integer;
-begin
-  for I := 0 to FCount - 1 do
-    if FCompare(PUInt64(FItems^)[I], UInt64(Value)) = 0 then
-      Exit(I);
-  Result := -1;
-end;
-
-function TListHelper.DoIndexOfFwdMRef(const Value): Integer;
-var
-  I: Integer;
-begin
-  for I := 0 to FCount - 1 do
-    if FCompare(PPointer(FItems^)[I], Value) = 0 then
-      Exit(I);
-  Result := -1;
-end;
-
-function TListHelper.DoIndexOfFwdN(const Value): Integer;
-var
-  I: Integer;
-begin
-  for I := 0 to FCount - 1 do
-    if FCompare(PByte(FItems^)[I * ElSize], Byte(Value)) = 0 then
-      Exit(I);
-  Result := -1;
-end;
-
-function TListHelper.DoIndexOfRev1(const Value): Integer;
-var
-  I: Integer;
-begin
-  for I := FCount - 1 downto 0 do
-    if FCompare(PByte(FItems^)[I], Byte(Value)) = 0 then
-      Exit(I);
-  Result := -1;
-end;
-
-function TListHelper.DoIndexOfRev2(const Value): Integer;
-var
-  I: Integer;
-begin
-  for I := FCount - 1 downto 0 do
-    if FCompare(PWord(FItems^)[I], Word(Value)) = 0 then
-      Exit(I);
-  Result := -1;
-end;
-
-function TListHelper.DoIndexOfRev4(const Value): Integer;
-var
-  I: Integer;
-begin
-  for I := FCount - 1 downto 0 do
-    if FCompare(PCardinal(FItems^)[I], Cardinal(Value)) = 0 then
-      Exit(I);
-  Result := -1;
-end;
-
-function TListHelper.DoIndexOfRev8(const Value): Integer;
-var
-  I: Integer;
-begin
-  for I := FCount - 1 downto 0 do
-    if FCompare(PUInt64(FItems^)[I], UInt64(Value)) = 0 then
-      Exit(I);
-  Result := -1;
-end;
-
-function TListHelper.DoIndexOfRevMRef(const Value): Integer;
-var
-  I: Integer;
-begin
-  for I := FCount - 1 downto 0 do
-    if FCompare(PPointer(FItems^)[I], Value) = 0 then
-      Exit(I);
-  Result := -1;
-end;
-
-function TListHelper.DoIndexOfRevN(const Value): Integer;
-var
-  I: Integer;
-begin
-  for I := FCount - 1 downto 0 do
-    if FCompare(PByte(FItems^)[I * ElSize], Byte(Value)) = 0 then
-      Exit(I);
-  Result := -1;
-end;
-
-procedure TListHelper.DoInsertDynArray(AIndex: Integer; const Value);
-begin
-  CheckInsertRange(AIndex);
-
-  InternalGrowCheck(FCount + 1);
-  if AIndex <> FCount then
-    Move(PPointer(FItems^)[AIndex], PPointer(FItems^)[AIndex + 1], (FCount - AIndex) * SizeOf(Pointer));
-  PPointer(FItems^)[AIndex] := nil;
-  PBytes(FItems^)[AIndex] := TBytes(Value);
-  Inc(FCount);
-  FNotify(Value, cnAdded);
-end;
-
-procedure TListHelper.DoInsertInterface(AIndex: Integer; const Value);
-begin
-  CheckInsertRange(AIndex);
-
-  InternalGrowCheck(FCount + 1);
-  if AIndex <> FCount then
-    Move(PPointer(FItems^)[AIndex], PPointer(FItems^)[AIndex + 1], (FCount - AIndex) * SizeOf(Pointer));
-  PPointer(FItems^)[AIndex] := nil;
-  PInterface(FItems^)[AIndex] := IInterface(Value);
-  Inc(FCount);
-  FNotify(Value, cnAdded);
-end;
-
-procedure TListHelper.DoInsertString(AIndex: Integer; const Value);
-begin
-  CheckInsertRange(AIndex);
-
-  InternalGrowCheck(FCount + 1);
-  if AIndex <> FCount then
-    Move(PPointer(FItems^)[AIndex], PPointer(FItems^)[AIndex + 1], (FCount - AIndex) * SizeOf(Pointer));
-  PPointer(FItems^)[AIndex] := nil;
-  PString(FItems^)[AIndex] := string(Value);
-  Inc(FCount);
-  FNotify(Value, cnAdded);
-end;
-
-function TListHelper.DoRemoveFwd1(const Value): Integer;
-begin
-  Result := DoIndexOfFwd1(Value);
-  if Result >= 0 then
-    InternalDoDelete1(Result, cnRemoved);
-end;
-
-function TListHelper.DoRemoveFwd2(const Value): Integer;
-begin
-  Result := DoIndexOfFwd2(Value);
-  if Result >= 0 then
-    InternalDoDelete2(Result, cnRemoved);
-end;
-
-function TListHelper.DoRemoveFwd4(const Value): Integer;
-begin
-  Result := DoIndexOfFwd4(Value);
-  if Result >= 0 then
-    InternalDoDelete4(Result, cnRemoved);
-end;
-
-function TListHelper.DoRemoveFwd8(const Value): Integer;
-begin
-  Result := DoIndexOfFwd8(Value);
-  if Result >= 0 then
-    InternalDoDelete8(Result, cnRemoved);
-end;
-
-function TListHelper.DoRemoveFwdMRef(const Value): Integer;
-begin
-  Result := DoIndexOfFwdMRef(Value);
-  if Result >= 0 then
-    InternalDoDeleteMRef(Result, cnRemoved);
-end;
-
-function TListHelper.DoRemoveFwdN(const Value): Integer;
-begin
-  Result := DoIndexOfFwdN(Value);
-  if Result >= 0 then
-    InternalDoDeleteN(Result, cnRemoved);
-end;
-
-function TListHelper.DoRemoveRev1(const Value): Integer;
-begin
-  Result := DoIndexOfRev1(Value);
-  if Result >= 0 then
-    InternalDoDelete1(Result, cnRemoved);
-end;
-
-function TListHelper.DoRemoveRev2(const Value): Integer;
-begin
-  Result := DoIndexOfRev2(Value);
-  if Result >= 0 then
-    InternalDoDelete2(Result, cnRemoved);
-end;
-
-function TListHelper.DoRemoveRev4(const Value): Integer;
-begin
-  Result := DoIndexOfRev4(Value);
-  if Result >= 0 then
-    InternalDoDelete4(Result, cnRemoved);
-end;
-
-function TListHelper.DoRemoveRev8(const Value): Integer;
-begin
-  Result := DoIndexOfRev8(Value);
-  if Result >= 0 then
-    InternalDoDelete8(Result, cnRemoved);
-end;
-
-function TListHelper.DoRemoveRevMRef(const Value): Integer;
-begin
-  Result := DoIndexOfRevMRef(Value);
-  if Result >= 0 then
-    InternalDoDeleteMRef(Result, cnRemoved);
-end;
-
-function TListHelper.DoRemoveRevN(const Value): Integer;
-begin
-  Result := DoIndexOfRevN(Value);
-  if Result >= 0 then
-    InternalDoDeleteN(Result, cnRemoved);
-end;
-
-procedure TListHelper.DoReverseMRef(Kind: TTypeKind);
-var
-  b, e: Integer;
-begin
-  b := 0;
-  e := FCount - 1;
-  while b < e do
-  begin
-    case Kind of
-      TTypeKind.tkUString: DoExchangeStringInline(b, e);
-      TTypeKind.tkInterface: DoExchangeInterfaceInline(b, e);
-      TTypeKind.tkDynArray: DoExchangeDynArrayInline(b, e);
-      TTypeKind.tkVariant: DoExchangeVariantInline(b, e);
-{$IF not Defined(NEXTGEN)}
-      TTypeKind.tkLString: DoExchangeAnsiStringInline(b, e);
-      TTypeKind.tkWString: DoExchangeWideStringInline(b, e);
-{$IFEND}
-{$IF Defined(AUTOREFCOUNT)}
-      TTypeKind.tkClass: DoExchangeObjectInline(b, e);
-{$IFEND}
-    end;
-    Inc(b);
-    Dec(e);
-  end;
-end;
-
-procedure TListHelper.DoReverseString;
-begin
-  DoReverseMRef(TTypeKind.tkUString);
-end;
-
-procedure TListHelper.DoReverseVariant;
-begin
-  DoReverseMRef(TTypeKind.tkVariant);
-end;
-
-procedure TListHelper.DoReverseDynArray;
-begin
-  DoReverseMRef(TTypeKind.tkDynArray);
-end;
-
-procedure TListHelper.DoReverseInterface;
-begin
-  DoReverseMRef(TTypeKind.tkInterface);
-end;
-
-{$IF not Defined(NEXTGEN)}
-procedure TListHelper.DoReverseWideString;
-begin
-  DoReverseMRef(TTypeKind.tkWString);
-end;
-
-procedure TListHelper.DoReverseAnsiString;
-begin
-  DoReverseMRef(TTypeKind.tkLString);
-end;
-{$IFEND}
-
-{$IF Defined(AUTOREFCOUNT)}
-procedure TListHelper.DoReverseObject;
-begin
-  DoReverseMRef(TTypeKind.tkClass);
-end;
-{$IFEND}
-
-function TListHelper.InternalAdd1(const Value): Integer;
-begin
-  InternalGrowCheck(FCount + 1);
-  Result := FCount;
-  PByte(FItems^)[FCount] := Byte(Value);
-  Inc(FCount);
-  FNotify(Value, cnAdded);
-end;
-
-function TListHelper.InternalAdd2(const Value): Integer;
-begin
-  InternalGrowCheck(FCount + 1);
-  Result := FCount;
-  PWord(FItems^)[FCount] := Word(Value);
-  Inc(FCount);
-  FNotify(Value, cnAdded);
-end;
-
-function TListHelper.InternalAdd4(const Value): Integer;
-begin
-  InternalGrowCheck(FCount + 1);
-  Result := FCount;
-  PCardinal(FItems^)[FCount] := Cardinal(Value);
-  Inc(FCount);
-  FNotify(Value, cnAdded);
-end;
-
-function TListHelper.InternalAdd8(const Value): Integer;
-begin
-  InternalGrowCheck(FCount + 1);
-  Result := FCount;
-  PUInt64(FItems^)[FCount] := UInt64(Value);
-  Inc(FCount);
-  FNotify(Value, cnAdded);
-end;
-
-function TListHelper.InternalAddManaged(const Value): Integer;
-begin
-  InternalGrowCheck(FCount + 1);
-  Result := FCount;
-  System.CopyArray(PByte(FItems^) + (FCount * ElSize), @Value, ElType, 1);
-  Inc(FCount);
-  FNotify(Value, cnAdded);
-end;
-
-function TListHelper.InternalAddMRef(const Value; TypeKind: TTypeKind): Integer;
-begin
-  if IsConstValue(TypeKind) then
-  begin
-    case TypeKind of
-      TTypeKind.tkUString: Result := DoAddString(Value);
-      TTypeKind.tkDynArray: Result := DoAddDynArray(Value);
-{$IF Defined(AUTOREFCOUNT)}
-      TTypeKind.tkClass: Result := DoAddObject(Value);
-{$IFEND}
-{$IF not Defined(NEXTGEN)}
-      TTypeKind.tkLString: Result := DoAddAnsiString(Value);
-      TTypeKind.tkWString: Result := DoAddWideString(Value);
-{$IFEND}
-    else
-      { TTypeKind.tkInterface: } Result := DoAddInterface(Value);
-    end;
-  end else
-  begin
-    Result := -1;
-    if Result = -1 then System.Error(rePlatformNotImplemented);
-  end;
-end;
-
-procedure TListHelper.SetItemMRef(const Value; AIndex: Integer; TypeKind: TTypeKind);
-begin
-  if IsConstValue(TypeKind) then
-  begin
-    case TypeKind of
-      TTypeKind.tkUString: DoSetItemString(Value, AIndex);
-      TTypeKind.tkDynArray: DoSetItemDynArray(Value, AIndex);
-      TTypeKind.tkInterface: DoSetItemInterface(Value, AIndex);
-{$IF Defined(AUTOREFCOUNT)}
-      TTypeKind.tkClass: DoSetItemObject(Value, AIndex);
-{$IFEND}
-{$IF not Defined(NEXTGEN)}
-      TTypeKind.tkLString: DoSetItemAnsiString(Value, AIndex);
-      TTypeKind.tkWString: DoSetItemWideString(Value, AIndex);
-{$IFEND}
-    end;
-  end else
-    System.Error(rePlatformNotImplemented);
-end;
-
-function TListHelper.InternalAddVariant(const Value): Integer;
-begin
-  InternalGrowCheck(FCount + 1);
-  Result := FCount;
-  PVariant(FItems^)[FCount] := Variant(Value);
-  Inc(FCount);
-  FNotify(Value, cnAdded);
-end;
-
-procedure TListHelper.InternalClear1;
-begin
-  InternalSetCount1(0);
-  InternalSetCapacity(0);
-end;
-
-procedure TListHelper.InternalClear2;
-begin
-  InternalSetCount2(0);
-  InternalSetCapacity(0);
-end;
-
-procedure TListHelper.InternalClear4;
-begin
-  InternalSetCount4(0);
-  InternalSetCapacity(0);
-end;
-
-procedure TListHelper.InternalClear8;
-begin
-  InternalSetCount8(0);
-  InternalSetCapacity(0);
-end;
-
-procedure TListHelper.InternalClearManaged;
-begin
-  InternalSetCountManaged(0);
-  InternalSetCapacity(0);
-end;
-
-procedure TListHelper.InternalClearMRef;
-begin
-  InternalSetCountMRef(0);
-  InternalSetCapacity(0);
-end;
-
-procedure TListHelper.InternalClearN;
-begin
-  InternalSetCountN(0);
-  InternalSetCapacity(0);
-end;
-
-{$IF Defined(WEAKREF)}
-procedure TListHelper.InternalClearWeak;
-begin
-  InternalSetCountWeak(0);
-  InternalSetCapacity(0);
-end;
-{$IFEND}
-
-function TListHelper.InternalAddN(const Value): Integer;
-begin
-  InternalGrowCheck(FCount + 1);
-  Result := FCount;
-  Move(Value, PByte(FItems^)[FCount * ElSize], ElSize);
-  Inc(FCount);
-  FNotify(Value, cnAdded);
-end;
-
-procedure TListHelper.InternalDeleteRange1(AIndex, ACount: Integer);
-var
-  SArray: array[0..1023] of Byte;
-  DArray: array of Byte;
-  PElem: PByte;
-  tailCount, Size: NativeInt;
-  I: Integer;
-begin
-  if CheckDeleteRange(AIndex, ACount) then
-  begin
-    if ACount > Length(SArray) then
-    begin
-      SetLength(DArray, ACount);
-      PElem := @DArray[0];
-    end else
-      PElem := @SArray[0];
-    Size := ACount * SizeOf(Byte);
-    Move(PByte(FItems^)[AIndex], PElem[0], Size);
-
-    tailCount := FCount - (AIndex + ACount);
-    if tailCount > 0 then
-    begin
-      Move(PByte(FItems^)[AIndex + ACount], PByte(FItems^)[AIndex], tailCount * SizeOf(Byte));
-      Inc(AIndex, tailCount);
-    end;
-    FillChar(PByte(FItems^)[AIndex], Size, 0);
-
-    Dec(FCount, ACount);
-
-    for I := 0 to ACount - 1 do
-      FNotify(PElem[I], cnRemoved);
-  end;
-end;
-
-procedure TListHelper.InternalDeleteRange2(AIndex, ACount: Integer);
-var
-  SArray: array[0..511] of Word;
-  DArray: array of Word;
-  PElem: PWord;
-  tailCount, Size: NativeInt;
-  I: Integer;
-begin
-  if CheckDeleteRange(AIndex, ACount) then
-  begin
-    if ACount > Length(SArray) then
-    begin
-      SetLength(DArray, ACount);
-      PElem := @DArray[0];
-    end else
-      PElem := @SArray[0];
-    Size := ACount * SizeOf(Word);
-    Move(PWord(FItems^)[AIndex], PElem[0], Size);
-
-    tailCount := FCount - (AIndex + ACount);
-    if tailCount > 0 then
-    begin
-      Move(PWord(FItems^)[AIndex + ACount], PWord(FItems^)[AIndex], tailCount * SizeOf(Word));
-      Inc(AIndex, tailCount);
-    end;
-    FillChar(PWord(FItems^)[AIndex], Size, 0);
-
-    Dec(FCount, ACount);
-
-    for I := 0 to ACount - 1 do
-      FNotify(PElem[I], cnRemoved);
-  end;
-end;
-
-procedure TListHelper.InternalDeleteRange4(AIndex, ACount: Integer);
-var
-  SArray: array[0..255] of Cardinal;
-  DArray: array of Cardinal;
-  PElem: PCardinal;
-  tailCount, Size: NativeInt;
-  I: Integer;
-begin
-  if CheckDeleteRange(AIndex, ACount) then
-  begin
-    if ACount > Length(SArray) then
-    begin
-      SetLength(DArray, ACount);
-      PElem := @DArray[0];
-    end else
-      PElem := @SArray[0];
-    Size := ACount * SizeOf(Cardinal);
-    Move(PCardinal(FItems^)[AIndex], PElem[0], Size);
-
-    tailCount := (FCount - (AIndex + ACount));
-    if tailCount > 0 then
-    begin
-      Move(PCardinal(FItems^)[AIndex + ACount], PCardinal(FItems^)[AIndex], tailCount * SizeOf(Cardinal));
-      Inc(AIndex, tailCount);
-    end;
-    FillChar(PCardinal(FItems^)[AIndex], Size, 0);
-
-    Dec(FCount, ACount);
-
-    for I := 0 to ACount - 1 do
-      FNotify(PElem[I], cnRemoved);
-  end;
-end;
-
-procedure TListHelper.InternalDeleteRange8(AIndex, ACount: Integer);
-var
-  SArray: array[0..127] of UInt64;
-  DArray: array of UInt64;
-  PElem: PUInt64;
-  tailCount, Size: NativeInt;
-  I: Integer;
-begin
-  if CheckDeleteRange(AIndex, ACount) then
-  begin
-    if ACount > Length(SArray) then
-    begin
-      SetLength(DArray, ACount);
-      PElem := @DArray[0];
-    end else
-      PElem := @SArray[0];
-    Size := ACount * SizeOf(UInt64);
-    Move(PUInt64(FItems^)[AIndex], PElem[0], Size);
-
-    tailCount := FCount - (AIndex + ACount);
-    if tailCount > 0 then
-    begin
-      Move(PUInt64(FItems^)[AIndex + ACount], PUInt64(FItems^)[AIndex], tailCount * SizeOf(UInt64));
-      Inc(AIndex, tailCount);
-    end;
-    FillChar(PUInt64(FItems^)[AIndex], Size, 0);
-
-    Dec(FCount, ACount);
-
-    for I := 0 to ACount - 1 do
-      FNotify(PElem[I], cnRemoved);
-  end;
-end;
-
-procedure TListHelper.InternalDeleteRangeManaged(AIndex, ACount: Integer);
-var
-  SArray: array[0..1023] of Byte;
-  DArray: Pointer;
-  PElem: PByte;
-  tailCount, Size: NativeInt;
-  I, ElemSize: Integer;
-begin
-  if CheckDeleteRange(AIndex, ACount) then
-  begin
-    ElemSize := ElSize;
-    DArray := nil; // initialize the local dynarray
-    PElem := @SArray[0];
-    try
-      Size := ACount * ElemSize;
-      if Size > Length(SArray) then
-      begin
-        GetMem(DArray, Size);
-        PElem := DArray;
-      end;
-      Move(PByte(FItems^)[AIndex * ElemSize], PElem[0], Size);
-
-      tailCount := (FCount - (AIndex + ACount)) * ElemSize;
-      if tailCount > 0 then
-      begin
-        Move(PByte(FItems^)[(AIndex + ACount) * ElemSize], PByte(FItems^)[AIndex * ElemSize], tailCount);
-        FillChar(PByte(FItems^)[(FCount - ACount) * ElemSize], Size, 0);
-      end else
-        FillChar(PByte(FItems^)[AIndex * ElemSize], Size, 0);
-
-      Dec(FCount, ACount);
-
-      for I := 0 to ACount - 1 do
-        FNotify(PElem[I * ElemSize], cnRemoved);
-    finally
-      if DArray <> nil then
-      begin
-        FinalizeArray(DArray, ElType, ACount);
-        FreeMem(DArray);
-      end else
-        FinalizeArray(PElem, ElType, ACount);
-    end;
-  end;
-end;
-
-procedure TListHelper.InternalDeleteRangeMRef(AIndex, ACount: Integer);
-var
-  SArray: array[0..(1024 div SizeOf(Pointer)) - 1] of NativeInt;
-  DArray: Pointer;
-  PElem: PPointer;
-  tailCount, Size: NativeInt;
-  I: Integer;
-begin
-  if CheckDeleteRange(AIndex, ACount) then
-  begin
-    DArray := nil;
-    PElem := Pointer(@SArray[0]);
-    try
-      Size := ACount;
-      if Size > Length(SArray) then
-      begin
-        DynArraySetLength(DArray, FTypeInfo, 1, @Size);
-        PElem := DArray;
-      end;
-      Move(PPointer(FItems^)[AIndex], PElem[0], ACount * SizeOf(Pointer));
-
-      tailCount := FCount - (AIndex + ACount);
-      if tailCount > 0 then
-      begin
-        Move(PPointer(FItems^)[AIndex + ACount], PPointer(FItems^)[AIndex], tailCount * SizeOf(Pointer));
-        FillChar(PPointer(FItems^)[FCount - ACount], ACount * SizeOf(Pointer), 0);
-      end else
-        FillChar(PPointer(FItems^)[AIndex], ACount * SizeOf(Pointer), 0);
-
-      Dec(FCount, ACount);
-
-      for I := 0 to ACount - 1 do
-        FNotify(PElem[I], cnRemoved);
-    finally
-      if DArray = nil then
-        FinalizeArray(PElem, ElType, Size)
-      else
-        DynArrayClear(DArray, FTypeInfo);
-    end;
-  end;
-end;
-
-{$IF Defined(WEAKREF)}
-procedure TListHelper.InternalDeleteRangeWeak(AIndex, ACount: Integer);
-var
-  SArray: TLocalDynArray;
-  DArray: Pointer;
-  PElem: PByte;
-  tailCount, Size: NativeInt;
-  I, ElemSize: Integer;
-begin
-  if CheckDeleteRange(AIndex, ACount) then
-  begin
-    ElemSize := ElSize;
-    DArray := nil; // initialize the local dynarray
-    PElem := @SArray.Data[0];
-    try
-      Size := ACount;
-      if (Size * ElemSize) > Length(SArray.Data) then
-      begin
-        DynArraySetLength(DArray, FTypeInfo, 1, @Size);
-        PElem := DArray;
-      end else
-      begin
-        FillChar(SArray, SizeOf(SArray), 0);
-        SArray.RefCnt := -1;
-        SArray.Length := ACount;
-      end;
-      System.CopyArray(PElem, PByte(FItems^) + (AIndex * ElemSize), ElType, ACount);
-
-      tailCount := FCount - (AIndex + ACount);
-      if tailCount > 0 then
-      begin
-        System.CopyArray(PByte(FItems^) + (AIndex * ElemSize), PByte(FItems^) + ((AIndex + ACount) * ElemSize), ElType, tailCount);
-        FinalizeArray(PByte(FItems^) + ((FCount - ACount) * ElemSize), ElType, ACount);
-      end else
-        FinalizeArray(PByte(FItems^) + (AIndex * ElemSize), ElType, ACount);
-
-      Dec(FCount, ACount);
-
-      for I := 0 to ACount - 1 do
-        FNotify(PElem[I * ElemSize], cnRemoved);
-    finally
-      if DArray = nil then
-        FinalizeArray(PElem, ElType, ACount)
-      else
-        DynArrayClear(DArray, FTypeInfo);
-    end;
-  end;
-end;
-{$IFEND}
-
-procedure TListHelper.InternalDeleteRangeN(AIndex, ACount: Integer);
-var
-  SArray: array[0..1023] of Byte;
-  DArray: Pointer;
-  PElem: PByte;
-  tailCount, I, Size, ElemSize: Integer;
-begin
-  if CheckDeleteRange(AIndex, ACount) then
-  begin
-    ElemSize := ElSize;
-    DArray := nil; // initialize the local dynarray
-    try
-      Size := ACount * ElemSize;
-      if Size > Length(SArray) then
-      begin
-        GetMem(DArray, Size);
-        PElem := DArray;
-      end else
-        PElem := @SArray[0];
-      Move(PByte(FItems^)[AIndex * ElemSize], PElem[0], Size);
-
-      tailCount := FCount - (AIndex + ACount);
-      if tailCount > 0 then
-      begin
-        Move(PByte(FItems^)[(AIndex + ACount) * ElemSize], PByte(FItems^)[AIndex * ElemSize], tailCount * ElemSize);
-        Inc(AIndex, ACount);
-      end;
-      FillChar(PUInt64(FItems^)[AIndex * ElemSize], Size, 0);
-
-      Dec(FCount, ACount);
-
-      for I := 0 to ACount - 1 do
-        FNotify(PElem[I * ElemSize], cnRemoved);
-    finally
-      FreeMem(DArray);
-    end;
-  end;
-end;
-
-procedure TListHelper.InternalDoDelete1(AIndex: Integer; Action: TCollectionNotification);
-var
-  oldItem: Byte;
-begin
-  CheckItemRangeInline(AIndex);
-  oldItem := PByte(FItems^)[AIndex];
-  Dec(FCount);
-  if AIndex <> FCount then
-    Move(PByte(FItems^)[AIndex + 1], PByte(FItems^)[AIndex], FCount - AIndex);
-  PByte(FItems^)[FCount] := 0;
-  FNotify(oldItem, Action);
-end;
-
-procedure TListHelper.InternalDoDelete2(AIndex: Integer; Action: TCollectionNotification);
-var
-  oldItem: Word;
-begin
-  CheckItemRangeInline(AIndex);
-  oldItem := PWord(FItems^)[AIndex];
-  Dec(FCount);
-  if AIndex <> FCount then
-    Move(PWord(FItems^)[AIndex + 1], PWord(FItems^)[AIndex], (FCount - AIndex) * SizeOf(Word));
-  PWord(FItems^)[FCount] := 0;
-  FNotify(oldItem, Action);
-end;
-
-procedure TListHelper.InternalDoDelete4(AIndex: Integer; Action: TCollectionNotification);
-var
-  oldItem: Cardinal;
-begin
-  CheckItemRangeInline(AIndex);
-  oldItem := PCardinal(FItems^)[AIndex];
-  Dec(FCount);
-  if AIndex <> FCount then
-    Move(PCardinal(FItems^)[AIndex + 1], PCardinal(FItems^)[AIndex], (FCount - AIndex) * SizeOf(Cardinal));
-  PCardinal(FItems^)[FCount] := 0;
-  FNotify(oldItem, Action);
-end;
-
-procedure TListHelper.InternalDoDelete8(AIndex: Integer; Action: TCollectionNotification);
-var
-  oldItem: UInt64;
-begin
-  CheckItemRangeInline(AIndex);
-  oldItem := PUInt64(FItems^)[AIndex];
-  Dec(FCount);
-  if AIndex <> FCount then
-    Move(PUInt64(FItems^)[AIndex + 1], PUInt64(FItems^)[AIndex], (FCount - AIndex) * SizeOf(UInt64));
-  PUInt64(FItems^)[FCount] := 0;
-  FNotify(oldItem, Action);
-end;
-
-procedure TListHelper.InternalDoDeleteManaged(AIndex: Integer; Action: TCollectionNotification);
-var
-  SOldItem: array[0..63] of Byte;
-  DOldItem: PByte;
-  OldItemP: PByte;
-  ElemSize: Integer;
-begin
-  CheckItemRangeInline(AIndex);
-  ElemSize := ElSize;
-  DOldItem := nil;
-  OldItemP := @SOldItem[0];
-  try
-    if ElemSize > SizeOf(SOldItem) then
-    begin
-      GetMem(DOldItem, ElemSize);
-      OldItemP := DOldItem;
-    end;
-    Move(PByte(FItems^)[AIndex * ElemSize], OldItemP^, ElemSize);
-    Dec(FCount);
-    if AIndex <> FCount then
-      Move(PByte(FItems^)[(AIndex + 1) * ElemSize], PByte(FItems^)[AIndex * ElemSize], (FCount - AIndex) * ElemSize);
-    FillChar(PByte(FItems^)[FCount * ElemSize], ElemSize, 0);
-    FNotify(OldItemP^, Action);
-  finally
-    FinalizeArray(OldItemP, ElType, 1);
-    FreeMem(DOldItem);
-  end;
-end;
-
-procedure TListHelper.InternalDoDeleteMRef(AIndex: Integer; Action: TCollectionNotification);
-var
-  oldItem: Pointer;
-begin
-  CheckItemRangeInline(AIndex);
-  oldItem := PPointer(FItems^)[AIndex];
-  try
-    Dec(FCount);
-    if AIndex <> FCount then
-      Move(PPointer(FItems^)[AIndex + 1], PPointer(FItems^)[AIndex], (FCount - AIndex) * SizeOf(Pointer));
-    PPointer(FItems^)[FCount] := nil;
-    FNotify(oldItem, Action);
-  finally
-    FinalizeArray(@oldItem, ElType, 1);
-  end;
-end;
-
-procedure TListHelper.InternalDoDeleteN(AIndex: Integer; Action: TCollectionNotification);
-var
-  SOldItem: array[0..63] of Byte;
-  DOldItem: PByte;
-  OldItemP: PByte;
-  ElemSize: Integer;
-begin
-  CheckItemRangeInline(AIndex);
-  DOldItem := nil;
-  try
-    ElemSize := ElSize;
-    if ElemSize > SizeOf(SOldItem) then
-    begin
-      GetMem(DOldItem, ElemSize);
-      OldItemP := DOldItem;
-    end else
-      OldItemP := @SOldItem[0];
-    Move(PByte(FItems^)[AIndex * ElemSize], OldItemP^, ElemSize);
-    Dec(FCount);
-    if AIndex <> FCount then
-      Move(PByte(FItems^)[(AIndex + 1) * ElemSize], PByte(FItems^)[AIndex * ElemSize], (FCount - AIndex) * ElemSize);
-    FillChar(PByte(FItems^)[FCount * ElemSize], ElemSize, 0);
-    FNotify(OldItemP^, Action);
-  finally
-    FreeMem(DOldItem);
-  end;
-end;
-
-{$IF Defined(WEAKREF)}
-procedure TListHelper.InternalDoDeleteWeak(AIndex: Integer; Action: TCollectionNotification);
-var
-  SOldItem: TLocalDynArray;
-  DOldItem: Pointer;
-  OldItemP: PByte;
-  ElemSize: Integer;
-  Size: NativeInt;
-begin
-  CheckItemRangeInline(AIndex);
-  ElemSize := ElSize;
-  DOldItem := nil;
-  OldItemP := @SOldItem.Data[0];
-  Size := 1;
-  try
-    if ElemSize > Length(SOldItem.Data) then
-    begin
-      DynArraySetLength(DOldItem, FTypeInfo, 1, @Size);
-      OldItemP := DOldItem;
-    end else
-    begin
-      FillChar(SOldItem, SizeOf(SOldItem), 0);
-      SOldItem.RefCnt := -1;
-      SOldItem.Length := 1;
-    end;
-    System.CopyArray(OldItemP, PByte(FItems^) + AIndex * ElemSize, ElType, 1);
-    Dec(FCount);
-    if AIndex <> FCount then
-      System.CopyArray(PByte(FItems^) + AIndex * ElemSize, PByte(FItems^) + (AIndex + 1) * ElemSize, ElType, FCount - AIndex);
-    FinalizeArray(PByte(FItems^) + FCount * ElemSize, ElType, 1);
-    FNotify(OldItemP^, Action);
-  finally
-    if DOldItem = nil then
-      FinalizeArray(OldItemP, ElType, 1)
-    else
-      DynArrayClear(DOldItem, FTypeInfo);
-  end;
-end;
-{$IFEND}
-
-procedure TListHelper.InternalGrow(ANewCount: Integer);
-var
-  NewCount: Integer;
-begin
-  NewCount := DynArraySize(FItems^);
-  if NewCount = 0 then
-    NewCount := ANewCount
-  else
-    repeat
-      NewCount := NewCount * 2;
-      if NewCount < 0 then
-        OutOfMemoryError;
-    until NewCount >= ANewCount;
-  InternalSetCapacity(NewCount);
-end;
-
-procedure TListHelper.InternalGrowCheck(ANewCount: Integer);
-begin
-  if ANewCount > DynArraySize(FItems^) then
-    InternalGrow(ANewCount)
-  else if ANewCount < 0 then
-    OutOfMemoryError;
-end;
-
-function TListHelper.InternalIndexOf1(const Value; Direction: Byte): Integer;
-begin
-  if Direction = Byte(System.Types.TDirection.FromBeginning) then
-    Result := DoIndexOfFwd1(Value)
-  else
-    Result := DoIndexOfRev1(Value);
-end;
-
-function TListHelper.InternalIndexOf2(const Value; Direction: Byte): Integer;
-begin
-  if Direction = Byte(System.Types.TDirection.FromBeginning) then
-    Result := DoIndexOfFwd2(Value)
-  else
-    Result := DoIndexOfRev2(Value);
-end;
-
-function TListHelper.InternalIndexOf4(const Value; Direction: Byte): Integer;
-begin
-  if Direction = Byte(System.Types.TDirection.FromBeginning) then
-    Result := DoIndexOfFwd4(Value)
-  else
-    Result := DoIndexOfRev4(Value);
-end;
-
-function TListHelper.InternalIndexOf8(const Value; Direction: Byte): Integer;
-begin
-  if Direction = Byte(System.Types.TDirection.FromBeginning) then
-    Result := DoIndexOfFwd8(Value)
-  else
-    Result := DoIndexOfRev8(Value);
-end;
-
-function TListHelper.InternalIndexOfMRef(const Value; Direction: Byte): Integer;
-begin
-  if Direction = Byte(System.Types.TDirection.FromBeginning) then
-    Result := DoIndexOfFwdMRef(Value)
-  else
-    Result := DoIndexOfRevMRef(Value);
-end;
-
-function TListHelper.InternalIndexOfN(const Value; Direction: Byte): Integer;
-begin
-  if Direction = Byte(System.Types.TDirection.FromBeginning) then
-    Result := DoIndexOfFwdN(Value)
-  else
-    Result := DoIndexOfRevN(Value);
-end;
-
-procedure TListHelper.InternalInsert1(AIndex: Integer; const Value);
-begin
-  CheckInsertRange(AIndex);
-
-  InternalGrowCheck(FCount + 1);
-  if AIndex <> FCount then
-    Move(PByte(FItems^)[AIndex], PByte(FItems^)[AIndex + 1], FCount - AIndex);
-  PByte(FItems^)[AIndex] := Byte(Value);
-  Inc(FCount);
-  FNotify(Value, cnAdded);
-end;
-
-procedure TListHelper.InternalInsert2(AIndex: Integer; const Value);
-begin
-  CheckInsertRange(AIndex);
-
-  InternalGrowCheck(FCount + 1);
-  if AIndex <> FCount then
-    Move(PWord(FItems^)[AIndex], PWord(FItems^)[AIndex + 1], (FCount - AIndex) * SizeOf(Word));
-  PWord(FItems^)[AIndex] := Word(Value);
-  Inc(FCount);
-  FNotify(Value, cnAdded);
-end;
-
-procedure TListHelper.InternalInsert4(AIndex: Integer; const Value);
-begin
-  CheckInsertRange(AIndex);
-
-  InternalGrowCheck(FCount + 1);
-  if AIndex <> FCount then
-    Move(PCardinal(FItems^)[AIndex], PCardinal(FItems^)[AIndex + 1], (FCount - AIndex) * SizeOf(Cardinal));
-  PCardinal(FItems^)[AIndex] := Cardinal(Value);
-  Inc(FCount);
-  FNotify(Value, cnAdded);
-end;
-
-procedure TListHelper.InternalInsert8(AIndex: Integer; const Value);
-begin
-  CheckInsertRange(AIndex);
-
-  InternalGrowCheck(FCount + 1);
-  if AIndex <> FCount then
-    Move(PUInt64(FItems^)[AIndex], PUInt64(FItems^)[AIndex + 1], (FCount - AIndex) * SizeOf(UInt64));
-  PUInt64(FItems^)[AIndex] := UInt64(Value);
-  Inc(FCount);
-  FNotify(Value, cnAdded);
-end;
-
-procedure TListHelper.InternalInsertManaged(AIndex: Integer; const Value);
-var
-  ElemSize: Integer;
-begin
-  CheckInsertRange(AIndex);
-
-  InternalGrowCheck(FCount + 1);
-  ElemSize := ElSize;
-  if AIndex <> FCount then
-    CopyArray(PByte(FItems^) + (AIndex + 1) * ElemSize, PByte(FItems^) + AIndex * ElemSize, ElType, ElemSize, FCount - AIndex);
-  System.CopyArray(PByte(FItems^) + AIndex * ElemSize, @Value, ElType, 1);
-  Inc(FCount);
-  FNotify(Value, cnAdded);
-end;
-
-procedure TListHelper.InternalInsertMRef(AIndex: Integer; const Value; TypeKind: TTypeKind);
-begin
-  if IsConstValue(TypeKind) then
-  begin
-    case TypeKind of
-      TTypeKind.tkUString: DoInsertString(AIndex, Value);
-      TTypeKind.tkDynArray: DoInsertDynArray(AIndex, Value);
-      TTypeKind.tkInterface: DoInsertInterface(AIndex, Value);
-{$IF Defined(AUTOREFCOUNT)}
-      TTypeKind.tkClass: DoInsertObject(AIndex, Value);
-{$IFEND}
-{$IF not Defined(NEXTGEN)}
-      TTypeKind.tkLString: DoInsertAnsiString(AIndex, Value);
-      TTypeKind.tkWString: DoInsertWideString(AIndex, Value);
-{$IFEND}
-    end;
-  end else
-    System.Error(rePlatformNotImplemented);
-end;
-
-procedure TListHelper.InternalInsertN(AIndex: Integer; const Value);
-var
-  ElemSize: Integer;
-begin
-  CheckInsertRange(AIndex);
-
-  InternalGrowCheck(FCount + 1);
-  ElemSize := ElSize;
-  if AIndex <> FCount then
-    Move(PByte(FItems^)[AIndex * ElemSize], PByte(FItems^)[(AIndex + 1) * ElemSize], (FCount - AIndex) * ElemSize);
-  Move(Value, PByte(FItems^)[AIndex * ElemSize], ElemSize);
-  Inc(FCount);
-  FNotify(Value, cnAdded);
-end;
-
-procedure TListHelper.InternalInsertRange1(AIndex: Integer; Values: Pointer; ACount: Integer);
-var
-  I: Integer;
-begin
-  CheckInsertRange(AIndex);
-
-  InternalGrowCheck(FCount + ACount);
-  if AIndex <> FCount then
-    Move(PByte(FItems^)[AIndex], PByte(FItems^)[AIndex + ACount], FCount - AIndex);
-
-  Move(PByte(Values)[0], PByte(FItems^)[AIndex], ACount);
-
-  Inc(FCount, ACount);
-
-  for I := 0 to ACount - 1 do
-    FNotify(PByte(Values)[I], cnAdded);
-end;
-
-procedure TListHelper.InternalInsertRange2(AIndex: Integer; Values: Pointer; ACount: Integer);
-var
-  I: Integer;
-begin
-  CheckInsertRange(AIndex);
-
-  InternalGrowCheck(FCount + ACount);
-  if AIndex <> FCount then
-    Move(PWord(FItems^)[AIndex], PWord(FItems^)[AIndex + ACount], (FCount - AIndex) * SizeOf(Word));
-
-  Move(PWord(Values)[0], PWord(FItems^)[AIndex], ACount * SizeOf(Word));
-
-  Inc(FCount, ACount);
-
-  for I := 0 to ACount - 1 do
-    FNotify(PWord(Values)[I], cnAdded);
-end;
-
-procedure TListHelper.InternalInsertRange4(AIndex: Integer; Values: Pointer; ACount: Integer);
-var
-  I: Integer;
-begin
-  CheckInsertRange(AIndex);
-
-  InternalGrowCheck(FCount + ACount);
-  if AIndex <> FCount then
-    Move(PCardinal(FItems^)[AIndex], PCardinal(FItems^)[AIndex + ACount], (FCount - AIndex) * SizeOf(Cardinal));
-
-  Move(PCardinal(Values)[0], PCardinal(FItems^)[AIndex], ACount * SizeOf(Cardinal));
-
-  Inc(FCount, ACount);
-
-  for I := 0 to ACount - 1 do
-    FNotify(PCardinal(Values)[I], cnAdded);
-end;
-
-procedure TListHelper.InternalInsertRange8(AIndex: Integer; Values: Pointer; ACount: Integer);
-var
-  I: Integer;
-begin
-  CheckInsertRange(AIndex);
-
-  InternalGrowCheck(FCount + ACount);
-  if AIndex <> FCount then
-    Move(PUInt64(FItems^)[AIndex], PUInt64(FItems^)[AIndex + ACount], (FCount - AIndex) * SizeOf(UInt64));
-
-  Move(PUInt64(Values)[0], PUInt64(FItems^)[AIndex], ACount * SizeOf(UInt64));
-
-  Inc(FCount, ACount);
-
-  for I := 0 to ACount - 1 do
-    FNotify(PUInt64(Values)[I], cnAdded);
-end;
-
-procedure TListHelper.InternalInsertRangeManaged(AIndex: Integer; Values: Pointer; ACount: Integer);
-var
-  I, ElemSize: Integer;
-begin
-  CheckInsertRange(AIndex);
-
-  InternalGrowCheck(FCount + ACount);
-  ElemSize := ElSize;
-  if AIndex <> FCount then
-  begin
-    CopyArray(@PByte(FItems^)[(AIndex + ACount) * ElemSize], @PByte(FItems^)[AIndex * ElemSize], ElType, ElemSize, FCount - AIndex);
-    FillChar(PByte(FItems^)[AIndex * ElemSize], ACount * ElemSize, 0);
-  end;
-
-  CopyArray(@PByte(FItems^)[AIndex * ElemSize], @PByte(Values)[0], ElType, ElemSize, ACount);
-
-  Inc(FCount, ACount);
-
-  for I := 0 to ACount - 1 do
-    FNotify(PByte(Values)[I * ElemSize], cnAdded);
-end;
-
-procedure TListHelper.InternalInsertRangeN(AIndex: Integer; Values: Pointer; ACount: Integer);
-var
-  I, ElemSize: Integer;
-begin
-  CheckInsertRange(AIndex);
-
-  InternalGrowCheck(FCount + ACount);
-  ElemSize := ElSize;
-  if AIndex <> FCount then
-    Move(PByte(FItems^)[AIndex * ElemSize], PByte(FItems^)[(AIndex + ACount) * ElemSize], (FCount - AIndex) * ElemSize);
-
-  Move(PByte(Values)[0], PByte(FItems^)[AIndex * ElemSize], ACount * ElemSize);
-
-  Inc(FCount, ACount);
-
-  for I := 0 to ACount - 1 do
-    FNotify(PByte(Values)[I * ElemSize], cnAdded);
-end;
-
-procedure TListHelper.InternalInsertVariant(AIndex: Integer; const Value);
-begin
-  CheckInsertRange(AIndex);
-
-  InternalGrowCheck(FCount + 1);
-  if AIndex <> FCount then
-    Move(PVariant(FItems^)[AIndex], PVariant(FItems^)[AIndex + 1], (FCount - AIndex) * SizeOf(Variant));
-  PVariant(FItems^)[AIndex] := Variant(Value);
-  Inc(FCount);
-  FNotify(Value, cnAdded);
-end;
-
-procedure TListHelper.InternalMove1(CurIndex, NewIndex: Integer);
-var
-  Temp: Byte;
-begin
-  if CurIndex <> NewIndex then
-  begin
-    CheckItemRangeInline(NewIndex);
-
-    Temp := PByte(FItems^)[CurIndex];
-    if CurIndex < NewIndex then
-      Move(PByte(FItems^)[CurIndex + 1], PByte(FItems^)[CurIndex], NewIndex - CurIndex)
-    else
-      Move(PByte(FItems^)[NewIndex], PByte(FItems^)[NewIndex + 1], CurIndex - NewIndex);
-
-    PByte(FItems^)[NewIndex] := Temp;
-  end;
-end;
-
-procedure TListHelper.InternalMove2(CurIndex, NewIndex: Integer);
-var
-  Temp: Word;
-begin
-  if CurIndex <> NewIndex then
-  begin
-    CheckItemRangeInline(NewIndex);
-
-    Temp := PWord(FItems^)[CurIndex];
-    if CurIndex < NewIndex then
-      Move(PWord(FItems^)[CurIndex + 1], PWord(FItems^)[CurIndex], (NewIndex - CurIndex) * SizeOf(Word))
-    else
-      Move(PWord(FItems^)[NewIndex], PWord(FItems^)[NewIndex + 1], (CurIndex - NewIndex) * SizeOf(Word));
-
-    PWord(FItems^)[NewIndex] := Temp;
-  end;
-end;
-
-procedure TListHelper.InternalMove4(CurIndex, NewIndex: Integer);
-var
-  Temp: Cardinal;
-begin
-  if CurIndex <> NewIndex then
-  begin
-    CheckItemRangeInline(NewIndex);
-
-    Temp := PCardinal(FItems^)[CurIndex];
-    if CurIndex < NewIndex then
-      Move(PCardinal(FItems^)[CurIndex + 1], PCardinal(FItems^)[CurIndex], (NewIndex - CurIndex) * SizeOf(Cardinal))
-    else
-      Move(PCardinal(FItems^)[NewIndex], PCardinal(FItems^)[NewIndex + 1], (CurIndex - NewIndex) * SizeOf(Cardinal));
-
-    PCardinal(FItems^)[NewIndex] := Temp;
-  end;
-end;
-
-procedure TListHelper.InternalMove8(CurIndex, NewIndex: Integer);
-var
-  Temp: UInt64;
-begin
-  if CurIndex <> NewIndex then
-  begin
-    CheckItemRangeInline(NewIndex);
-
-    Temp := PUInt64(FItems^)[CurIndex];
-    if CurIndex < NewIndex then
-      Move(PUInt64(FItems^)[CurIndex + 1], PUInt64(FItems^)[CurIndex], (NewIndex - CurIndex) * SizeOf(UInt64))
-    else
-      Move(PUInt64(FItems^)[NewIndex], PUInt64(FItems^)[NewIndex + 1], (CurIndex - NewIndex) * SizeOf(UInt64));
-
-    PUInt64(FItems^)[NewIndex] := Temp;
-  end;
-end;
-
-procedure TListHelper.InternalMoveManaged(CurIndex, NewIndex: Integer);
-var
-  STemp: array[0..63] of Byte;
-  DTemp: PByte;
-  PTemp: PByte;
-  ElemSize: Integer;
-begin
-  if CurIndex <> NewIndex then
-  begin
-    CheckItemRangeInline(NewIndex);
-
-    DTemp := nil;
-    PTemp := Pointer(@STemp);
-    try
-      ElemSize := ElSize;
-      if ElemSize > SizeOf(STemp) then
-      begin
-        DTemp := AllocMem(ElemSize);
-        PTemp := DTemp;
-      end else
-        FillChar(STemp, SizeOf(STemp), 0);
-      System.CopyArray(@PTemp[0], @PByte(FItems^)[CurIndex * ElemSize], ElType, 1);
-      if CurIndex < NewIndex then
-        CopyArray(@PByte(FItems^)[CurIndex * ElemSize], @PByte(FItems^)[(CurIndex + 1) * ElemSize], ElType, ElemSize, NewIndex - CurIndex)
-      else
-        CopyArray(@PByte(FItems^)[(NewIndex + 1) * ElemSize], @PByte(FItems^)[NewIndex * ElemSize], ElType, ElemSize, CurIndex - NewIndex);
-      FinalizeArray(@PByte(FItems^)[NewIndex * ElemSize], ElType, 1);
-      System.CopyArray(@PByte(FItems^)[NewIndex * ElemSize], @PTemp[0], ElType, 1);
-    finally
-      FinalizeArray(PTemp, ElType, 1);
-      FreeMem(DTemp);
-    end;
-  end;
-end;
-
-procedure TListHelper.InternalMoveMRef(CurIndex, NewIndex: Integer);
-var
-  Temp: Pointer;
-begin
-  if CurIndex <> NewIndex then
-  begin
-    CheckItemRangeInline(NewIndex);
-
-    Temp := nil;
-    AtomicExchange(Temp, PPointer(FItems^)[CurIndex]); // this sequence "transfers" the current reference to Temp
-    PPointer(FItems^)[CurIndex] := nil;
-    if CurIndex < NewIndex then
-      Move(PPointer(FItems^)[CurIndex + 1], PPointer(FItems^)[CurIndex], (NewIndex - CurIndex) * SizeOf(Pointer))
-    else
-      Move(PPointer(FItems^)[NewIndex], PPointer(FItems^)[NewIndex + 1], (CurIndex - NewIndex) * SizeOf(Pointer));
-
-    AtomicExchange(PPointer(FItems^)[NewIndex], Temp); // "transfer" the reference to the new location
-  end;
-end;
-
-procedure TListHelper.InternalMoveN(CurIndex, NewIndex: Integer);
-var
-  STemp: array[0..63] of Byte;
-  DTemp: PByte;
-  PTemp: PByte;
-  ElemSize: Integer;
-begin
-  if CurIndex <> NewIndex then
-  begin
-    CheckItemRangeInline(NewIndex);
-
-    DTemp := nil;
-    PTemp := Pointer(@STemp);
-    try
-      ElemSize := ElSize;
-      if ElemSize > SizeOf(STemp) then
-      begin
-        GetMem(DTemp, ElemSize);
-        PTemp := DTemp;
-      end;
-      Move(PByte(FItems^)[CurIndex * ElemSize], PTemp[0], ElemSize);
-      if CurIndex < NewIndex then
-        Move(PByte(FItems^)[(CurIndex + 1) + ElemSize], PByte(FItems^)[CurIndex * ElemSize], (NewIndex - CurIndex) * ElemSize)
-      else
-        Move(PByte(FItems^)[NewIndex + ElemSize], PByte(FItems^)[(NewIndex + 1) * ElemSize], (CurIndex - NewIndex) * ElemSize);
-
-      Move(PTemp[0], PByte(FItems^)[NewIndex + ElemSize], ElemSize);
-    finally
-      FreeMem(DTemp);
-    end;
-  end;
-end;
-
-procedure TListHelper.InternalPackInline(const IsEmpty: TInternalEmptyFunc);
-var
-  PackedCount: Integer;
-  StartIndex: Integer;
-  EndIndex: Integer;
-  ElemSize: Integer;
-begin
-  if FCount = 0 then
-    Exit;
-
-  ElemSize := ElSize;
-  PackedCount := 0;
-  StartIndex := 0;
-  repeat
-    // Locate the first/next non-nil element in the list
-//    while (StartIndex < FCount) and (FComparer.Compare(FItems[StartIndex], Default(T)) = 0) do
-    while (StartIndex < FCount) and IsEmpty(PByte(FItems^)[StartIndex * ElemSize]) do
-      Inc(StartIndex);
-
-    if StartIndex < FCount then // There is nothing more to do
-    begin
-      // Locate the next nil pointer
-      EndIndex := StartIndex;
-//      while (EndIndex < FCount) and (FComparer.Compare(FItems[EndIndex], Default(T)) <> 0) do
-      while (EndIndex < FCount) and not IsEmpty(PByte(FItems^)[EndIndex * ElemSize]) do
-        Inc(EndIndex);
-      Dec(EndIndex);
-
-      // Move this block of non-null items to the index recorded in PackedToCount:
-      // If this is a contiguous non-nil block at the start of the list then
-      // StartIndex and PackedToCount will be equal (and 0) so don't bother with the move.
-      if StartIndex > PackedCount then
-        Move(PByte(FItems^)[StartIndex * ElemSize], PByte(FItems^)[PackedCount * ELemSize], (EndIndex - StartIndex + 1) * ElemSize);
-
-      // Set the PackedToCount to reflect the number of items in the list
-      // that have now been packed.
-      Inc(PackedCount, EndIndex - StartIndex + 1);
-
-      // Reset StartIndex to the element following EndIndex
-      StartIndex := EndIndex + 1;
-    end;
-  until StartIndex >= FCount;
-
-  // Set Count so that the 'free' item
-  FCount := PackedCount;
-end;
-
-procedure TListHelper.InternalPack1(const IsEmpty: TInternalEmptyFunc);
-begin
-  InternalPackInline(IsEmpty);
-end;
-
-procedure TListHelper.InternalPack2(const IsEmpty: TInternalEmptyFunc);
-begin
-  InternalPackInline(IsEmpty);
-end;
-
-procedure TListHelper.InternalPack4(const IsEmpty: TInternalEmptyFunc);
-begin
-  InternalPackInline(IsEmpty);
-end;
-
-procedure TListHelper.InternalPack8(const IsEmpty: TInternalEmptyFunc);
-begin
-  InternalPackInline(IsEmpty);
-end;
-
-procedure TListHelper.InternalPackManaged(const IsEmpty: TInternalEmptyFunc);
-var
-  PackedCount : Integer;
-  StartIndex : Integer;
-  EndIndex : Integer;
-  ElemSize: Integer;
-begin
-  if FCount = 0 then
-    Exit;
-
-  ElemSize := ElSize;
-  PackedCount := 0;
-  StartIndex := 0;
-  repeat
-    // Locate the first/next non-nil element in the list
-//    while (StartIndex < FCount) and (FComparer.Compare(FItems[StartIndex], Default(T)) = 0) do
-    while (StartIndex < FCount) and IsEmpty(PByte(FItems^)[StartIndex * ElemSize]) do
-      Inc(StartIndex);
-
-    if StartIndex < FCount then // There is nothing more to do
-    begin
-      // Locate the next nil pointer
-      EndIndex := StartIndex;
-//      while (EndIndex < FCount) and (FComparer.Compare(FItems[EndIndex], Default(T)) <> 0) do
-      while (EndIndex < FCount) and not IsEmpty(PByte(FItems^)[EndIndex * ElemSize]) do
-        Inc(EndIndex);
-      Dec(EndIndex);
-
-      // Move this block of non-null items to the index recorded in PackedToCount:
-      // If this is a contiguous non-nil block at the start of the list then
-      // StartIndex and PackedToCount will be equal (and 0) so don't bother with the move.
-      if StartIndex > PackedCount then
-        CopyArray(@PByte(FItems^)[PackedCount * ELemSize], @PByte(FItems^)[StartIndex * ElemSize], ElType, ElemSize, EndIndex - StartIndex + 1);
-
-      // Set the PackedToCount to reflect the number of items in the list
-      // that have now been packed.
-      Inc(PackedCount, EndIndex - StartIndex + 1);
-
-      // Reset StartIndex to the element following EndIndex
-      StartIndex := EndIndex + 1;
-    end;
-  until StartIndex >= FCount;
-
-  // Set Count so that the 'free' item
-  FCount := PackedCount;
-end;
-
-procedure TListHelper.InternalPackN(const IsEmpty: TInternalEmptyFunc);
-begin
-  InternalPackInline(IsEmpty);
-end;
-
-function TListHelper.InternalRemove1(const Value; Direction: Byte): Integer;
-begin
-  if Direction = Byte(TDirection.FromBeginning) then
-    Result := DoRemoveFwd1(Value)
-  else
-    Result := DoRemoveRev1(Value);
-end;
-
-function TListHelper.InternalRemove2(const Value; Direction: Byte): Integer;
-begin
-  if Direction = Byte(TDirection.FromBeginning) then
-    Result := DoRemoveFwd2(Value)
-  else
-    Result := DoRemoveRev2(Value);
-end;
-
-function TListHelper.InternalRemove4(const Value; Direction: Byte): Integer;
-begin
-  if Direction = Byte(TDirection.FromBeginning) then
-    Result := DoRemoveFwd4(Value)
-  else
-    Result := DoRemoveRev4(Value);
-end;
-
-function TListHelper.InternalRemove8(const Value; Direction: Byte): Integer;
-begin
-  if Direction = Byte(TDirection.FromBeginning) then
-    Result := DoRemoveFwd8(Value)
-  else
-    Result := DoRemoveRev8(Value);
-end;
-
-function TListHelper.InternalRemoveMRef(const Value; Direction: Byte): Integer;
-begin
-  if Direction = Byte(TDirection.FromBeginning) then
-    Result := DoRemoveFwdMRef(Value)
-  else
-    Result := DoRemoveRevMRef(Value);
-end;
-
-function TListHelper.InternalRemoveN(const Value; Direction: Byte): Integer;
-begin
-  if Direction = Byte(TDirection.FromBeginning) then
-    Result := DoRemoveFwdN(Value)
-  else
-    Result := DoRemoveRevN(Value);
-end;
-
-procedure TListHelper.InternalReverse1;
-var
-  tmp: Byte;
-  b, e: Integer;
-begin
-  b := 0;
-  e := FCount - 1;
-  while b < e do
-  begin
-    tmp := PByte(FItems^)[b];
-    PByte(FItems^)[b] := PByte(FItems^)[e];
-    PByte(FItems^)[e] := tmp;
-    Inc(b);
-    Dec(e);
-  end;
-end;
-
-procedure TListHelper.InternalReverse2;
-var
-  tmp: Word;
-  b, e: Integer;
-begin
-  b := 0;
-  e := FCount - 1;
-  while b < e do
-  begin
-    tmp := PWord(FItems^)[b];
-    PWord(FItems^)[b] := PWord(FItems^)[e];
-    PWord(FItems^)[e] := tmp;
-    Inc(b);
-    Dec(e);
-  end;
-end;
-
-procedure TListHelper.InternalReverse4;
-var
-  tmp: Cardinal;
-  b, e: Integer;
-begin
-  b := 0;
-  e := FCount - 1;
-  while b < e do
-  begin
-    tmp := PCardinal(FItems^)[b];
-    PCardinal(FItems^)[b] := PCardinal(FItems^)[e];
-    PCardinal(FItems^)[e] := tmp;
-    Inc(b);
-    Dec(e);
-  end;
-end;
-
-procedure TListHelper.InternalReverse8;
-var
-  tmp: UInt64;
-  b, e: Integer;
-begin
-  b := 0;
-  e := FCount - 1;
-  while b < e do
-  begin
-    tmp := PUInt64(FItems^)[b];
-    PUInt64(FItems^)[b] := PUInt64(FItems^)[e];
-    PUInt64(FItems^)[e] := tmp;
-    Inc(b);
-    Dec(e);
-  end;
-end;
-
-procedure TListHelper.InternalReverseManaged;
-var
-  b, e: Integer;
-begin
-  b := 0;
-  e := FCount - 1;
-  while b < e do
-  begin
-    InternalExchangeManaged(b, e);
-    Inc(b);
-    Dec(e);
-  end;
-end;
-
-procedure TListHelper.InternalReverseMRef(Kind: TTypeKind);
-begin
-  case Kind of
-    TTypeKind.tkUString: DoReverseString;
-    TTypeKind.tkInterface: DoReverseInterface;
-    TTypeKind.tkVariant: DoReverseVariant;
-    TTypeKind.tkDynArray: DoReverseDynArray;
-{$IF not Defined(NEXTGEN)}
-    TTypeKind.tkLString: DoReverseAnsiString;
-    TTypeKind.tkWString: DoReverseWideString;
-{$IFEND}
-{$IF Defined(AUTOREFCOUNT)}
-    TTypeKind.tkClass: DoReverseObject;
-{$IFEND}
-  end;
-end;
-
-procedure TListHelper.InternalReverseN;
-var
-  b, e: Integer;
-begin
-  b := 0;
-  e := FCount - 1;
-  while b < e do
-  begin
-    InternalExchangeN(b, e);
-    Inc(b);
-    Dec(e);
-  end;
-end;
-
-procedure TListHelper.InternalSetCapacity(Value: NativeInt);
-begin
-  DynArraySetLength(FItems^, FTypeInfo, 1, @Value);
-end;
-
-procedure TListHelper.InternalSetCount1(Value: Integer);
-begin
-  if Value < 0 then
-    raise EArgumentOutOfRangeException.CreateRes(Pointer(@SArgumentOutOfRange));
-  if Value > DynArraySize(FItems^) then
-    InternalSetCapacity(Value);
-  if Value < FCount then
-    InternalDeleteRange1(Value, FCount - Value);
-  FCount := Value;
-end;
-
-procedure TListHelper.InternalSetCount2(Value: Integer);
-begin
-  if Value < 0 then
-    raise EArgumentOutOfRangeException.CreateRes(Pointer(@SArgumentOutOfRange));
-  if Value > DynArraySize(FItems^) then
-    InternalSetCapacity(Value);
-  if Value < FCount then
-    InternalDeleteRange2(Value, FCount - Value);
-  FCount := Value;
-end;
-
-procedure TListHelper.InternalSetCount4(Value: Integer);
-begin
-  if Value < 0 then
-    raise EArgumentOutOfRangeException.CreateRes(Pointer(@SArgumentOutOfRange));
-  if Value > DynArraySize(FItems^) then
-    InternalSetCapacity(Value);
-  if Value < FCount then
-    InternalDeleteRange4(Value, FCount - Value);
-  FCount := Value;
-end;
-
-procedure TListHelper.InternalSetCount8(Value: Integer);
-begin
-  if Value < 0 then
-    raise EArgumentOutOfRangeException.CreateRes(Pointer(@SArgumentOutOfRange));
-  if Value > DynArraySize(FItems^) then
-    InternalSetCapacity(Value);
-  if Value < FCount then
-    InternalDeleteRange8(Value, FCount - Value);
-  FCount := Value;
-end;
-
-procedure TListHelper.InternalSetCountManaged(Value: Integer);
-begin
-  if Value < 0 then
-    raise EArgumentOutOfRangeException.CreateRes(Pointer(@SArgumentOutOfRange));
-  if Value > DynArraySize(FItems^) then
-    InternalSetCapacity(Value);
-  if Value < FCount then
-    InternalDeleteRangeManaged(Value, FCount - Value);
-  FCount := Value;
-end;
+{ TCustomList<T> }
 
-procedure TListHelper.InternalSetCountMRef(Value: Integer);
+constructor TCustomList<T>.Create;
 begin
-  if Value < 0 then
-    raise EArgumentOutOfRangeException.CreateRes(Pointer(@SArgumentOutOfRange));
-  if Value > DynArraySize(FItems^) then
-    InternalSetCapacity(Value);
-  if Value < FCount then
-    InternalDeleteRangeMRef(Value, FCount - Value);
-  FCount := Value;
+  inherited Create;
+  SetNotifyMethods;
 end;
 
-{$IF Defined(WEAKREF)}
-procedure TListHelper.InternalSetCountWeak(Value: Integer);
+destructor TCustomList<T>.Destroy;
 begin
-  if Value < 0 then
-    raise EArgumentOutOfRangeException.CreateRes(Pointer(@SArgumentOutOfRange));
-  if Value > DynArraySize(FItems^) then
-    InternalSetCapacity(Value);
-  if Value < FCount then
-    InternalDeleteRangeWeak(Value, FCount - Value);
-  FCount := Value;
+  Clear;
+  ClearMethod(FInternalNotify);
+  inherited;
 end;
-{$IFEND}
 
-procedure TListHelper.InternalSetCountN(Value: Integer);
+class procedure TCustomList<T>.ClearMethod(var Method);
 begin
-  if Value < 0 then
-    raise EArgumentOutOfRangeException.CreateRes(Pointer(@SArgumentOutOfRange));
-  if Value > DynArraySize(FItems^) then
-    InternalSetCapacity(Value);
-  if Value < FCount then
-    InternalDeleteRangeN(Value, FCount - Value);
-  FCount := Value;
+  {$ifdef WEAKREF}
+    TMethod(Method).Data := nil;
+  {$endif}
 end;
 
-procedure TListHelper.InternalToArray(var Dest: Pointer);
-var
-  LSize: NativeInt;
+class function TCustomList<T>.EmptyException: Exception;
 begin
-  LSize := FCount;
-  DynArraySetLength(Dest, FTypeInfo, 1, @LSize);
-  Move(PByte(FItems^)[0], PByte(Dest)[0], LSize * ElSize);
+  Result := EListError.CreateRes(Pointer(@SUnbalancedOperation));
 end;
 
-procedure TListHelper.InternalToArrayManaged(var Dest: Pointer);
+procedure TCustomList<T>.SetCapacity(Value: Integer);
 var
-  LSize: NativeInt;
-begin
-  LSize := FCount;
-  DynArraySetLength(Dest, FTypeInfo, 1, @LSize);
-  System.CopyArray(Dest, @PByte(FItems^)[0], ElType, LSize);
-end;
-
-
-{ TList<T> }
-
-function TList<T>.GetCapacity: Integer;
-begin
-  Result := Length(FItems);
-end;
-
-procedure TList<T>.SetCapacity(Value: Integer);
+  Dif, NewTail: NativeInt;
 begin
+  if (Value = FCapacity.Int) then Exit;
   if Value < Count then
-    Count := Value;
-  SetLength(FItems, Value);
-end;
+    raise EArgumentOutOfRangeException.CreateRes(Pointer(@SArgumentOutOfRange));
 
-procedure TList<T>.SetCount(Value: Integer);
-begin
-  if IsManagedType(T) then
+  if (FTail <= FHead) then
   begin
-{$IF Defined(WEAKREF)}
-    if System.HasWeakRef(T) then
-      FListHelper.InternalSetCountWeak(Value)
-    else
-{$IFEND}
-    if (SizeOf(T) = SizeOf(Pointer)) and (GetTypeKind(T) <> tkRecord) then
-      FListHelper.InternalSetCountMRef(Value)
-    else
-      FListHelper.InternalSetCountManaged(Value);
+    if (FTail <> 0) then
+    begin
+      Move(FItems[FTail], FItems[0], FCount.Native * SizeOf(T));
+      Dec(FHead, FTail);
+      FTail := 0;
+    end;
+
+    FCapacity.Native := Value;
+    ReallocMem(FItems, Value * SizeOf(T));
   end else
-  case SizeOf(T) of
-    1: FListHelper.InternalSetCount1(Value);
-    2: FListHelper.InternalSetCount2(Value);
-    4: FListHelper.InternalSetCount4(Value);
-    8: FListHelper.InternalSetCount8(Value);
-  else
-    FListHelper.InternalSetCountN(Value)
+  begin
+    Dif := NativeInt(Value) - FCapacity.Native;
+    NewTail := FTail + Dif;
+
+    if (Dif > 0) then
+    begin
+      ReallocMem(FItems, Value * SizeOf(T));
+      Move(FItems[FTail], FItems[NewTail], FCapacity.Native - FTail - 1);
+    end else
+    //if (Dif < 0) then
+    begin
+      Move(FItems[FTail], FItems[NewTail], FCapacity.Native - FTail - 1);
+      ReallocMem(FItems, Value * SizeOf(T));
+    end;
+
+    FCapacity.Native := Value;
+    FTail := NewTail;
   end;
 end;
 
-function TList<T>.GetItem(Index: Integer): T;
+procedure TCustomList<T>.Grow;
+var
+  OldCapacity, NewCapacity: Integer;
 begin
-  FListHelper.CheckItemRange(Index);
-  Result := FItems[Index];
+  OldCapacity := FCapacity.Int;
+  NewCapacity := OldCapacity * 2;
+  if (NewCapacity < 0) then
+    OutOfMemoryError;
+  if (NewCapacity < 4) then
+    NewCapacity := 4;
+
+  SetCapacity(NewCapacity);
 end;
 
-procedure TList<T>.SetItem(Index: Integer; const Value: T);
+procedure TCustomList<T>.GrowTo(Value: Integer);
+var
+  OldCapacity, NewCapacity: Integer;
 begin
-  if IsManagedType(T) then
+  OldCapacity := FCapacity.Int;
+  NewCapacity := OldCapacity * 2;
+  if (NewCapacity < 0) then
+    OutOfMemoryError;
+  if (NewCapacity < 4) then
+    NewCapacity := 4;
+
+  while (NewCapacity < Value) do
   begin
-    if (SizeOf(T) = SizeOf(Pointer)) and not System.HasWeakRef(T) and (GetTypeKind(T) <> tkRecord) then
-      FListHelper.SetItemMRef(Value, Index, GetTypeKind(T))
-    else if GetTypeKind(T) = TTypeKind.tkVariant then
-      FListHelper.SetItemVariant(Value, Index)
-    else
-      FListHelper.SetItemManaged(Value, Index);
-  end else
-  case SizeOf(T) of
-    1: FListHelper.SetItem1(Value, Index);
-    2: FListHelper.SetItem2(Value, Index);
-    4: FListHelper.SetItem4(Value, Index);
-    8: FListHelper.SetItem8(Value, Index);
-  else
-    FListHelper.SetItemN(Value, Index);
+    NewCapacity := NewCapacity * 2;
+    if (NewCapacity < 0) then
+      OutOfMemoryError;
+  end;
+
+  SetCapacity(NewCapacity)
+end;
+
+procedure TCustomList<T>.Clear;
+var
+  i: NativeInt;
+  Item: PItem;
+begin
+  if (FItems = nil) then Exit;
+
+  if (Assigned(FInternalNotify)) then
+  begin
+    Item := @FItems[FTail];
+
+    if (FTail <= FHead) then
+    begin
+      if (TMethod(FInternalNotify).Code = @TCustomList<T>.NotifyCaller) then
+      begin
+        for i := 1 to FCount.Native do
+        begin
+          Self.Notify(Item^, cnRemoved);
+          Inc(Item);
+        end;
+      end else
+      begin
+        for i := 1 to FCount.Native do
+        begin
+          FInternalNotify(Self, Item^, cnRemoved);
+          Inc(Item);
+        end;
+      end;
+    end else
+    if (TMethod(FInternalNotify).Code = @TCustomList<T>.NotifyCaller) then
+    begin
+      for i := FTail to FCapacity.Native - 1 do
+      begin
+        Self.Notify(Item^, cnRemoved);
+        Inc(Item);
+      end;
+      Item := @FItems[0];
+      for i := 0 to FHead - 1 do
+      begin
+        Self.Notify(Item^, cnRemoved);
+        Inc(Item);
+      end;
+    end else
+    begin
+      for i := FTail to FCapacity.Native - 1 do
+      begin
+        FInternalNotify(Self, Item^, cnRemoved);
+        Inc(Item);
+      end;
+      Item := @FItems[0];
+      for i := 0 to FHead - 1 do
+      begin
+        FInternalNotify(Self, Item^, cnRemoved);
+        Inc(Item);
+      end;
+    end;
+  end;
+
+  {$ifdef SMARTGENERICS}
+  if (System.IsManagedType(T) or System.HasWeakRef(T)) then
+  {$else}
+  if Assigned(TRAIIHelper<T>.FOptions.ClearProc) then
+  {$endif}
+  begin
+    if (FTail <= FHead) then
+    begin
+      TRAIIHelper<T>.ClearArray(@FItems[FTail], FCount.Native);
+    end else
+    begin
+      TRAIIHelper<T>.ClearArray(@FItems[FTail], FCapacity.Native - FTail - 1);
+      TRAIIHelper<T>.ClearArray(@FItems[0], FHead);
+    end;
+  end;
+
+  FCount.Native := 0;
+  FCapacity.Native := 0;
+  FTail := 0;
+  FHead := 0;
+  ReallocMem(FItems, 0);
+end;
+
+procedure TCustomList<T>.TrimExcess;
+begin
+  SetCapacity(Count);
+end;
+
+procedure TCustomList<T>.SetOnNotify(const Value: TCollectionNotifyEvent<T>);
+begin
+  if (@FOnNotify <> @Value) then
+  begin
+    FOnNotify := Value;
+    SetNotifyMethods;
   end;
 end;
 
-//procedure TList<T>.Grow(ACount: Integer);
-//begin
-//  FListHelper.InternalGrow(Pointer(FItems), TypeInfo(arrayOfT), ACount);
-//end;
-
-procedure TList<T>.GrowCheck(ACount: Integer);
-begin
-  FListHelper.InternalGrowCheck(ACount);
-end;
-
-procedure TList<T>.Notify(const Item: T; Action: TCollectionNotification);
+procedure TCustomList<T>.Notify(const Item: T; Action: TCollectionNotification);
 begin
   if Assigned(FOnNotify) then
     FOnNotify(Self, Item, Action);
 end;
 
-procedure TList<T>.Pack;
-var
-  IsEmpty: TListHelper.TInternalEmptyFunc;
+procedure TCustomList<T>.NotifyCaller(Sender: TObject; const Item: T; Action: TCollectionNotification);
 begin
-  IsEmpty := function (const Item): Boolean
-    begin
-      Result := FComparer.Compare(T(Item), Default(T)) = 0;
-    end;
-  if IsManagedType(T) then
-    FListHelper.InternalPackManaged(IsEmpty)
-  else
-  case SizeOf(T) of
-    1: FListHelper.InternalPack1(IsEmpty);
-    2: FListHelper.InternalPack2(IsEmpty);
-    4: FListHelper.InternalPack4(IsEmpty);
-    8: FListHelper.InternalPack8(IsEmpty);
-  else
-    FListHelper.InternalPackN(IsEmpty);
+  Self.Notify(Item, Action);
+end;
+
+procedure TCustomList<T>.SetNotifyMethods;
+var
+  VMTNotify: procedure(const Item: T; Action: TCollectionNotification) of object;
+begin
+  VMTNotify := Self.Notify;
+  if (TMethod(VMTNotify).Code <> @TCustomList<T>.Notify) then
+  begin
+    TMethod(FInternalNotify).Data := Pointer(Self);
+    TMethod(FInternalNotify).Code := @TCustomList<T>.NotifyCaller;
+  end else
+  begin
+    TMethod(FInternalNotify) := TMethod(Self.FOnNotify);
   end;
 end;
 
-procedure TList<T>.Pack(const IsEmpty: TEmptyFunc);
-var
-  LIsEmpty: TListHelper.TInternalEmptyFunc;
+function TCustomList<T>.DoGetEnumerator: TEnumerator<T>;
 begin
-  LIsEmpty := function (const Item): Boolean
+  Result := GetEnumerator;
+end;
+
+function TCustomList<T>.GetEnumerator: TEnumerator;
+begin
+  Result := TEnumerator.Create(Self);
+end;
+
+function TCustomList<T>.ToArray: TArray<T>;
+var
+  Count, TailCount: NativeInt;
+begin
+  Count := FCount.Native;
+  if (Count <> 0) then
+  begin
+    if (Pointer(Result) <> nil) then Result := nil;
+    SetLength(Result, Count);
+
+    if (FTail <= FHead) then
     begin
-      Result := IsEmpty(T(Item), Default(T));
+      {$ifdef SMARTGENERICS}
+      if (System.IsManagedType(T) or System.HasWeakRef(T)) then
+      {$else}
+      if Assigned(TRAIIHelper<T>.FOptions.ClearProc) then
+      {$endif}
+      begin
+        System.CopyArray(Pointer(Result), @FItems[FTail], TypeInfo(T), Count);
+      end else
+      begin
+        Move(FItems[FTail], Pointer(Result)^, Count * SizeOf(T));
+      end;
+    end else
+    begin
+      TailCount := FCapacity.Native - FTail - 1;
+
+      {$ifdef SMARTGENERICS}
+      if (System.IsManagedType(T) or System.HasWeakRef(T)) then
+      {$else}
+      if Assigned(TRAIIHelper<T>.FOptions.ClearProc) then
+      {$endif}
+      begin
+        System.CopyArray(Pointer(Result), @FItems[FTail], TypeInfo(T), TailCount);
+        System.CopyArray(@Result[TailCount], @FItems[0], TypeInfo(T), FHead);
+      end else
+      begin
+        Move(FItems[FTail], Pointer(Result)^, TailCount * SizeOf(T));
+        Move(FItems[0], Result[TailCount], FHead * SizeOf(T));
+      end;
     end;
-  if IsManagedType(T) then
-    FListHelper.InternalPackManaged(LIsEmpty)
-  else
-  case SizeOf(T) of
-    1: FListHelper.InternalPack1(LIsEmpty);
-    2: FListHelper.InternalPack2(LIsEmpty);
-    4: FListHelper.InternalPack4(LIsEmpty);
-    8: FListHelper.InternalPack8(LIsEmpty);
-  else
-    FListHelper.InternalPackN(LIsEmpty);
+  end else
+  begin
+    if (Pointer(Result) <> nil) then Result := nil;
   end;
 end;
+
+
+{ TList<T> }
 
 constructor TList<T>.Create;
 begin
-  Create(TComparer<T>.Default);
+  inherited Create;
 end;
 
 constructor TList<T>.Create(const AComparer: IComparer<T>);
 begin
-  inherited Create;
-  FListHelper.FNotify := InternalNotify;
-  FListHelper.FCompare := InternalCompare;
-  FListHelper.FTypeInfo := TypeInfo(arrayOfT);
-  FComparer := AComparer;
-  if FComparer = nil then
-    FComparer := TComparer<T>.Default;
+  Create;
+  if (Pointer(AComparer) <> @InterfaceDefaults.TDefaultComparer<T>.Instance) then
+    FComparer := AComparer;
 end;
 
 constructor TList<T>.Create(const Collection: TEnumerable<T>);
 begin
-  inherited Create;
-  FListHelper.FNotify := InternalNotify;
-  FListHelper.FCompare := InternalCompare;
-  FListHelper.FTypeInfo := TypeInfo(arrayOfT);
-  FComparer := TComparer<T>.Default;
+  Create;
   InsertRange(0, Collection);
-end;
-
-destructor TList<T>.Destroy;
-begin
-  Capacity := 0;
-  inherited;
 end;
 
 class procedure TList<T>.Error(const Msg: string; Data: NativeInt);
@@ -11313,98 +8349,526 @@ begin
   raise EListError.CreateFmt(Msg, [Data]) at ReturnAddress;
 end;
 
-{$IFNDEF NEXTGEN}
+{$ifNdef NEXTGEN}
 class procedure TList<T>.Error(Msg: PResStringRec; Data: NativeInt);
 begin
   raise EListError.CreateFmt(LoadResString(Msg), [Data]) at ReturnAddress;
 end;
-{$ENDIF  NEXTGEN}
+{$endif}
 
-function TList<T>.DoGetEnumerator: TEnumerator<T>;
+procedure TList<T>.SetCount(Value: Integer);
+var
+  Count: Integer;
 begin
-  Result := GetEnumerator;
-end;
-
-function TList<T>.Add(const Value: T): Integer;
-begin
-  if IsManagedType(T) then
+  Count := FCount.Int;
+  if (Value < 0) then
   begin
-    if (SizeOf(T) = SizeOf(Pointer)) and (GetTypeKind(T) <> tkRecord) then
-      Result := FListHelper.InternalAddMRef(Value, GetTypeKind(T))
-    else if GetTypeKind(T) = TTypeKind.tkVariant then
-      Result := FListHelper.InternalAddVariant(Value)
-    else
-      Result := FListHelper.InternalAddManaged(Value);
+    raise EArgumentOutOfRangeException.CreateRes(Pointer(@SArgumentOutOfRange));
   end else
-  case SizeOf(T) of
-    1: Result := FListHelper.InternalAdd1(Value);
-    2: Result := FListHelper.InternalAdd2(Value);
-    4: Result := FListHelper.InternalAdd4(Value);
-    8: Result := FListHelper.InternalAdd8(Value);
-  else
-    Result := FListHelper.InternalAddN(Value);
+  if (Value < Count) then
+  begin
+    DeleteRange(Value, Count - Value);
+  end else
+  if (Value > Count) then
+  begin
+    if (Value > FCapacity.Int) then
+      GrowTo(Value);
+
+    {$ifdef SMARTGENERICS}
+    if (System.IsManagedType(T) or System.HasWeakRef(T)) then
+    {$else}
+    if (Assigned(TRAIIHelper<T>.Options.InitProc)) then
+    {$endif}
+    begin
+      if (SizeOf(T) <= 16) then
+      begin
+        FillChar(FItems[FCount.Native], (Value - FCount.Int) * SizeOf(T), #0);
+      end else
+      begin
+        TRAIIHelper<T>.InitArray(@FItems[FCount.Native], Value - FCount.Int);
+      end;
+    end;
+
+    FCount.Int := Value;
   end;
 end;
 
-procedure TList<T>.AddRange(const Values: array of T);
+function TList<T>.GetItem(Index: Integer): T;
 begin
-  InsertRange(Count, Values);
+  if (Cardinal(Index) < Cardinal(FCount.Int)) then
+  begin
+    Result := FItems[Index];
+  end else
+  begin
+    raise EArgumentOutOfRangeException.CreateRes(Pointer(@SArgumentOutOfRange));
+  end;
 end;
 
-procedure TList<T>.AddRange(const Collection: IEnumerable<T>);
+procedure TList<T>.SetItem(Index: Integer; const Value: T);
 begin
-  InsertRange(Count, Collection);
+  if (Cardinal(Index) < Cardinal(FCount.Int)) then
+  begin
+    FItems[Index] := Value;
+  end else
+  begin
+    raise EArgumentOutOfRangeException.CreateRes(Pointer(@SArgumentOutOfRange));
+  end;
 end;
 
-procedure TList<T>.AddRange(const Collection: TEnumerable<T>);
+function TList<T>.First: T;
 begin
-  InsertRange(Count, Collection);
+  if (FCount.Native <> 0) then
+  begin
+    Result := FItems[0];
+  end else
+  begin
+    raise EArgumentOutOfRangeException.CreateRes(Pointer(@SArgumentOutOfRange));
+  end;
 end;
 
-function TList<T>.BinarySearch(const Item: T; out Index: Integer): Boolean;
+function TList<T>.Last: T;
+var
+  Count: NativeInt;
 begin
-  Result := TArray.BinarySearch<T>(FItems, Item, Index, FComparer, 0, Count);
+  Count := FCount.Native;
+  if (Count <> 0) then
+  begin
+    Dec(Count);
+    Result := FItems[Count];
+  end else
+  begin
+    raise EArgumentOutOfRangeException.CreateRes(Pointer(@SArgumentOutOfRange));
+  end;
 end;
 
-function TList<T>.BinarySearch(const Item: T; out Index: Integer;
-  const AComparer: IComparer<T>): Boolean;
+function TList<T>.ItemValue(const Item: T): NativeInt;
 begin
-  Result := TArray.BinarySearch<T>(FItems, Item, Index, AComparer, 0, Count);
+  case SizeOf(T) of
+    1: Result := PByte(@Item)^;
+    2: Result := PWord(@Item)^;
+    3: Result := PWord(@Item)^ + PByte(@Item)[2] shl 16;
+    {$ifdef LARGEINT}
+    4: Result := PCardinal(@Item)^;
+    5: Result := NativeInt(PCardinal(@Item)^) +
+       NativeInt(PByte(@Item)[4]) shl 32;
+    6: Result := NativeInt(PCardinal(@Item)^) +
+       NativeInt(PWord(PByte(@Item) + SizeOf(Cardinal))^) shl 32;
+    7: Result := NativeInt(PCardinal(@Item)^) +
+       NativeInt(PWord(PByte(@Item) + SizeOf(Cardinal))^) shl 32 + NativeInt(PByte(@Item)[6]) shl 48;
+    {$endif}
+  else
+    Result := PNativeInt(@Item)^;
+  end;
+end;
+
+function TList<T>.InternalInsert(Index: NativeInt; const Value: T): Integer;
+label
+  available;
+type
+  T16 = packed record
+  case Integer of
+    0: (Bytes: array[0..15] of Byte);
+    1: (Words: array[0..7] of Word);
+    2: (Integers: array[0..3] of Integer);
+    3: (Int64s: array[0..1] of Int64);
+  end;
+  P16 = ^T16;
+var
+  Count, Null: NativeInt;
+  Item: P16;
+begin
+  Result := Index;
+  Count := FCount.Native;
+  if (NativeUInt(Index) <= NativeUInt(Count)) then
+  begin
+    if (Count <> FCapacity.Native) then
+    begin
+    available:
+      Inc(Count);
+      FCount.Native := Count;
+      Dec(Count);
+      if (Index <> Count) then
+      begin
+        Count := (Count - Index) * SizeOf(T);
+        Item := Pointer(@FItems[Index]);
+        System.Move(Item^, PByte(PByte(Item) + SizeOf(T))^, Count);
+        Index := Result;
+      end;
+      Item := Pointer(@FItems[Index]);
+
+      {$ifdef SMARTGENERICS}
+      if (System.IsManagedType(T) or System.HasWeakRef(T)) then
+      {$else}
+      if (SizeOf(T) >= SizeOf(NativeInt)) then
+      {$endif}
+      begin
+        {$ifdef SMARTGENERICS}
+        if (GetTypeKind(T) = tkVariant) then
+        begin
+          Item.Integers[0] := 0;
+        end else
+        {$endif}
+        if (SizeOf(T) <= 16) then
+        begin
+          Null := 0;
+          {$ifdef SMALLINT}
+            if (SizeOf(T) >= SizeOf(Integer) * 1) then Item.Integers[0] := Null;
+            if (SizeOf(T) >= SizeOf(Integer) * 2) then Item.Integers[1] := Null;
+            if (SizeOf(T) >= SizeOf(Integer) * 3) then Item.Integers[2] := Null;
+            if (SizeOf(T)  = SizeOf(Integer) * 4) then Item.Integers[3] := Null;
+          {$else .LARGEINT}
+            if (SizeOf(T) >= SizeOf(Int64) * 1) then Item.Int64s[0] := Null;
+            if (SizeOf(T)  = SizeOf(Int64) * 2) then Item.Int64s[1] := Null;
+            case SizeOf(T) of
+               4..7: Item.Integers[0] := Null;
+             12..15: Item.Integers[2] := Null;
+            end;
+          {$endif}
+          case SizeOf(T) of
+             2,3: Item.Words[0] := 0;
+             6,7: Item.Words[2] := 0;
+           10,11: Item.Words[4] := 0;
+           14,15: Item.Words[6] := 0;
+          end;
+          case SizeOf(T) of
+             1: Item.Bytes[ 1-1] := 0;
+             3: Item.Bytes[ 3-1] := 0;
+             5: Item.Bytes[ 5-1] := 0;
+             7: Item.Bytes[ 7-1] := 0;
+             9: Item.Bytes[ 9-1] := 0;
+            11: Item.Bytes[11-1] := 0;
+            13: Item.Bytes[13-1] := 0;
+            15: Item.Bytes[15-1] := 0;
+          end;
+        end else
+        begin
+          TRAIIHelper<T>.Init(Pointer(Item));
+        end;
+      end;
+
+      PItem(Item)^ := Value;
+      if Assigned(FInternalNotify) then
+        FInternalNotify(Self, Value, cnAdded);
+    end else
+    begin
+      Self.Grow;
+      Count := FCount.Native;
+      Index := Result;
+      goto available;
+    end;
+  end else
+  begin
+    raise EArgumentOutOfRangeException.CreateRes(Pointer(@SArgumentOutOfRange));
+  end;
+end;
+
+function TList<T>.Add(const Value: T): Integer;
+type
+  T16 = packed record
+  case Integer of
+    0: (Bytes: array[0..15] of Byte);
+    1: (Words: array[0..7] of Word);
+    2: (Integers: array[0..3] of Integer);
+    3: (Int64s: array[0..1] of Int64);
+  end;
+  P16 = ^T16;
+var
+  Count, Null: NativeInt;
+  Item: P16;
+begin
+  Count := FCount.Native;
+  if (Count <> FCapacity.Native) and (not Assigned(FInternalNotify)) then
+  begin
+    Inc(Count);
+    FCount.Native := Count;
+    Dec(Count);
+    Item := Pointer(@FItems[Count]);
+
+    {$ifdef SMARTGENERICS}
+    if (System.IsManagedType(T) or System.HasWeakRef(T)) then
+    {$else}
+    if (SizeOf(T) >= SizeOf(NativeInt)) then
+    {$endif}
+    begin
+      {$ifdef SMARTGENERICS}
+      if (GetTypeKind(T) = tkVariant) then
+      begin
+        Item.Integers[0] := 0;
+      end else
+      {$endif}
+      if (SizeOf(T) <= 16) then
+      begin
+        Null := 0;
+        {$ifdef SMALLINT}
+          if (SizeOf(T) >= SizeOf(Integer) * 1) then Item.Integers[0] := Null;
+          if (SizeOf(T) >= SizeOf(Integer) * 2) then Item.Integers[1] := Null;
+          if (SizeOf(T) >= SizeOf(Integer) * 3) then Item.Integers[2] := Null;
+          if (SizeOf(T)  = SizeOf(Integer) * 4) then Item.Integers[3] := Null;
+        {$else .LARGEINT}
+          if (SizeOf(T) >= SizeOf(Int64) * 1) then Item.Int64s[0] := Null;
+          if (SizeOf(T)  = SizeOf(Int64) * 2) then Item.Int64s[1] := Null;
+          case SizeOf(T) of
+             4..7: Item.Integers[0] := Null;
+           12..15: Item.Integers[2] := Null;
+          end;
+        {$endif}
+        case SizeOf(T) of
+           2,3: Item.Words[0] := 0;
+           6,7: Item.Words[2] := 0;
+         10,11: Item.Words[4] := 0;
+         14,15: Item.Words[6] := 0;
+        end;
+        case SizeOf(T) of
+           1: Item.Bytes[ 1-1] := 0;
+           3: Item.Bytes[ 3-1] := 0;
+           5: Item.Bytes[ 5-1] := 0;
+           7: Item.Bytes[ 7-1] := 0;
+           9: Item.Bytes[ 9-1] := 0;
+          11: Item.Bytes[11-1] := 0;
+          13: Item.Bytes[13-1] := 0;
+          15: Item.Bytes[15-1] := 0;
+        end;
+      end else
+      begin
+        TRAIIHelper<T>.Init(Pointer(Item));
+      end;
+    end;
+
+    PItem(Item)^ := Value;
+    Result := Count;
+    Exit;
+  end else
+  begin
+    Result := InternalInsert(Count, Value);
+  end;
 end;
 
 procedure TList<T>.Insert(Index: Integer; const Value: T);
 begin
-  if IsManagedType(T) then
-  begin
-    if (SizeOf(T) = SizeOf(Pointer)) and (GetTypeKind(T) <> tkRecord) then
-      FListHelper.InternalInsertMRef(Index, Value, GetTypeKind(T))
-    else if GetTypeKind(T) = TTypeKind.tkVariant then
-      FListHelper.InternalInsertVariant(Index, Value)
-    else
-      FListHelper.InternalInsertManaged(Index, Value);
-  end else
-  case SizeOf(T) of
-    1: FListHelper.InternalInsert1(Index, Value);
-    2: FListHelper.InternalInsert2(Index, Value);
-    4: FListHelper.InternalInsert4(Index, Value);
-    8: FListHelper.InternalInsert8(Index, Value);
-  else
-    FListHelper.InternalInsertN(Index, Value);
+  InternalInsert(Index, Value);
+end;
+
+procedure TList<T>.AddRange(const Values: array of T);
+label
+  available, out_of_memory;
+var
+  Count, ValuesCount, i: NativeInt;
+  Item, Source, Buffer: PItem;
+  Stored: record
+    Self: Pointer;
+    InternalNotify: TMethod;
   end;
+begin
+  ValuesCount := High(Values);
+  if (ValuesCount < 0) then Exit;
+  Inc(ValuesCount);
+
+  Stored.Self := Self;
+  Stored.InternalNotify := TMethod(FInternalNotify);
+
+  Count := FCount.Native;
+  Inc(Count, ValuesCount);
+  if (NativeUInt(Count) > NativeUInt(High(Integer))) then goto out_of_memory;
+
+  if (Count <= FCapacity.Native) then
+  begin
+  available:
+    FCount.Native := Count;
+    Dec(Count, ValuesCount);
+    Buffer{Item} := @FItems[Count];
+
+    {$ifdef SMARTGENERICS}
+    if (System.IsManagedType(T) or System.HasWeakRef(T)) then
+    {$else}
+    if (Assigned(TRAIIHelper<T>.Options.InitProc)) then
+    {$endif}
+    begin
+      if (SizeOf(T) <= 16) then
+      begin
+        FillChar(Buffer{Item}^, ValuesCount * SizeOf(T), #0);
+      end else
+      begin
+        TRAIIHelper<T>.InitArray(Buffer{Item}, ValuesCount);
+      end;
+    end else
+    if (not Assigned(Stored.InternalNotify.Code)) then
+    begin
+      System.Move(Values[0], Buffer{Item}^, ValuesCount * SizeOf(T));
+      Exit;
+    end;
+
+    Source := @Values[0];
+    Item := Buffer{Item};
+    if (not Assigned(Stored.InternalNotify.Code)) then
+    begin
+      for ValuesCount := ValuesCount downto 1 do
+      begin
+        Item^ := Source^;
+        Inc(Source);
+        Inc(Item);
+      end;
+    end else
+    begin
+      for ValuesCount := ValuesCount downto 1 do
+      begin
+        Item^ := Source^;
+        TCollectionNotifyEvent<T>(Stored.InternalNotify)(Stored.Self, Source^, cnAdded);
+        Inc(Source);
+        Inc(Item);
+      end;
+    end;
+    Exit;
+  end else
+  begin
+    Self.GrowTo(Count);
+    Count := FCount.Native;
+    Inc(Count, ValuesCount);
+    goto available;
+  end;
+
+out_of_memory:
+  OutOfMemoryError;
 end;
 
 procedure TList<T>.InsertRange(Index: Integer; const Values: array of T);
+label
+  available, out_of_range, out_of_memory;
+var
+  Count, ValuesCount, AIndex: NativeInt;
+  Item, Source, Buffer: PItem;
+  Stored: record
+    Self: Pointer;
+    InternalNotify: TMethod;
+    ValuesCount: NativeInt;
+    TopSource: PItem;
+  end;
 begin
-  if IsManagedType(T) then
-    FListHelper.InternalInsertRangeManaged(Index, @Values, Length(Values))
-  else
-  case SizeOf(T) of
-    1: FListHelper.InternalInsertRange1(Index, @Values, Length(Values));
-    2: FListHelper.InternalInsertRange2(Index, @Values, Length(Values));
-    4: FListHelper.InternalInsertRange4(Index, @Values, Length(Values));
-    8: FListHelper.InternalInsertRange8(Index, @Values, Length(Values));
-  else
-    FListHelper.InternalInsertRangeN(Index, @Values, Length(Values));
+  ValuesCount := High(Values);
+  if (ValuesCount < 0) then Exit;
+  Inc(ValuesCount);
+
+  Stored.Self := Self;
+  Stored.InternalNotify := TMethod(FInternalNotify);
+  Stored.ValuesCount := ValuesCount;
+  AIndex := Index;
+
+  Count := FCount.Native;
+  if (NativeUInt(AIndex) > NativeUInt(Count)) then goto out_of_range;
+
+  Inc(Count, ValuesCount);
+  if (NativeUInt(Count) > NativeUInt(High(Integer))) then goto out_of_memory;
+
+  if (Count <= FCapacity.Native) then
+  begin
+  available:
+    FCount.Native := Count;
+    Dec(Count, AIndex);
+    Dec(Count, ValuesCount);
+    Buffer{Item} := @FItems[AIndex];
+    if (Count <> 0) then
+    begin
+      Count := Count * SizeOf(T);
+      Source := Buffer{Item} + Stored.ValuesCount;
+      System.Move(Buffer{Item}^, Source^, Count);
+    end;
+
+    {$ifdef SMARTGENERICS}
+    if (System.IsManagedType(T) or System.HasWeakRef(T)) then
+    {$else}
+    if (Assigned(TRAIIHelper<T>.Options.InitProc)) then
+    {$endif}
+    begin
+      if (SizeOf(T) <= 16) then
+      begin
+        FillChar(Buffer{Item}^, Stored.ValuesCount * SizeOf(T), #0);
+      end else
+      begin
+        TRAIIHelper<T>.InitArray(Buffer{Item}, Stored.ValuesCount);
+      end;
+    end else
+    if (not Assigned(Stored.InternalNotify.Code)) then
+    begin
+      System.Move(Values[0], Buffer{Item}^, Stored.ValuesCount * SizeOf(T));
+      Exit;
+    end;
+
+    Source := @Values[0];
+    Stored.TopSource := Source + Stored.ValuesCount;
+    Item := Buffer{Item};
+    if (not Assigned(Stored.InternalNotify.Code)) then
+    begin
+      repeat
+        Item^ := Source^;
+        Inc(Source);
+        Inc(Item);
+      until (Source = Stored.TopSource);
+    end else
+    begin
+      repeat
+        Item^ := Source^;
+        TCollectionNotifyEvent<T>(Stored.InternalNotify)(Stored.Self, Source^, cnAdded);
+        Inc(Source);
+        Inc(Item);
+      until (Source = Stored.TopSource);
+    end;
+    Exit;
+  end else
+  begin
+    Self.GrowTo(Count);
+    AIndex := Index;
+    ValuesCount := Stored.ValuesCount;
+    Count := FCount.Native;
+    Inc(Count, ValuesCount);
+    goto available;
+  end;
+
+out_of_range:
+  raise EArgumentOutOfRangeException.CreateRes(Pointer(@SArgumentOutOfRange));
+out_of_memory:
+  OutOfMemoryError;
+end;
+
+procedure TList<T>.AddRange(const Collection: IEnumerable<T>);
+var
+  Item: T;
+  Index: NativeInt;
+begin
+  if (not Assigned(FInternalNotify)) then
+  begin
+    for Item in Collection do
+    begin
+      Add(Item);
+    end;
+  end else
+  begin
+    Index := FCount.Native;
+    for Item in Collection do
+    begin
+      InternalInsert(Index, Item);
+      Inc(Index);
+    end;
+  end;
+end;
+
+procedure TList<T>.AddRange(const Collection: TEnumerable<T>);
+var
+  Item: T;
+  Index: NativeInt;
+begin
+  if (not Assigned(FInternalNotify)) then
+  begin
+    for Item in Collection do
+    begin
+      Add(Item);
+    end;
+  end else
+  begin
+    Index := FCount.Native;
+    for Item in Collection do
+    begin
+      InternalInsert(Index, Item);
+      Inc(Index);
+    end;
   end;
 end;
 
@@ -11412,6 +8876,12 @@ procedure TList<T>.InsertRange(Index: Integer; const Collection: IEnumerable<T>)
 var
   Item: T;
 begin
+  if (Index = FCount.Int) and (not Assigned(FInternalNotify)) then
+  begin
+    AddRange(Collection);
+    Exit;
+  end;
+
   for Item in Collection do
   begin
     Insert(Index, Item);
@@ -11423,6 +8893,12 @@ procedure TList<T>.InsertRange(Index: Integer; const Collection: TEnumerable<T>)
 var
   Item: T;
 begin
+  if (Index = FCount.Int) and (not Assigned(FInternalNotify)) then
+  begin
+    AddRange(Collection);
+    Exit;
+  end;
+
   for Item in Collection do
   begin
     Insert(Index, Item);
@@ -11430,1789 +8906,3974 @@ begin
   end;
 end;
 
-function TList<T>.InternalCompare(const Left, Right): Integer;
+procedure TList<T>.InternalDelete(Index: NativeInt; Action: TCollectionNotification);
+label
+  available;
+var
+  Count: NativeInt;
+  Item: PItem;
+  VType: Integer;
+  InternalNotify: TMethod;
 begin
-  Result := FComparer.Compare(T(Left), T(Right));
-end;
-
-procedure TList<T>.InternalNotify(const Item; Action: TCollectionNotification);
-begin
-  Notify(T(Item), Action);
-end;
-
-function TList<T>.ItemValue(const Item: T): NativeInt;
-begin
-  case SizeOf(T) of
-    1: Result := PByte(@Item)[0] shl 0;
-    2: Result := PByte(@Item)[0] shl 0 + PByte(@Item)[1] shl 8;
-    3: Result := PByte(@Item)[0] shl 0 + PByte(@Item)[1] shl 8 + PByte(@Item)[2] shl 16;
-{$IF SizeOf(Pointer) <= 4}
-    4: Result := PByte(@Item)[0] shl 0 + PByte(@Item)[1] shl 8 + PByte(@Item)[2] shl 16 + PByte(@Item)[3] shl 24;
-{$ELSE}
-    4: Result := PByte(@Item)[0] shl 0 + PByte(@Item)[1] shl 8 + PByte(@Item)[2] shl 16 + PByte(@Item)[3] shl 24;
-    5: Result := PByte(@Item)[0] shl 0 + PByte(@Item)[1] shl 8 + PByte(@Item)[2] shl 16 + PByte(@Item)[3] shl 24 +
-       NativeInt(PByte(@Item)[4]) shl 32;
-    6: Result := PByte(@Item)[0] shl 0 + PByte(@Item)[1] shl 8 + PByte(@Item)[2] shl 16 + PByte(@Item)[3] shl 24 +
-       NativeInt(PByte(@Item)[4]) shl 32 + NativeInt(PByte(@Item)[5]) shl 40;
-    7: Result := PByte(@Item)[0] shl 0 + PByte(@Item)[1] shl 8 + PByte(@Item)[2] shl 16 + PByte(@Item)[3] shl 24 +
-       NativeInt(PByte(@Item)[4]) shl 32 + NativeInt(PByte(@Item)[5]) shl 40 + NativeInt(PByte(@Item)[6]) shl 48;
-  else
-    Result := PByte(@Item)[0] shl 0 + PByte(@Item)[1] shl 8 + PByte(@Item)[2] shl 16 + PByte(@Item)[3] shl 24 +
-       NativeInt(PByte(@Item)[4]) shl 32 + NativeInt(PByte(@Item)[5]) shl 40 + NativeInt(PByte(@Item)[6]) shl 48 +
-       NativeInt(PByte(@Item)[7]) shl 56;
-{$IFEND}
-  end;
-end;
-
-procedure TList<T>.Exchange(Index1, Index2: Integer);
-begin
-  if IsManagedType(T) then
-    if (SizeOf(T) = SizeOf(Pointer)) and (GetTypeKind(T) <> tkRecord) then
-      FListHelper.InternalExchangeMRef(Index1, Index2, GetTypeKind(T))
-    else
-      FListHelper.InternalExchangeManaged(Index1, Index2)
-  else
-  case SizeOf(T) of
-    1: FListHelper.InternalExchange1(Index1, Index2);
-    2: FListHelper.InternalExchange2(Index1, Index2);
-    4: FListHelper.InternalExchange4(Index1, Index2);
-    8: FListHelper.InternalExchange8(Index1, Index2);
-  else
-    FListHelper.InternalExchangeN(Index1, Index2)
-  end;
-end;
-
-procedure TList<T>.DoDelete(Index: Integer; Notification: TCollectionNotification);
-begin
-  if IsManagedType(T) then
+  Count := FCount.Native;
+  if (NativeUInt(Index) < NativeUInt(Count)) then
   begin
-{$IF Defined(WEAKREF)}
-    if System.HasWeakRef(T) then
-      FListHelper.InternalDoDeleteWeak(Index, Notification)
-    else
-{$IFEND}
-    if (SizeOf(T) = SizeOf(Pointer)) and (GetTypeKind(T) <> tkRecord) then
-      FListHelper.InternalDoDeleteMRef(Index, Notification)
-    else
-      FListHelper.InternalDoDeleteManaged(Index, Notification);
+    Dec(Count);
+    FCount.Native := Count;
+    Dec(Count, Index);
+    Item := @FItems[Index];
+
+    if (not Assigned(FInternalNotify)) then
+    begin
+    available:
+      {$ifdef SMARTGENERICS}
+      case GetTypeKind(T) of
+        {$ifdef AUTOREFCOUNT}
+        tkClass,
+        {$endif}
+        tkWString, tkLString, tkUString, tkInterface, tkDynArray:
+        begin
+          if (PNativeInt(Item)^ <> 0) then
+          case GetTypeKind(T) of
+            {$ifdef AUTOREFCOUNT}
+            tkClass:
+            begin
+              TRAIIHelper.RefObjClear(Item);
+            end;
+            {$endif}
+            {$ifdef MSWINDOWS}
+            tkWString:
+            begin
+              TRAIIHelper.WStrClear(Item);
+            end;
+            {$else}
+            tkWString,
+            {$endif}
+            tkLString, tkUString:
+            begin
+              TRAIIHelper.ULStrClear(Item);
+            end;
+            tkInterface:
+            begin
+              IInterface(PPointer(Item)^)._Release;
+            end;
+            tkDynArray:
+            begin
+              TRAIIHelper.DynArrayClear(Item, TypeInfo(T));
+            end;
+          end;
+        end;
+        {$ifdef WEAKREF}
+        tkMethod:
+        begin
+          if (PMethod(Item).Data <> nil) then
+            TRAIIHelper.WeakMethodClear(@PMethod(Item).Data);
+        end;
+        {$endif}
+        tkVariant:
+        begin
+          VType := PVarData(Item).VType;
+          if (VType and TRAIIHelper.varDeepData <> 0) then
+          case VType of
+            varBoolean, varUnknown+1..varUInt64: ;
+          else
+            System.VarClear(PVariant(Item)^);
+          end;
+        end;
+      else
+        TRAIIHelper<T>.Clear(Item);
+      end;
+      {$else}
+      TRAIIHelper<T>.Clear(Item);
+      {$endif}
+
+      if (Count <> 0) then
+        System.Move(Pointer(Item + 1)^, Item^, Count * SizeOf(T));
+
+      Exit;
+    end else
+    begin
+      InternalNotify := TMethod(FInternalNotify);
+      TCollectionNotifyEvent<T>(InternalNotify)(Self, Item^, Action);
+      goto available;
+    end;
   end else
-  case SizeOf(T) of
-    1: FListHelper.InternalDoDelete1(Index, Notification);
-    2: FListHelper.InternalDoDelete2(Index, Notification);
-    4: FListHelper.InternalDoDelete4(Index, Notification);
-    8: FListHelper.InternalDoDelete8(Index, Notification);
-  else
-    FListHelper.InternalDoDeleteN(Index, Notification);
+  begin
+    raise EArgumentOutOfRangeException.CreateRes(Pointer(@SArgumentOutOfRange));
   end;
 end;
 
 procedure TList<T>.Delete(Index: Integer);
 begin
-  DoDelete(Index, cnRemoved);
-end;
-
-function TList<T>.ExtractItem(const Value: T; Direction: TDirection): T;
-var
-  Index: Integer;
-begin
-  if IsManagedType(T) then
-  begin
-    if (SizeOf(T) = SizeOf(Pointer)) and (GetTypeKind(T) <> tkRecord) then
-      FListHelper.InternalExtractItemMRef(Value, GetTypeKind(T), Result, Byte(Direction))
-    else if GetTypeKind(T) = TTypeKind.tkVariant then
-      FListHelper.InternalExtractItemVariant(Value, Result, Byte(Direction))
-    else
-      FListHelper.InternalExtractItemManaged(Value, Result, Byte(Direction));
-  end else
-  case SizeOf(T) of
-    1: FListHelper.InternalExtractItem1(Value, Result, Byte(Direction));
-    2: FListHelper.InternalExtractItem2(Value, Result, Byte(Direction));
-    4: FListHelper.InternalExtractItem4(Value, Result, Byte(Direction));
-    8: FListHelper.InternalExtractItem8(Value, Result, Byte(Direction));
-  else
-    FListHelper.InternalExtractItemN(Value, Result, Byte(Direction))
-  end;
-end;
-
-function TList<T>.Extract(const Value: T): T;
-begin
-  Result := ExtractItem(Value, TDirection.FromBeginning);
-end;
-
-function TList<T>.First: T;
-begin
-  Result := Items[0];
-end;
-
-function TList<T>.RemoveItem(const Value: T; Direction: TDirection): Integer;
-begin
-  if IsManagedType(T) then
-    if (SizeOf(T) = SizeOf(Pointer)) and (GetTypeKind(T) <> tkRecord) then
-      Result := FListHelper.InternalRemoveMRef(Value, Byte(Direction))
-    else
-      Result := FListHelper.InternalRemoveN(Value, Byte(Direction))
-  else
-  case SizeOf(T) of
-    1: Result := FListHelper.InternalRemove1(Value, Byte(Direction));
-    2: Result := FListHelper.InternalRemove2(Value, Byte(Direction));
-    4: Result := FListHelper.InternalRemove4(Value, Byte(Direction));
-    8: Result := FListHelper.InternalRemove8(Value, Byte(Direction));
-  else
-    Result := FListHelper.InternalRemoveN(Value, Byte(Direction))
-  end;
-end;
-
-function TList<T>.Remove(const Value: T): Integer;
-begin
-  Result := RemoveItem(Value, TDirection.FromBeginning);
+  InternalDelete(Index, cnRemoved);
 end;
 
 procedure TList<T>.DeleteRange(AIndex, ACount: Integer);
-begin
-  if IsManagedType(T) then
-  begin
-{$IF Defined(WEAKREF)}
-    if System.HasWeakRef(T) then
-      FListHelper.InternalDeleteRangeWeak(AIndex, ACount)
-    else
-{$IFEND}
-    if (SizeOf(T) = SizeOf(Pointer)) and (GetTypeKind(T) <> tkRecord) then
-      FListHelper.InternalDeleteRangeMRef(AIndex, ACount)
-    else
-      FListHelper.InternalDeleteRangeManaged(AIndex, ACount);
-  end else
-  case SizeOf(T) of
-    1: FListHelper.InternalDeleteRange1(AIndex, ACount);
-    2: FListHelper.InternalDeleteRange2(AIndex, ACount);
-    4: FListHelper.InternalDeleteRange4(AIndex, ACount);
-    8: FListHelper.InternalDeleteRange8(AIndex, ACount);
-  else
-    FListHelper.InternalDeleteRangeN(AIndex, ACount);
+label
+  available;
+var
+  Count: NativeInt;
+  IndexTop: Integer;
+  Item: PItem;
+  VType: Integer;
+  Stored: record
+    Self: Pointer;
+    InternalNotify: TMethod;
+    Count: NativeInt;
+    ACount: Integer;
   end;
-end;
-
-procedure TList<T>.Clear;
 begin
-  if IsManagedType(T) then
+  Stored.Self := Self;
+  Stored.InternalNotify := TMethod(FInternalNotify);
+
+  IndexTop := AIndex + ACount;
+  Count := FCount.Native;
+  if (AIndex >= 0) and (ACount >= 0) and (IndexTop >= 0) and
+    (IndexTop <= Integer(Count)) then
   begin
-{$IF Defined(WEAKREF)}
-    if System.HasWeakRef(T) then
-      FListHelper.InternalClearWeak
-    else
-{$IFEND}
-    if (SizeOf(T) = SizeOf(Pointer)) and (GetTypeKind(T) <> tkRecord) then
-      FListHelper.InternalClearMRef
-    else
-      FListHelper.InternalClearManaged;
+    if (ACount = 0) then Exit;
+    Dec(Count, ACount);
+    FCount.Native := Count;
+    Dec(Count, AIndex);
+    Item := @FItems[AIndex];
+
+    if (not Assigned(Stored.InternalNotify.Code)) then
+    begin
+    available:
+      {$ifdef SMARTGENERICS}
+      if (System.IsManagedType(T) or System.HasWeakRef(T)) then
+      {$else}
+      if (Assigned(TRAIIHelper<T>.Options.ClearProc)) then
+      {$endif}
+      begin
+        Stored.ACount := ACount;
+        for ACount := ACount downto 1 do
+        begin
+          {$ifdef SMARTGENERICS}
+          case GetTypeKind(T) of
+            {$ifdef AUTOREFCOUNT}
+            tkClass,
+            {$endif}
+            tkWString, tkLString, tkUString, tkInterface, tkDynArray:
+            begin
+              if (PNativeInt(Item)^ <> 0) then
+              case GetTypeKind(T) of
+                {$ifdef AUTOREFCOUNT}
+                tkClass:
+                begin
+                  TRAIIHelper.RefObjClear(Item);
+                end;
+                {$endif}
+                {$ifdef MSWINDOWS}
+                tkWString:
+                begin
+                  TRAIIHelper.WStrClear(Item);
+                end;
+                {$else}
+                tkWString,
+                {$endif}
+                tkLString, tkUString:
+                begin
+                  TRAIIHelper.ULStrClear(Item);
+                end;
+                tkInterface:
+                begin
+                  IInterface(PPointer(Item)^)._Release;
+                end;
+                tkDynArray:
+                begin
+                  TRAIIHelper.DynArrayClear(Item, TypeInfo(T));
+                end;
+              end;
+            end;
+            {$ifdef WEAKREF}
+            tkMethod:
+            begin
+              if (PMethod(Item).Data <> nil) then
+                TRAIIHelper.WeakMethodClear(@PMethod(Item).Data);
+            end;
+            {$endif}
+            tkVariant:
+            begin
+              VType := PVarData(Item).VType;
+              if (VType and TRAIIHelper.varDeepData <> 0) then
+              case VType of
+                varBoolean, varUnknown+1..varUInt64: ;
+              else
+                System.VarClear(PVariant(Item)^);
+              end;
+            end;
+          else
+            TRAIIHelper<T>.Options.ClearProc(TRAIIHelper<T>.Options, Item);
+          end;
+          {$else}
+          TRAIIHelper<T>.Options.ClearProc(TRAIIHelper<T>.Options, Item);
+          {$endif}
+
+          Inc(Item);
+        end;
+        ACount := Stored.ACount;
+        Dec(Item, ACount);
+      end;
+
+      if (Count <> 0) then
+        System.Move(Pointer(Item + ACount)^, Item^, Count * SizeOf(T));
+      Exit;
+    end else
+    begin
+      Stored.Count := Count;
+      Stored.ACount := ACount;
+      for ACount := ACount downto 1 do
+      begin
+        TCollectionNotifyEvent<T>(Stored.InternalNotify)(Stored.Self, Item^, cnRemoved);
+        Inc(Item);
+      end;
+      Count := Stored.Count;
+      ACount := Stored.ACount;
+      Dec(Item, ACount);
+      goto available;
+    end;
   end else
-  case SizeOf(T) of
-    1: FListHelper.InternalClear1;
-    2: FListHelper.InternalClear2;
-    4: FListHelper.InternalClear4;
-    8: FListHelper.InternalClear8;
-  else
-    FListHelper.InternalClearN;
+  begin
+    raise EArgumentOutOfRangeException.CreateRes(Pointer(@SArgumentOutOfRange));
   end;
 end;
 
 function TList<T>.Expand: TList<T>;
 begin
-  if FListHelper.FCount = Length(FItems) then
-    GrowCheck(FCount + 1);
+  if (FCount.Native = FCapacity.Native) then
+    Grow;
+
   Result := Self;
 end;
 
-function TList<T>.IndexOfItem(const Value: T; Direction: TDirection): Integer;
+procedure TList<T>.InternalExchange(Index1, Index2: Integer);
+var
+  Count: Cardinal;
+  X, Y: PItem;
+  Temp: T;
 begin
-  if IsManagedType(T) then
-    if (SizeOf(T) = SizeOf(Pointer)) and (GetTypeKind(T) <> tkRecord) then
-      Result := FListHelper.InternalIndexOfMRef(Value, Byte(Direction))
-    else
-      Result := FListHelper.InternalIndexOfN(Value, Byte(Direction))
-  else
-  case SizeOf(T) of
-    1: Result := FListHelper.InternalIndexOf1(Value, Byte(Direction));
-    2: Result := FListHelper.InternalIndexOf2(Value, Byte(Direction));
-    4: Result := FListHelper.InternalIndexOf4(Value, Byte(Direction));
-    8: Result := FListHelper.InternalIndexOf8(Value, Byte(Direction));
-  else
-    Result := FListHelper.InternalIndexOfN(Value, Byte(Direction));
+  Count := FCount.Int;
+  if (Cardinal(Index1) < Count) and (Cardinal(Index2) < Count) then
+  begin
+    if (Index1 <> Index2) then
+    begin
+      X := Pointer(FItems);
+      Y := X + Index2;
+      Inc(X, Index1);
+
+      Temp := X^;
+      X^ := Y^;
+      Y^ := Temp;
+    end;
+  end else
+  begin
+    raise EArgumentOutOfRangeException.CreateRes(Pointer(@SArgumentOutOfRange));
   end;
 end;
 
-function TList<T>.IndexOf(const Value: T): Integer;
+procedure TList<T>.InternalExchange40(Index1, Index2: Integer);
+type
+  T1 = Byte;
+  T2 = Word;
+  T3 = array[1..3] of Byte;
+  T4 = Cardinal;
+  T5 = array[1..5] of Byte;
+  T6 = array[1..6] of Byte;
+  T7 = array[1..7] of Byte;
+  T8 = Int64;
+  T9 = array[1..9] of Byte;
+  T10 = array[1..10] of Byte;
+  T11 = array[1..11] of Byte;
+  T12 = array[1..12] of Byte;
+  T13 = array[1..13] of Byte;
+  T14 = array[1..14] of Byte;
+  T15 = array[1..15] of Byte;
+  T16 = array[1..16] of Byte;
+  T17 = array[1..17] of Byte;
+  T18 = array[1..18] of Byte;
+  T19 = array[1..19] of Byte;
+  T20 = array[1..20] of Byte;
+  T21 = array[1..21] of Byte;
+  T22 = array[1..22] of Byte;
+  T23 = array[1..23] of Byte;
+  T24 = array[1..24] of Byte;
+  T25 = array[1..25] of Byte;
+  T26 = array[1..26] of Byte;
+  T27 = array[1..27] of Byte;
+  T28 = array[1..28] of Byte;
+  T29 = array[1..29] of Byte;
+  T30 = array[1..30] of Byte;
+  T31 = array[1..31] of Byte;
+  T32 = array[1..32] of Byte;
+  T33 = array[1..33] of Byte;
+  T34 = array[1..34] of Byte;
+  T35 = array[1..35] of Byte;
+  T36 = array[1..36] of Byte;
+  T37 = array[1..37] of Byte;
+  T38 = array[1..38] of Byte;
+  T39 = array[1..39] of Byte;
+  T40 = array[1..40] of Byte;
+
+  TTemp40 = record
+  case Integer of
+     1: (V1: T1);
+     2: (V2: T2);
+     3: (V3: T3);
+     4: (V4: T4);
+     5: (V5: T5);
+     6: (V6: T6);
+     7: (V7: T7);
+     8: (V8: T8);
+     9: (V9: T9);
+    10: (V10: T10);
+    11: (V11: T11);
+    12: (V12: T12);
+    13: (V13: T13);
+    14: (V14: T14);
+    15: (V15: T15);
+    16: (V16: T16);
+    17: (V17: T17);
+    18: (V18: T18);
+    19: (V19: T19);
+    20: (V20: T20);
+    21: (V21: T21);
+    22: (V22: T22);
+    23: (V23: T23);
+    24: (V24: T24);
+    25: (V25: T25);
+    26: (V26: T26);
+    27: (V27: T27);
+    28: (V28: T28);
+    29: (V29: T29);
+    30: (V30: T30);
+    31: (V31: T31);
+    32: (V32: T32);
+    33: (V33: T33);
+    34: (V34: T34);
+    35: (V35: T35);
+    36: (V36: T36);
+    37: (V37: T37);
+    38: (V38: T38);
+    39: (V39: T39);
+    40: (V40: T40);
+  end;
+
+var
+  Count: Cardinal;
+  X, Y: Pointer;
+
+  Temp1: T1;
+  Temp2: T2;
+  Temp4: T4;
+  Temp8: T8;
+  Temp40: TTemp40;
 begin
-  Result := IndexOfItem(Value, TDirection.FromBeginning);
+  Count := FCount.Int;
+  if (Cardinal(Index1) < Count) and (Cardinal(Index2) < Count) then
+  begin
+    if (Index1 <> Index2) then
+    begin
+      X := Pointer(FItems);
+      Y := PItem(X) + Index2;
+      Inc(PItem(X), Index1);
+
+      case SizeOf(T) of
+        1:
+        begin
+          Temp1 := T1(Pointer(X)^);
+          T1(Pointer(X)^) := T1(Pointer(Y)^);
+          T1(Pointer(Y)^) := Temp1;
+        end;
+        2:
+        begin
+          Temp2 := T2(Pointer(X)^);
+          T2(Pointer(X)^) := T2(Pointer(Y)^);
+          T2(Pointer(Y)^) := Temp2;
+        end;
+        3:
+        begin
+          Temp40.V3 := T3(Pointer(X)^);
+          T3(Pointer(X)^) := T3(Pointer(Y)^);
+          T3(Pointer(Y)^) := Temp40.V3;
+        end;
+        4:
+        begin
+          Temp4 := T4(Pointer(X)^);
+          T4(Pointer(X)^) := T4(Pointer(Y)^);
+          T4(Pointer(Y)^) := Temp4;
+        end;
+        5:
+        begin
+          Temp40.V5 := T5(Pointer(X)^);
+          T5(Pointer(X)^) := T5(Pointer(Y)^);
+          T5(Pointer(Y)^) := Temp40.V5;
+        end;
+        6:
+        begin
+          Temp40.V6 := T6(Pointer(X)^);
+          T6(Pointer(X)^) := T6(Pointer(Y)^);
+          T6(Pointer(Y)^) := Temp40.V6;
+        end;
+        7:
+        begin
+          Temp40.V7 := T7(Pointer(X)^);
+          T7(Pointer(X)^) := T7(Pointer(Y)^);
+          T7(Pointer(Y)^) := Temp40.V7;
+        end;
+        8:
+        begin
+          Temp8 := T8(Pointer(X)^);
+          T8(Pointer(X)^) := T8(Pointer(Y)^);
+          T8(Pointer(Y)^) := Temp8;
+        end;
+        9:
+        begin
+          Temp40.V9 := T9(Pointer(X)^);
+          T9(Pointer(X)^) := T9(Pointer(Y)^);
+          T9(Pointer(Y)^) := Temp40.V9;
+        end;
+        10:
+        begin
+          Temp40.V10 := T10(Pointer(X)^);
+          T10(Pointer(X)^) := T10(Pointer(Y)^);
+          T10(Pointer(Y)^) := Temp40.V10;
+        end;
+        11:
+        begin
+          Temp40.V11 := T11(Pointer(X)^);
+          T11(Pointer(X)^) := T11(Pointer(Y)^);
+          T11(Pointer(Y)^) := Temp40.V11;
+        end;
+        12:
+        begin
+          Temp40.V12 := T12(Pointer(X)^);
+          T12(Pointer(X)^) := T12(Pointer(Y)^);
+          T12(Pointer(Y)^) := Temp40.V12;
+        end;
+        13:
+        begin
+          Temp40.V13 := T13(Pointer(X)^);
+          T13(Pointer(X)^) := T13(Pointer(Y)^);
+          T13(Pointer(Y)^) := Temp40.V13;
+        end;
+        14:
+        begin
+          Temp40.V14 := T14(Pointer(X)^);
+          T14(Pointer(X)^) := T14(Pointer(Y)^);
+          T14(Pointer(Y)^) := Temp40.V14;
+        end;
+        15:
+        begin
+          Temp40.V15 := T15(Pointer(X)^);
+          T15(Pointer(X)^) := T15(Pointer(Y)^);
+          T15(Pointer(Y)^) := Temp40.V15;
+        end;
+        16:
+        begin
+          Temp40.V16 := T16(Pointer(X)^);
+          T16(Pointer(X)^) := T16(Pointer(Y)^);
+          T16(Pointer(Y)^) := Temp40.V16;
+        end;
+        17:
+        begin
+          Temp40.V17 := T17(Pointer(X)^);
+          T17(Pointer(X)^) := T17(Pointer(Y)^);
+          T17(Pointer(Y)^) := Temp40.V17;
+        end;
+        18:
+        begin
+          Temp40.V18 := T18(Pointer(X)^);
+          T18(Pointer(X)^) := T18(Pointer(Y)^);
+          T18(Pointer(Y)^) := Temp40.V18;
+        end;
+        19:
+        begin
+          Temp40.V19 := T19(Pointer(X)^);
+          T19(Pointer(X)^) := T19(Pointer(Y)^);
+          T19(Pointer(Y)^) := Temp40.V19;
+        end;
+        20:
+        begin
+          Temp40.V20 := T20(Pointer(X)^);
+          T20(Pointer(X)^) := T20(Pointer(Y)^);
+          T20(Pointer(Y)^) := Temp40.V20;
+        end;
+        21:
+        begin
+          Temp40.V21 := T21(Pointer(X)^);
+          T21(Pointer(X)^) := T21(Pointer(Y)^);
+          T21(Pointer(Y)^) := Temp40.V21;
+        end;
+        22:
+        begin
+          Temp40.V22 := T22(Pointer(X)^);
+          T22(Pointer(X)^) := T22(Pointer(Y)^);
+          T22(Pointer(Y)^) := Temp40.V22;
+        end;
+        23:
+        begin
+          Temp40.V23 := T23(Pointer(X)^);
+          T23(Pointer(X)^) := T23(Pointer(Y)^);
+          T23(Pointer(Y)^) := Temp40.V23;
+        end;
+        24:
+        begin
+          Temp40.V24 := T24(Pointer(X)^);
+          T24(Pointer(X)^) := T24(Pointer(Y)^);
+          T24(Pointer(Y)^) := Temp40.V24;
+        end;
+        25:
+        begin
+          Temp40.V25 := T25(Pointer(X)^);
+          T25(Pointer(X)^) := T25(Pointer(Y)^);
+          T25(Pointer(Y)^) := Temp40.V25;
+        end;
+        26:
+        begin
+          Temp40.V26 := T26(Pointer(X)^);
+          T26(Pointer(X)^) := T26(Pointer(Y)^);
+          T26(Pointer(Y)^) := Temp40.V26;
+        end;
+        27:
+        begin
+          Temp40.V27 := T27(Pointer(X)^);
+          T27(Pointer(X)^) := T27(Pointer(Y)^);
+          T27(Pointer(Y)^) := Temp40.V27;
+        end;
+        28:
+        begin
+          Temp40.V28 := T28(Pointer(X)^);
+          T28(Pointer(X)^) := T28(Pointer(Y)^);
+          T28(Pointer(Y)^) := Temp40.V28;
+        end;
+        29:
+        begin
+          Temp40.V29 := T29(Pointer(X)^);
+          T29(Pointer(X)^) := T29(Pointer(Y)^);
+          T29(Pointer(Y)^) := Temp40.V29;
+        end;
+        30:
+        begin
+          Temp40.V30 := T30(Pointer(X)^);
+          T30(Pointer(X)^) := T30(Pointer(Y)^);
+          T30(Pointer(Y)^) := Temp40.V30;
+        end;
+        31:
+        begin
+          Temp40.V31 := T31(Pointer(X)^);
+          T31(Pointer(X)^) := T31(Pointer(Y)^);
+          T31(Pointer(Y)^) := Temp40.V31;
+        end;
+        32:
+        begin
+          Temp40.V32 := T32(Pointer(X)^);
+          T32(Pointer(X)^) := T32(Pointer(Y)^);
+          T32(Pointer(Y)^) := Temp40.V32;
+        end;
+        33:
+        begin
+          Temp40.V33 := T33(Pointer(X)^);
+          T33(Pointer(X)^) := T33(Pointer(Y)^);
+          T33(Pointer(Y)^) := Temp40.V33;
+        end;
+        34:
+        begin
+          Temp40.V34 := T34(Pointer(X)^);
+          T34(Pointer(X)^) := T34(Pointer(Y)^);
+          T34(Pointer(Y)^) := Temp40.V34;
+        end;
+        35:
+        begin
+          Temp40.V35 := T35(Pointer(X)^);
+          T35(Pointer(X)^) := T35(Pointer(Y)^);
+          T35(Pointer(Y)^) := Temp40.V35;
+        end;
+        36:
+        begin
+          Temp40.V36 := T36(Pointer(X)^);
+          T36(Pointer(X)^) := T36(Pointer(Y)^);
+          T36(Pointer(Y)^) := Temp40.V36;
+        end;
+        37:
+        begin
+          Temp40.V37 := T37(Pointer(X)^);
+          T37(Pointer(X)^) := T37(Pointer(Y)^);
+          T37(Pointer(Y)^) := Temp40.V37;
+        end;
+        38:
+        begin
+          Temp40.V38 := T38(Pointer(X)^);
+          T38(Pointer(X)^) := T38(Pointer(Y)^);
+          T38(Pointer(Y)^) := Temp40.V38;
+        end;
+        39:
+        begin
+          Temp40.V39 := T39(Pointer(X)^);
+          T39(Pointer(X)^) := T39(Pointer(Y)^);
+          T39(Pointer(Y)^) := Temp40.V39;
+        end;
+        40:
+        begin
+          Temp40.V40 := T40(Pointer(X)^);
+          T40(Pointer(X)^) := T40(Pointer(Y)^);
+          T40(Pointer(Y)^) := Temp40.V40;
+        end;
+      end;
+    end;
+  end else
+  begin
+    raise EArgumentOutOfRangeException.CreateRes(Pointer(@SArgumentOutOfRange));
+  end;
 end;
 
-function TList<T>.Contains(const Value: T): Boolean;
+procedure TList<T>.Exchange(Index1, Index2: Integer);
 begin
-  Result := IndexOf(Value) >= 0;
+  if (SizeOf(T) > 40) then
+  begin
+    InternalExchange(Index1, Index2);
+  end else
+  begin
+    InternalExchange40(Index1, Index2);
+  end;
 end;
 
-function TList<T>.Last: T;
+procedure TList<T>.InternalMove(CurIndex, NewIndex: Integer);
+var
+  Count: Cardinal;
+  X, Y: PItem;
+  Temp: T;
 begin
-  Result := Items[Count - 1];
+  Count := FCount.Int;
+  if (Cardinal(CurIndex) < Count) and (Cardinal(NewIndex) < Count) then
+  begin
+    if (CurIndex <> NewIndex) then
+    begin
+      X := Pointer(FItems);
+      Y := X + NewIndex;
+      X := X + CurIndex;
+
+      Temp := X^;
+      if (X < Y) then
+      begin
+        System.Move(Pointer(X + 1)^, X^, NativeUInt(Y) - NativeUInt(X));
+      end else
+      begin
+        System.Move(Y^, Pointer(Y + 1)^, NativeUInt(X) - NativeUInt(Y));
+      end;
+      Y^ := Temp;
+    end;
+  end else
+  begin
+    raise EArgumentOutOfRangeException.CreateRes(Pointer(@SArgumentOutOfRange));
+  end;
 end;
 
-function TList<T>.LastIndexOf(const Value: T): Integer;
+procedure TList<T>.InternalMove40(CurIndex, NewIndex: Integer);
+type
+  T1 = Byte;
+  T2 = Word;
+  T3 = array[1..3] of Byte;
+  T4 = Cardinal;
+  T5 = array[1..5] of Byte;
+  T6 = array[1..6] of Byte;
+  T7 = array[1..7] of Byte;
+  T8 = Int64;
+  T9 = array[1..9] of Byte;
+  T10 = array[1..10] of Byte;
+  T11 = array[1..11] of Byte;
+  T12 = array[1..12] of Byte;
+  T13 = array[1..13] of Byte;
+  T14 = array[1..14] of Byte;
+  T15 = array[1..15] of Byte;
+  T16 = array[1..16] of Byte;
+  T17 = array[1..17] of Byte;
+  T18 = array[1..18] of Byte;
+  T19 = array[1..19] of Byte;
+  T20 = array[1..20] of Byte;
+  T21 = array[1..21] of Byte;
+  T22 = array[1..22] of Byte;
+  T23 = array[1..23] of Byte;
+  T24 = array[1..24] of Byte;
+  T25 = array[1..25] of Byte;
+  T26 = array[1..26] of Byte;
+  T27 = array[1..27] of Byte;
+  T28 = array[1..28] of Byte;
+  T29 = array[1..29] of Byte;
+  T30 = array[1..30] of Byte;
+  T31 = array[1..31] of Byte;
+  T32 = array[1..32] of Byte;
+  T33 = array[1..33] of Byte;
+  T34 = array[1..34] of Byte;
+  T35 = array[1..35] of Byte;
+  T36 = array[1..36] of Byte;
+  T37 = array[1..37] of Byte;
+  T38 = array[1..38] of Byte;
+  T39 = array[1..39] of Byte;
+  T40 = array[1..40] of Byte;
+
+  TTemp40 = record
+  case Integer of
+     1: (V1: T1);
+     2: (V2: T2);
+     3: (V3: T3);
+     4: (V4: T4);
+     5: (V5: T5);
+     6: (V6: T6);
+     7: (V7: T7);
+     8: (V8: T8);
+     9: (V9: T9);
+    10: (V10: T10);
+    11: (V11: T11);
+    12: (V12: T12);
+    13: (V13: T13);
+    14: (V14: T14);
+    15: (V15: T15);
+    16: (V16: T16);
+    17: (V17: T17);
+    18: (V18: T18);
+    19: (V19: T19);
+    20: (V20: T20);
+    21: (V21: T21);
+    22: (V22: T22);
+    23: (V23: T23);
+    24: (V24: T24);
+    25: (V25: T25);
+    26: (V26: T26);
+    27: (V27: T27);
+    28: (V28: T28);
+    29: (V29: T29);
+    30: (V30: T30);
+    31: (V31: T31);
+    32: (V32: T32);
+    33: (V33: T33);
+    34: (V34: T34);
+    35: (V35: T35);
+    36: (V36: T36);
+    37: (V37: T37);
+    38: (V38: T38);
+    39: (V39: T39);
+    40: (V40: T40);
+  end;
+
+var
+  Count: Cardinal;
+  X, Y: PItem;
+
+  Temp1: T1;
+  Temp2: T2;
+  Temp4: T4;
+  Temp8: T8;
+  Temp40: TTemp40;
 begin
-  Result := IndexOfItem(Value, TDirection.FromEnd);
+  Count := FCount.Int;
+  if (Cardinal(CurIndex) < Count) and (Cardinal(NewIndex) < Count) then
+  begin
+    if (CurIndex <> NewIndex) then
+    begin
+      X := Pointer(FItems);
+      Y := X + NewIndex;
+      X := X + CurIndex;
+
+      case SizeOf(T) of
+         1: Temp1 := T1(Pointer(X)^);
+         2: Temp2 := T2(Pointer(X)^);
+         3: Temp40.V3 := T3(Pointer(X)^);
+         4: Temp4 := T4(Pointer(X)^);
+         5: Temp40.V5 := T5(Pointer(X)^);
+         6: Temp40.V6 := T6(Pointer(X)^);
+         7: Temp40.V7 := T7(Pointer(X)^);
+         8: Temp8 := T8(Pointer(X)^);
+         9: Temp40.V9 := T9(Pointer(X)^);
+        10: Temp40.V10 := T10(Pointer(X)^);
+        11: Temp40.V11 := T11(Pointer(X)^);
+        12: Temp40.V12 := T12(Pointer(X)^);
+        13: Temp40.V13 := T13(Pointer(X)^);
+        14: Temp40.V14 := T14(Pointer(X)^);
+        15: Temp40.V15 := T15(Pointer(X)^);
+        16: Temp40.V16 := T16(Pointer(X)^);
+        17: Temp40.V17 := T17(Pointer(X)^);
+        18: Temp40.V18 := T18(Pointer(X)^);
+        19: Temp40.V19 := T19(Pointer(X)^);
+        20: Temp40.V20 := T20(Pointer(X)^);
+        21: Temp40.V21 := T21(Pointer(X)^);
+        22: Temp40.V22 := T22(Pointer(X)^);
+        23: Temp40.V23 := T23(Pointer(X)^);
+        24: Temp40.V24 := T24(Pointer(X)^);
+        25: Temp40.V25 := T25(Pointer(X)^);
+        26: Temp40.V26 := T26(Pointer(X)^);
+        27: Temp40.V27 := T27(Pointer(X)^);
+        28: Temp40.V28 := T28(Pointer(X)^);
+        29: Temp40.V29 := T29(Pointer(X)^);
+        30: Temp40.V30 := T30(Pointer(X)^);
+        31: Temp40.V31 := T31(Pointer(X)^);
+        32: Temp40.V32 := T32(Pointer(X)^);
+        33: Temp40.V33 := T33(Pointer(X)^);
+        34: Temp40.V34 := T34(Pointer(X)^);
+        35: Temp40.V35 := T35(Pointer(X)^);
+        36: Temp40.V36 := T36(Pointer(X)^);
+        37: Temp40.V37 := T37(Pointer(X)^);
+        38: Temp40.V38 := T38(Pointer(X)^);
+        39: Temp40.V39 := T39(Pointer(X)^);
+        40: Temp40.V40 := T40(Pointer(X)^);
+      end;
+
+      if (X < Y) then
+      begin
+        System.Move(Pointer(X + 1)^, X^, NativeUInt(Y) - NativeUInt(X));
+      end else
+      begin
+        System.Move(Y^, Pointer(Y + 1)^, NativeUInt(X) - NativeUInt(Y));
+      end;
+
+      case SizeOf(T) of
+         1: T1(Pointer(Y)^) := Temp1;
+         2: T2(Pointer(Y)^) := Temp2;
+         3: T3(Pointer(Y)^) := Temp40.V3;
+         4: T4(Pointer(Y)^) := Temp4;
+         5: T5(Pointer(Y)^) := Temp40.V5;
+         6: T6(Pointer(Y)^) := Temp40.V6;
+         7: T7(Pointer(Y)^) := Temp40.V7;
+         8: T8(Pointer(Y)^) := Temp8;
+         9: T9(Pointer(Y)^) := Temp40.V9;
+        10: T10(Pointer(Y)^) := Temp40.V10;
+        11: T11(Pointer(Y)^) := Temp40.V11;
+        12: T12(Pointer(Y)^) := Temp40.V12;
+        13: T13(Pointer(Y)^) := Temp40.V13;
+        14: T14(Pointer(Y)^) := Temp40.V14;
+        15: T15(Pointer(Y)^) := Temp40.V15;
+        16: T16(Pointer(Y)^) := Temp40.V16;
+        17: T17(Pointer(Y)^) := Temp40.V17;
+        18: T18(Pointer(Y)^) := Temp40.V18;
+        19: T19(Pointer(Y)^) := Temp40.V19;
+        20: T20(Pointer(Y)^) := Temp40.V20;
+        21: T21(Pointer(Y)^) := Temp40.V21;
+        22: T22(Pointer(Y)^) := Temp40.V22;
+        23: T23(Pointer(Y)^) := Temp40.V23;
+        24: T24(Pointer(Y)^) := Temp40.V24;
+        25: T25(Pointer(Y)^) := Temp40.V25;
+        26: T26(Pointer(Y)^) := Temp40.V26;
+        27: T27(Pointer(Y)^) := Temp40.V27;
+        28: T28(Pointer(Y)^) := Temp40.V28;
+        29: T29(Pointer(Y)^) := Temp40.V29;
+        30: T30(Pointer(Y)^) := Temp40.V30;
+        31: T31(Pointer(Y)^) := Temp40.V31;
+        32: T32(Pointer(Y)^) := Temp40.V32;
+        33: T33(Pointer(Y)^) := Temp40.V33;
+        34: T34(Pointer(Y)^) := Temp40.V34;
+        35: T35(Pointer(Y)^) := Temp40.V35;
+        36: T36(Pointer(Y)^) := Temp40.V36;
+        37: T37(Pointer(Y)^) := Temp40.V37;
+        38: T38(Pointer(Y)^) := Temp40.V38;
+        39: T39(Pointer(Y)^) := Temp40.V39;
+        40: T40(Pointer(Y)^) := Temp40.V40;
+      end;
+    end;
+  end else
+  begin
+    raise EArgumentOutOfRangeException.CreateRes(Pointer(@SArgumentOutOfRange));
+  end;
 end;
 
 procedure TList<T>.Move(CurIndex, NewIndex: Integer);
 begin
-  if IsManagedType(T) then
-    if (SizeOf(T) = SizeOf(Pointer)) and not System.HasWeakRef(T) and (GetTypeKind(T) <> tkRecord) then
-      FListHelper.InternalMoveMRef(CurIndex, NewIndex)
-    else
-      FListHelper.InternalMoveManaged(CurIndex, NewIndex)
-  else
-  case SizeOf(T) of
-    1: FLIstHelper.InternalMove1(CurIndex, NewIndex);
-    2: FLIstHelper.InternalMove2(CurIndex, NewIndex);
-    4: FLIstHelper.InternalMove4(CurIndex, NewIndex);
-    8: FLIstHelper.InternalMove8(CurIndex, NewIndex);
-  else
-    FLIstHelper.InternalMoveN(CurIndex, NewIndex);
+  if (SizeOf(T) > 40) then
+  begin
+    InternalMove(CurIndex, NewIndex);
+  end else
+  begin
+    InternalMove40(CurIndex, NewIndex);
+  end;
+end;
+
+procedure TList<T>.InternalReverse;
+var
+  Count: Cardinal;
+  X, Y: PItem;
+  Temp: T;
+begin
+  Count := FCount.Native;
+  if (Count > 1) then
+  begin
+    Dec(Count);
+    X := Pointer(FItems);
+    Y := X + Count;
+
+    while (NativeInt(X) < NativeInt(Y)) do
+    begin
+      Temp := X^;
+      X^ := Y^;
+      Y^ := Temp;
+
+      Inc(NativeUInt(X), SizeOf(T));
+      Dec(NativeUInt(Y), SizeOf(T));
+    end;
+  end;
+end;
+
+procedure TList<T>.InternalReverse40;
+type
+  T1 = Byte;
+  T2 = Word;
+  T3 = array[1..3] of Byte;
+  T4 = Cardinal;
+  T5 = array[1..5] of Byte;
+  T6 = array[1..6] of Byte;
+  T7 = array[1..7] of Byte;
+  T8 = Int64;
+  T9 = array[1..9] of Byte;
+  T10 = array[1..10] of Byte;
+  T11 = array[1..11] of Byte;
+  T12 = array[1..12] of Byte;
+  T13 = array[1..13] of Byte;
+  T14 = array[1..14] of Byte;
+  T15 = array[1..15] of Byte;
+  T16 = array[1..16] of Byte;
+  T17 = array[1..17] of Byte;
+  T18 = array[1..18] of Byte;
+  T19 = array[1..19] of Byte;
+  T20 = array[1..20] of Byte;
+  T21 = array[1..21] of Byte;
+  T22 = array[1..22] of Byte;
+  T23 = array[1..23] of Byte;
+  T24 = array[1..24] of Byte;
+  T25 = array[1..25] of Byte;
+  T26 = array[1..26] of Byte;
+  T27 = array[1..27] of Byte;
+  T28 = array[1..28] of Byte;
+  T29 = array[1..29] of Byte;
+  T30 = array[1..30] of Byte;
+  T31 = array[1..31] of Byte;
+  T32 = array[1..32] of Byte;
+  T33 = array[1..33] of Byte;
+  T34 = array[1..34] of Byte;
+  T35 = array[1..35] of Byte;
+  T36 = array[1..36] of Byte;
+  T37 = array[1..37] of Byte;
+  T38 = array[1..38] of Byte;
+  T39 = array[1..39] of Byte;
+  T40 = array[1..40] of Byte;
+
+  TTemp40 = record
+  case Integer of
+     1: (V1: T1);
+     2: (V2: T2);
+     3: (V3: T3);
+     4: (V4: T4);
+     5: (V5: T5);
+     6: (V6: T6);
+     7: (V7: T7);
+     8: (V8: T8);
+     9: (V9: T9);
+    10: (V10: T10);
+    11: (V11: T11);
+    12: (V12: T12);
+    13: (V13: T13);
+    14: (V14: T14);
+    15: (V15: T15);
+    16: (V16: T16);
+    17: (V17: T17);
+    18: (V18: T18);
+    19: (V19: T19);
+    20: (V20: T20);
+    21: (V21: T21);
+    22: (V22: T22);
+    23: (V23: T23);
+    24: (V24: T24);
+    25: (V25: T25);
+    26: (V26: T26);
+    27: (V27: T27);
+    28: (V28: T28);
+    29: (V29: T29);
+    30: (V30: T30);
+    31: (V31: T31);
+    32: (V32: T32);
+    33: (V33: T33);
+    34: (V34: T34);
+    35: (V35: T35);
+    36: (V36: T36);
+    37: (V37: T37);
+    38: (V38: T38);
+    39: (V39: T39);
+    40: (V40: T40);
+  end;
+
+  TNatives = array[0..16 div SizeOf(NativeUInt) - 1] of NativeUInt;
+  PNatives = ^TNatives;
+
+var
+  Count: Cardinal;
+  X, Y: Pointer;
+  _X, _Y: PNatives;
+
+  Temp1: T1;
+  Temp2: T2;
+  Temp4: T4;
+  TempNative: NativeUInt;
+  Temp40: TTemp40;
+begin
+  Count := FCount.Native;
+  if (Count > 1) then
+  begin
+    Dec(Count);
+    X := Pointer(FItems);
+    Y := Pointer(TCustomList<T>.PItem(X) + Count);
+
+    while (NativeInt(X) < NativeInt(Y)) do
+    begin
+      case SizeOf(T) of
+        1:
+        begin
+          Temp1 := T1(Pointer(X)^);
+          T1(Pointer(X)^) := T1(Pointer(Y)^);
+          T1(Pointer(Y)^) := Temp1;
+        end;
+        2:
+        begin
+          Temp2 := T2(Pointer(X)^);
+          T2(Pointer(X)^) := T2(Pointer(Y)^);
+          T2(Pointer(Y)^) := Temp2;
+        end;
+        3:
+        begin
+          Temp2 := T2(Pointer(X)^);
+          T2(Pointer(X)^) := T2(Pointer(Y)^);
+          T2(Pointer(Y)^) := Temp2;
+
+          Temp1 := T3(Pointer(X)^)[3];
+          T3(Pointer(X)^)[3] := T3(Pointer(Y)^)[3];
+          T3(Pointer(Y)^)[3] := Temp1;
+        end;
+        4:
+        begin
+          Temp4 := T4(Pointer(X)^);
+          T4(Pointer(X)^) := T4(Pointer(Y)^);
+          T4(Pointer(Y)^) := Temp4;
+        end;
+        5..7:
+        begin
+          Temp4 := T4(Pointer(X)^);
+          T4(Pointer(X)^) := T4(Pointer(Y)^);
+          T4(Pointer(Y)^) := Temp4;
+
+          Inc(NativeUInt(X), SizeOf(T) - SizeOf(Cardinal));
+          Inc(NativeUInt(Y), SizeOf(T) - SizeOf(Cardinal));
+          Temp4 := T4(Pointer(X)^);
+          T4(Pointer(X)^) := T4(Pointer(Y)^);
+          T4(Pointer(Y)^) := Temp4;
+          Dec(NativeUInt(X), SizeOf(T) - SizeOf(Cardinal));
+          Dec(NativeUInt(Y), SizeOf(T) - SizeOf(Cardinal));
+        end;
+        8..16:
+        begin
+          _X := X;
+          _Y := Y;
+          TempNative := _X[0];
+          _X[0] := _Y[0];
+          _Y[0] := TempNative;
+
+          if (SizeOf(T) >= SizeOf(NativeUInt) * 2) then
+          begin
+            TempNative := _X[1];
+            _X[1] := _Y[1];
+            _Y[1] := TempNative;
+          end;
+
+          if (SizeOf(T) >= SizeOf(NativeUInt) * 3) then
+          begin
+            TempNative := _X[2];
+            _X[2] := _Y[2];
+            _Y[2] := TempNative;
+          end;
+
+          if (SizeOf(T)  = SizeOf(NativeUInt) * 4) then
+          begin
+            TempNative := _X[3];
+            _X[3] := _Y[3];
+            _Y[3] := TempNative;
+          end;
+
+          if (SizeOf(T) and (SizeOf(NativeUInt) - 1) <> 0) then
+          begin
+            Inc(NativeUInt(_X), SizeOf(T) - SizeOf(NativeUInt));
+            Inc(NativeUInt(_Y), SizeOf(T) - SizeOf(NativeUInt));
+            TempNative := _X[0];
+            _X[0] := _Y[0];
+            _Y[0] := TempNative;
+            Dec(NativeUInt(_X), SizeOf(T) - SizeOf(NativeUInt));
+            Dec(NativeUInt(_Y), SizeOf(T) - SizeOf(NativeUInt));
+          end;
+
+          X := _X;
+          Y := _Y;
+        end;
+        17:
+        begin
+          Temp40.V17 := T17(Pointer(X)^);
+          T17(Pointer(X)^) := T17(Pointer(Y)^);
+          T17(Pointer(Y)^) := Temp40.V17;
+        end;
+        18:
+        begin
+          Temp40.V18 := T18(Pointer(X)^);
+          T18(Pointer(X)^) := T18(Pointer(Y)^);
+          T18(Pointer(Y)^) := Temp40.V18;
+        end;
+        19:
+        begin
+          Temp40.V19 := T19(Pointer(X)^);
+          T19(Pointer(X)^) := T19(Pointer(Y)^);
+          T19(Pointer(Y)^) := Temp40.V19;
+        end;
+        20:
+        begin
+          Temp40.V20 := T20(Pointer(X)^);
+          T20(Pointer(X)^) := T20(Pointer(Y)^);
+          T20(Pointer(Y)^) := Temp40.V20;
+        end;
+        21:
+        begin
+          Temp40.V21 := T21(Pointer(X)^);
+          T21(Pointer(X)^) := T21(Pointer(Y)^);
+          T21(Pointer(Y)^) := Temp40.V21;
+        end;
+        22:
+        begin
+          Temp40.V22 := T22(Pointer(X)^);
+          T22(Pointer(X)^) := T22(Pointer(Y)^);
+          T22(Pointer(Y)^) := Temp40.V22;
+        end;
+        23:
+        begin
+          Temp40.V23 := T23(Pointer(X)^);
+          T23(Pointer(X)^) := T23(Pointer(Y)^);
+          T23(Pointer(Y)^) := Temp40.V23;
+        end;
+        24:
+        begin
+          Temp40.V24 := T24(Pointer(X)^);
+          T24(Pointer(X)^) := T24(Pointer(Y)^);
+          T24(Pointer(Y)^) := Temp40.V24;
+        end;
+        25:
+        begin
+          Temp40.V25 := T25(Pointer(X)^);
+          T25(Pointer(X)^) := T25(Pointer(Y)^);
+          T25(Pointer(Y)^) := Temp40.V25;
+        end;
+        26:
+        begin
+          Temp40.V26 := T26(Pointer(X)^);
+          T26(Pointer(X)^) := T26(Pointer(Y)^);
+          T26(Pointer(Y)^) := Temp40.V26;
+        end;
+        27:
+        begin
+          Temp40.V27 := T27(Pointer(X)^);
+          T27(Pointer(X)^) := T27(Pointer(Y)^);
+          T27(Pointer(Y)^) := Temp40.V27;
+        end;
+        28:
+        begin
+          Temp40.V28 := T28(Pointer(X)^);
+          T28(Pointer(X)^) := T28(Pointer(Y)^);
+          T28(Pointer(Y)^) := Temp40.V28;
+        end;
+        29:
+        begin
+          Temp40.V29 := T29(Pointer(X)^);
+          T29(Pointer(X)^) := T29(Pointer(Y)^);
+          T29(Pointer(Y)^) := Temp40.V29;
+        end;
+        30:
+        begin
+          Temp40.V30 := T30(Pointer(X)^);
+          T30(Pointer(X)^) := T30(Pointer(Y)^);
+          T30(Pointer(Y)^) := Temp40.V30;
+        end;
+        31:
+        begin
+          Temp40.V31 := T31(Pointer(X)^);
+          T31(Pointer(X)^) := T31(Pointer(Y)^);
+          T31(Pointer(Y)^) := Temp40.V31;
+        end;
+        32:
+        begin
+          Temp40.V32 := T32(Pointer(X)^);
+          T32(Pointer(X)^) := T32(Pointer(Y)^);
+          T32(Pointer(Y)^) := Temp40.V32;
+        end;
+        33:
+        begin
+          Temp40.V33 := T33(Pointer(X)^);
+          T33(Pointer(X)^) := T33(Pointer(Y)^);
+          T33(Pointer(Y)^) := Temp40.V33;
+        end;
+        34:
+        begin
+          Temp40.V34 := T34(Pointer(X)^);
+          T34(Pointer(X)^) := T34(Pointer(Y)^);
+          T34(Pointer(Y)^) := Temp40.V34;
+        end;
+        35:
+        begin
+          Temp40.V35 := T35(Pointer(X)^);
+          T35(Pointer(X)^) := T35(Pointer(Y)^);
+          T35(Pointer(Y)^) := Temp40.V35;
+        end;
+        36:
+        begin
+          Temp40.V36 := T36(Pointer(X)^);
+          T36(Pointer(X)^) := T36(Pointer(Y)^);
+          T36(Pointer(Y)^) := Temp40.V36;
+        end;
+        37:
+        begin
+          Temp40.V37 := T37(Pointer(X)^);
+          T37(Pointer(X)^) := T37(Pointer(Y)^);
+          T37(Pointer(Y)^) := Temp40.V37;
+        end;
+        38:
+        begin
+          Temp40.V38 := T38(Pointer(X)^);
+          T38(Pointer(X)^) := T38(Pointer(Y)^);
+          T38(Pointer(Y)^) := Temp40.V38;
+        end;
+        39:
+        begin
+          Temp40.V39 := T39(Pointer(X)^);
+          T39(Pointer(X)^) := T39(Pointer(Y)^);
+          T39(Pointer(Y)^) := Temp40.V39;
+        end;
+        40:
+        begin
+          Temp40.V40 := T40(Pointer(X)^);
+          T40(Pointer(X)^) := T40(Pointer(Y)^);
+          T40(Pointer(Y)^) := Temp40.V40;
+        end;
+      end;
+
+      Inc(NativeUInt(X), SizeOf(T));
+      Dec(NativeUInt(Y), SizeOf(T));
+    end;
   end;
 end;
 
 procedure TList<T>.Reverse;
 begin
-  if IsManagedType(T) then
-    if (SizeOf(T) = SizeOf(Pointer)) and (GetTypeKind(T) <> tkRecord) then
-      FListHelper.InternalReverseMRef(GetTypeKind(T))
-    else
-      FListHelper.InternalReverseManaged
-  else
-  case SizeOf(T) of
-    1: FListHelper.InternalReverse1;
-    2: FListHelper.InternalReverse2;
-    4: FListHelper.InternalReverse4;
-    8: FListHelper.InternalReverse8;
-  else
-    FListHelper.InternalReverseN;
+  if (SizeOf(T) > 40) then
+  begin
+    InternalReverse;
+  end else
+  begin
+    InternalReverse40;
   end;
 end;
 
 procedure TList<T>.Sort;
+var
+  Count: NativeInt;
 begin
-  TArray.Sort<T>(FItems, FComparer, 0, Count);
+  Count := FCount.Native;
+  if (Count > 1) then
+  begin
+    Dec(Count);
+
+    if (Assigned(FComparer)) then
+    begin
+      TArray.QuickSort<T>(FItems^, FComparer, 0, Count);
+    end else
+    begin
+      TArray.QuickSort<T>(FItems^, IComparer<T>(@InterfaceDefaults.TDefaultComparer<T>.Instance), 0, Count);
+    end;
+  end;
 end;
 
 procedure TList<T>.Sort(const AComparer: IComparer<T>);
-begin
-  TArray.Sort<T>(FItems, AComparer, 0, Count);
-end;
-
-function TList<T>.ToArray: TArray<T>;
-begin
-  if IsManagedType(T) then
-    FListHelper.InternalToArrayManaged(Pointer(Result))
-  else
-    FListHelper.InternalToArray(Pointer(Result));
-end;
-
-procedure TList<T>.TrimExcess;
-begin
-  FListHelper.InternalSetCapacity(Count);
-end;
-
-function TList<T>.GetEnumerator: TEnumerator;
-begin
-  Result := TEnumerator.Create(Self);
-end;
-
-{ TList<T>.TEnumerator }
-
-constructor TList<T>.TEnumerator.Create(const AList: TList<T>);
-begin
-  inherited Create;
-  FList := AList;
-  FIndex := -1;
-end;
-
-function TList<T>.TEnumerator.DoGetCurrent: T;
-begin
-  Result := GetCurrent;
-end;
-
-function TList<T>.TEnumerator.DoMoveNext: Boolean;
-begin
-  Result := MoveNext;
-end;
-
-function TList<T>.TEnumerator.GetCurrent: T;
-begin
-  Result := FList[FIndex];
-end;
-
-function TList<T>.TEnumerator.MoveNext: Boolean;
-begin
-  if FIndex >= FList.Count then
-    Exit(False);
-  Inc(FIndex);
-  Result := FIndex < FList.Count;
-end;
-
-{ TQueueHelper }
-
-function TQueueHelper.GetElSize: Integer;
-begin
-  Result := FLH.ElSize;
-end;
-
-function TQueueHelper.GetElType: Pointer;
-begin
-  Result := FLH.ElType;
-end;
-
-function TQueueHelper.GetFItems: PPointer;
-begin
-  Result := FLH.FItems;
-end;
-
-procedure TQueueHelper.CheckEmpty;
-begin
-  if FLH.FCount = 0 then
-    raise EListError.CreateRes(Pointer(@SUnbalancedOperation));
-end;
-
-procedure TQueueHelper.DequeueAdjust(Notification: TCollectionNotification; const Item);
-begin
-  FTail := (FTail + 1) mod DynArraySize(FItems^);
-  Dec(FLH.FCount);
-  FLH.FNotify(Item, Notification);
-end;
-
-procedure TQueueHelper.DynArraySetLength(Value: NativeInt);
-begin
-  System.DynArraySetLength(FItems^, FLH.FTypeInfo, 1, @Value);
-end;
-
-procedure TQueueHelper.EnqueueAdjust(const Value);
-begin
-  FHead := (FHead + 1) mod DynArraySize(FItems^);
-  Inc(FLH.FCount);
-  FLH.FNotify(Value, cnAdded);
-end;
-
-function TQueueHelper.GetNewCap: Integer;
-begin
-  Result := DynArraySize(FItems^) * 2;
-  if Result = 0 then
-    Result := 4
-  else if Result < 0 then
-    OutOfMemoryError;
-end;
-
-procedure TQueueHelper.InternalSetCapacityInline(Value: Integer; ElemSize: Integer);
 var
-  TailCount, Offset: Integer;
+  Count: NativeInt;
 begin
-  Offset := Value - DynArraySize(FItems^);
-  if Offset = 0 then
-    Exit;
-
-  // If head <= tail, then part of the queue wraps around
-  // the end of the array; don't introduce a gap in the queue.
-  if (FHead < FTail) or ((FHead = FTail) and (FLH.FCount > 0)) then
-    TailCount := DynArraySize(FItems^) - FTail
-  else
-    TailCount := 0;
-
-  if Offset > 0 then
-    DynArraySetLength(Value);
-  if TailCount > 0 then
+  Count := FCount.Native;
+  if (Count > 1) then
   begin
-    Move(PByte(FItems^)[FTail * ElemSize], PByte(FItems^)[(FTail + Offset) * ElemSize], TailCount * ElemSize);
-    Inc(FTail, Offset);
-  end else if FTail > 0 then
+    Dec(Count);
+    TArray.QuickSort<T>(FItems^, AComparer, 0, Count);
+  end;
+end;
+
+function TList<T>.InternalBinarySearch(const Item: T; const Comparer: IComparer<T>): NativeInt;
+var
+  List: PItemList;
+  L, H, M: NativeInt;
+  Cmp: Integer;
+begin
+  L := 0;
+  H := FCount.Native - 1;
+  List := FItems;
+
+  while (L <= H) do
   begin
-    Move(PByte(FItems^)[FTail * ElemSize], PByte(FItems^)[0], FLH.FCount * ElemSize);
-    Dec(FHead, FTail);
-    FTail := 0;
-  end;
-  if Offset < 0 then
-  begin
-    DynArraySetLength(Value);
-    if Value = 0 then
-      FHead := 0
-    else
-      FHead := FHead mod DynArraySize(FItems^);
-  end;
-end;
-
-procedure TQueueHelper.InternalEnqueueString(const Value);
-begin
-  if FLH.FCount = DynArraySize(FItems^) then
-    InternalGrowMRef;
-  PString(FItems^)[FHead] := string(Value);
-  EnqueueAdjust(Value);
-end;
-
-procedure TQueueHelper.InternalEnqueueInterface(const Value);
-begin
-  if FLH.FCount = DynArraySize(FItems^) then
-    InternalGrowMRef;
-  TListHelper.PInterface(FItems^)[FHead] := IInterface(Value);
-  EnqueueAdjust(Value);
-end;
-
-{$IF not Defined(NEXTGEN)}
-procedure TQueueHelper.InternalEnqueueAnsiString(const Value);
-begin
-  if FLH.FCount = DynArraySize(FItems^) then
-    InternalGrowMRef;
-  PAnsiString(FItems^)[FHead] := AnsiString(Value);
-  EnqueueAdjust(Value);
-end;
-
-procedure TQueueHelper.InternalEnqueueWideString(const Value);
-begin
-  if FLH.FCount = DynArraySize(FItems^) then
-    InternalGrowMRef;
-  PWideString(FItems^)[FHead] := WideString(Value);
-  EnqueueAdjust(Value);
-end;
-{$IFEND}
-
-{$IF Defined(AUTOREFCOUNT)}
-procedure TQueueHelper.InternalEnqueueObject(const Value);
-begin
-  if FLH.FCount = DynArraySize(FItems^) then
-    InternalGrowMRef;
-  PObject(FItems^)[FHead] := TObject(Value);
-  EnqueueAdjust(Value);
-end;
-{$IFEND}
-
-procedure TQueueHelper.InternalEnqueue1(const Value);
-begin
-  if FLH.FCount = DynArraySize(FItems^) then
-    InternalGrow1;
-  PByte(FItems^)[FHead] := Byte(Value);
-  EnqueueAdjust(Value);
-end;
-
-procedure TQueueHelper.InternalEnqueue2(const Value);
-begin
-  if FLH.FCount = DynArraySize(FItems^) then
-    InternalGrow2;
-  PWord(FItems^)[FHead] := Word(Value);
-  EnqueueAdjust(Value);
-end;
-
-procedure TQueueHelper.InternalEnqueue4(const Value);
-begin
-  if FLH.FCount = DynArraySize(FItems^) then
-    InternalGrow4;
-  PCardinal(FItems^)[FHead] := Cardinal(Value);
-  EnqueueAdjust(Value);
-end;
-
-procedure TQueueHelper.InternalEnqueue8(const Value);
-begin
-  if FLH.FCount = DynArraySize(FItems^) then
-    InternalGrow8;
-  PUInt64(FItems^)[FHead] := UInt64(Value);
-  EnqueueAdjust(Value);
-end;
-
-procedure TQueueHelper.InternalEnqueueManaged(const Value);
-begin
-  if FLH.FCount = DynArraySize(FItems^) then
-    InternalGrowManaged;
-  System.CopyArray(@PByte(FItems^)[FHead * ElSize], @Value, ElType, 1);
-  EnqueueAdjust(Value);
-end;
-
-procedure TQueueHelper.InternalEnqueueMRef(const Value; Kind: TTypeKind);
-begin
-  case Kind of
-    TTypeKind.tkUString: InternalEnqueueString(Value);
-    TTypeKind.tkInterface: InternalEnqueueInterface(Value);
-{$IF not Defined(NEXTGEN)}
-    TTypeKind.tkLString: InternalEnqueueAnsiString(Value);
-    TTypeKind.tkWString: InternalEnqueueWideString(Value);
-{$IFEND}
-{$IF Defined(AUTOREFCOUNT)}
-    TTypeKind.tkClass: InternalEnqueueObject(Value);
-{$IFEND}
-  end;
-end;
-
-procedure TQueueHelper.InternalEnqueueN(const Value);
-begin
-  if FLH.FCount = DynArraySize(FItems^) then
-    InternalGrowN;
-  Move(Value, PByte(FItems^)[FHead * ElSize], ElSize);
-  EnqueueAdjust(Value);
-end;
-
-procedure TQueueHelper.InternalDequeueString(Notification: TCollectionNotification; Peek: Boolean; out Item);
-begin
-  CheckEmpty;
-  string(Item) := PString(FItems^)[FTail];
-  if not Peek then
-  begin
-    PString(FItems^)[FTail] := '';
-    DequeueAdjust(Notification, Item);
-  end;
-end;
-
-procedure TQueueHelper.InternalDequeueInterface(Notification: TCollectionNotification; Peek: Boolean; out Item);
-begin
-  CheckEmpty;
-  IInterface(Item) := TListHelper.PInterface(FItems^)[FTail];
-  if not Peek then
-  begin
-    TListHelper.PInterface(FItems^)[FTail] := nil;
-    DequeueAdjust(Notification, Item);
-  end;
-end;
-
-{$IF not Defined(NEXTGEN)}
-procedure TQueueHelper.InternalDequeueAnsiString(Notification: TCollectionNotification; Peek: Boolean; out Item);
-begin
-  CheckEmpty;
-  AnsiString(Item) := PAnsiString(FItems^)[FTail];
-  if not Peek then
-  begin
-    PAnsiString(FItems^)[FTail] := '';
-    DequeueAdjust(Notification, Item);
-  end;
-end;
-
-procedure TQueueHelper.InternalDequeueWideString(Notification: TCollectionNotification; Peek: Boolean; out Item);
-begin
-  CheckEmpty;
-  WideString(Item) := PWideString(FItems^)[FTail];
-  if not Peek then
-  begin
-    PWideString(FItems^)[FTail] := '';
-    DequeueAdjust(Notification, Item);
-  end;
-end;
-{$IFEND}
-
-{$IF Defined(AUTOREFCOUNT)}
-procedure TQueueHelper.InternalDequeueObject(Notification: TCollectionNotification; Peek: Boolean; out Item);
-begin
-  CheckEmpty;
-  TObject(Item) := PObject(FItems^)[FTail];
-  if not Peek then
-  begin
-    PObject(FItems^)[FTail] := nil;
-    DequeueAdjust(Notification, Item);
-  end;
-end;
-{$IFEND}
-
-procedure TQueueHelper.InternalDequeue1(Notification: TCollectionNotification; Peek: Boolean; out Item);
-begin
-  CheckEmpty;
-  Byte(Item) := PByte(FItems^)[FTail];
-  if not Peek then
-    DequeueAdjust(Notification, Item);
-end;
-
-procedure TQueueHelper.InternalDequeue2(Notification: TCollectionNotification; Peek: Boolean; out Item);
-begin
-  CheckEmpty;
-  Word(Item) := PWord(FItems^)[FTail];
-  if not Peek then
-    DequeueAdjust(Notification, Item);
-end;
-
-procedure TQueueHelper.InternalDequeue4(Notification: TCollectionNotification; Peek: Boolean; out Item);
-begin
-  CheckEmpty;
-  Cardinal(Item) := PCardinal(FItems^)[FTail];
-  if not Peek then
-    DequeueAdjust(Notification, Item);
-end;
-
-procedure TQueueHelper.InternalDequeue8(Notification: TCollectionNotification; Peek: Boolean; out Item);
-begin
-  CheckEmpty;
-  UInt64(Item) := PUInt64(FItems^)[FTail];
-  if not Peek then
-    DequeueAdjust(Notification, Item);
-end;
-
-procedure TQueueHelper.InternalDequeueManaged(Notification: TCollectionNotification; Peek: Boolean; out Item);
-begin
-  CheckEmpty;
-  System.CopyArray(@Item, @PByte(FItems^)[FTail * ElSize], ElType, 1);
-  if not Peek then
-  begin
-    FinalizeArray(@PByte(FItems^)[FTail * ElSize], ElType, 1);
-    DequeueAdjust(Notification, Item);
-  end;
-end;
-
-procedure TQueueHelper.InternalDequeueMRef(Notification: TCollectionNotification; Peek: Boolean; out Item; Kind: TTypeKind);
-begin
-  case Kind of
-    TTypeKind.tkUString: InternalDequeueString(Notification, Peek, Item);
-    TTypeKind.tkInterface: InternalDequeueInterface(Notification, Peek, Item);
-{$IF not Defined(NEXTGEN)}
-    TTypeKind.tkLString: InternalDequeueAnsiString(Notification, Peek, Item);
-    TTypeKind.tkWString: InternalDequeueWideString(Notification, Peek, Item);
-{$IFEND}
-{$IF Defined(AUTOREFCOUNT)}
-    TTypeKind.tkClass: InternalDequeueObject(Notification, Peek, Item);
-{$IFEND}
-  end;
-end;
-
-procedure TQueueHelper.InternalDequeueN(Notification: TCollectionNotification; Peek: Boolean; out Item);
-begin
-  CheckEmpty;
-  Move(PByte(FItems^)[FTail * ElSize], Item, ElSize);
-  if not Peek then
-    DequeueAdjust(Notification, Item);
-end;
-
-procedure TQueueHelper.InternalClearString;
-var
-  Temp: string;
-begin
-  while FLH.FCount > 0 do
-    InternalDequeueString(cnRemoved, False, Temp);
-  FHead := 0;
-  FTail := 0;
-  FLH.FCount := 0;
-end;
-
-procedure TQueueHelper.InternalClearInterface;
-var
-  Temp: IInterface;
-begin
-  while FLH.FCount > 0 do
-    InternalDequeueInterface(cnRemoved, False, Temp);
-  FHead := 0;
-  FTail := 0;
-  FLH.FCount := 0;
-end;
-
-{$IF not Defined(NEXTGEN)}
-procedure TQueueHelper.InternalClearAnsiString;
-var
-  Temp: AnsiString;
-begin
-  while FLH.FCount > 0 do
-    InternalDequeueAnsiString(cnRemoved, False, Temp);
-  FHead := 0;
-  FTail := 0;
-  FLH.FCount := 0;
-end;
-
-procedure TQueueHelper.InternalClearWideString;
-var
-  Temp: WideString;
-begin
-  while FLH.FCount > 0 do
-    InternalDequeueWideString(cnRemoved, False, Temp);
-  FHead := 0;
-  FTail := 0;
-  FLH.FCount := 0;
-end;
-{$IFEND}
-
-{$IF Defined(AUTOREFCOUNT)}
-procedure TQueueHelper.InternalClearObject;
-var
-  Temp: TObject;
-begin
-  while FLH.FCount > 0 do
-    InternalDequeueObject(cnRemoved, False, Temp);
-  FHead := 0;
-  FTail := 0;
-  FLH.FCount := 0;
-end;
-{$IFEND}
-
-procedure TQueueHelper.InternalClear1;
-var
-  Temp: Byte;
-begin
-  while FLH.FCount > 0 do
-    InternalDequeue1(cnRemoved, False, Temp);
-  FHead := 0;
-  FTail := 0;
-  FLH.FCount := 0;
-end;
-
-procedure TQueueHelper.InternalClear2;
-var
-  Temp: Word;
-begin
-  while FLH.FCount > 0 do
-    InternalDequeue2(cnRemoved, False, Temp);
-  FHead := 0;
-  FTail := 0;
-  FLH.FCount := 0;
-end;
-
-procedure TQueueHelper.InternalClear4;
-var
-  Temp: Cardinal;
-begin
-  while FLH.FCount > 0 do
-    InternalDequeue4(cnRemoved, False, Temp);
-  FHead := 0;
-  FTail := 0;
-  FLH.FCount := 0;
-end;
-
-procedure TQueueHelper.InternalClear8;
-var
-  Temp: UInt64;
-begin
-  while FLH.FCount > 0 do
-    InternalDequeue8(cnRemoved, False, Temp);
-  FHead := 0;
-  FTail := 0;
-  FLH.FCount := 0;
-end;
-
-procedure TQueueHelper.InternalClearManaged;
-var
-  STemp: array[0..63] of Byte;
-  DTemp: PByte;
-  PTemp: PByte;
-begin
-  PTemp := @STemp[0];
-  DTemp := nil;
-  try
-    if SizeOf(STemp) < ElSize then
+    M := L + (H - L) shr 1;
+    Cmp := Comparer.Compare(List[M], Item);
+    if (Cmp < 0) then
     begin
-      DTemp := AllocMem(ElSize);
-      PTemp := DTemp;
+      L := M + 1;
     end else
-      FillChar(STemp, SizeOf(STemp), 0);
-    while FLH.FCount > 0 do
-      InternalDequeueN(cnRemoved, False, PTemp[0]);
-    FHead := 0;
-    FTail := 0;
-    FLH.FCount := 0;
-  finally
-    FinalizeArray(@PTemp[0], ElType, 1);
-    FreeMem(DTemp);
-  end;
-end;
-
-procedure TQueueHelper.InternalClearMRef(Kind: TTypeKind);
-begin
-  case Kind of
-    TTypeKind.tkUString: InternalClearString;
-    TTypeKind.tkInterface: InternalClearInterface;
-{$IF not Defined(NEXTGEN)}
-    TTypeKind.tkLString: InternalClearAnsiString;
-    TTypeKind.tkWString: InternalClearWideString;
-{$IFEND}
-{$IF Defined(AUTOREFCOUNT)}
-    TTypeKind.tkClass: InternalClearObject;
-{$IFEND}
-  end;
-end;
-
-procedure TQueueHelper.InternalClearN;
-var
-  STemp: array[0..63] of Byte;
-  DTemp: PByte;
-  PTemp: PByte;
-begin
-  PTemp := @STemp[0];
-  DTemp := nil;
-  try
-    if SizeOf(STemp) < ElSize then
     begin
-      GetMem(DTemp, ElSize);
-      PTemp := DTemp;
+      H := M - 1;
+      if (Cmp = 0) then
+        Exit(L);
     end;
-    while FLH.FCount > 0 do
-      InternalDequeueN(cnRemoved, False, PTemp[0]);
-    FHead := 0;
-    FTail := 0;
-    FLH.FCount := 0;
-  finally
-    FreeMem(DTemp);
+  end;
+
+  Result := -1;
+end;
+
+function TList<T>.BinarySearch(const Item: T; out Index: Integer): Boolean;
+var
+  I: NativeInt;
+begin
+  if (Assigned(FComparer)) then
+  begin
+    I := InternalBinarySearch(Item, FComparer);
+  end else
+  begin
+    I := InternalBinarySearch(Item, IComparer<T>(@InterfaceDefaults.TDefaultComparer<T>.Instance));
+  end;
+
+  Index := I + (I shr {$ifdef LARGEINT}63{$else .SMALLINT}31{$endif});
+  Result := (I >= 0);
+end;
+
+function TList<T>.BinarySearch(const Item: T; out Index: Integer; const AComparer: IComparer<T>): Boolean;
+var
+  I: NativeInt;
+begin
+  I := InternalBinarySearch(Item, AComparer);
+
+  Index := I + (I shr {$ifdef LARGEINT}63{$else .SMALLINT}31{$endif});
+  Result := (I >= 0);
+end;
+
+function TList<T>.InternalIndexOf(const Value: T): NativeInt;
+{$ifdef SMARTGENERICS}
+label
+  cmp0, cmp1, cmp2, cmp3, cmp4, cmp5{$ifdef SMALLINT}, cmp6, cmp7, cmp8, cmp9, cmp10{$endif};
+{$endif}
+type
+  TEquals = function(Inst: Pointer; const Left, Right: T): Boolean;
+  T16 = packed record
+  case Integer of
+    0: (Bytes: array[0..15] of Byte);
+    1: (Words: array[0..7] of Word);
+    2: (Integers: array[0..3] of Integer);
+    3: (Int64s: array[0..1] of Int64);
+  end;
+  P16 = ^T16;
+var
+  R: NativeInt;
+  Item, TopItem: PItem;
+  {$ifdef SMARTGENERICS}
+  Count: NativeUInt;
+  Left, Right: PByte;
+  Offset: NativeUInt;
+  {$endif}
+  Stored: record
+    Items: PItem;
+  end;
+begin
+  if (not Assigned(FComparer)) then
+  begin
+    Item := Pointer(FItems);
+    Stored.Items := Item;
+    Dec(Item);
+    TopItem := Item + FCount.Native;
+
+    repeat
+      if (Item = TopItem) then Break;
+      Inc(Item);
+      {$ifdef SMARTGENERICS}
+      if (GetTypeKind(T) = tkVariant) then
+      begin
+        if (not InterfaceDefaults.Equals_Var(nil, PVarData(@Value), PVarData(Item))) then Continue;
+      end else
+      if (GetTypeKind(T) = tkClass) then
+      begin
+        Left := PPointer(@Value)^;
+        Right := PPointer(Item)^;
+        if (Assigned(Left)) then
+        begin
+          if (PPointer(Left^)[vmtEquals div SizeOf(Pointer)] = @TObject.Equals) then
+          begin
+            if (Left <> Right) then Continue;
+          end else
+          begin
+            if (not TObject(PNativeUInt(@Value)^).Equals(TObject(PNativeUInt(Item)^))) then Continue;
+          end;
+        end else
+        begin
+          if (Right <> nil) then Continue;
+        end;
+      end else
+      if (GetTypeKind(T) = tkFloat) then
+      begin
+        case SizeOf(T) of
+          4:
+          begin
+            if (PSingle(@Value)^ <> PSingle(Item)^) then Continue;
+          end;
+          10:
+          begin
+            if (PExtended(@Value)^ <> PExtended(Item)^) then Continue;
+          end;
+        else
+        {$ifdef LARGEINT}
+          if (PInt64(@Value)^ <> PInt64(Item)^) then
+        {$else .SMALLINT}
+          if ((PPoint(@Value).X - PPoint(Item).X) or (PPoint(@Value).Y - PPoint(Item).Y) <> 0) then
+        {$endif}
+          begin
+            if (InterfaceDefaults.TDefaultEqualityComparer<T>.Instance.Size < 0) then Continue;
+            if (PDouble(@Value)^ <> PDouble(Item)^) then Continue;
+          end;
+        end;
+      end else
+      if (not (GetTypeKind(T) in [tkDynArray, tkString, tkLString, tkWString, tkUString])) and
+        (SizeOf(T) <= 16) then
+      begin
+        // small binary
+        if (SizeOf(T) <> 0) then
+        with P16(@Value)^ do
+        begin
+          if (SizeOf(T) >= SizeOf(Integer)) then
+          begin
+            if (SizeOf(T) >= SizeOf(Int64)) then
+            begin
+              {$ifdef LARGEINT}
+              if (Int64s[0] <> P16(Item).Int64s[0]) then Continue;
+              {$else}
+              if (Integers[0] <> P16(Item).Integers[0]) then Continue;
+              if (Integers[1] <> P16(Item).Integers[1]) then Continue;
+              {$endif}
+
+              if (SizeOf(T) = 16) then
+              begin
+                {$ifdef LARGEINT}
+                if (Int64s[1] <> P16(Item).Int64s[1]) then Continue;
+                {$else}
+                if (Integers[2] <> P16(Item).Integers[2]) then Continue;
+                if (Integers[3] <> P16(Item).Integers[3]) then Continue;
+                {$endif}
+              end else
+              if (SizeOf(T) >= 12) then
+              begin
+                if (Integers[2] <> P16(Item).Integers[2]) then Continue;
+              end;
+            end else
+            begin
+              if (Integers[0] <> P16(Item).Integers[0]) then Continue;
+            end;
+          end;
+
+          if (SizeOf(T) and 2 <> 0) then
+          begin
+            if (Words[(SizeOf(T) and -4) shr 1] <> P16(Item).Words[(SizeOf(T) and -4) shr 1]) then Continue;
+          end;
+          if (SizeOf(T) and 1 <> 0) then
+          begin
+            if (Bytes[SizeOf(T) and -2] <> P16(Item).Bytes[SizeOf(T) and -2]) then Continue;
+          end;
+        end;
+      end else
+      begin
+        if (GetTypeKind(T) in [tkDynArray, tkString, tkLString, tkWString, tkUString]) then
+        begin
+          // dynamic size
+          if (GetTypeKind(T) = tkString) then
+          begin
+            Left := Pointer(@Value);
+            Right := Pointer(Item);
+            if (PItem(Left) = {Right}Item) then goto cmp0;
+            Count := Left^;
+            if (Count <> Right^) then Continue;
+            if (Count = 0) then goto cmp0;
+            // compare last bytes
+            if (Left[Count] <> Right[Count]) then Continue;
+          end else
+          // if (GetTypeKind(T) in [tkDynArray, tkLString, tkWString, tkUString]) then
+          begin
+            Left := PPointer(@Value)^;
+            Right := PPointer(Item)^;
+            if (Left = Right) then goto cmp0;
+            if (Left = nil) then
+            begin
+              {$ifdef MSWINDOWS}
+              if (GetTypeKind(T) = tkWString) then
+              begin
+                Dec(Right, SizeOf(Cardinal));
+                if (PCardinal(Right)^ = 0) then goto cmp0;
+              end;
+              {$endif}
+              Continue;
+            end;
+            if (Right = nil) then
+            begin
+              {$ifdef MSWINDOWS}
+              if (GetTypeKind(T) = tkWString) then
+              begin
+                Dec(Left, SizeOf(Cardinal));
+                if (PCardinal(Left)^ = 0) then goto cmp0;
+              end;
+              {$endif}
+              Continue;
+            end;
+
+            if (GetTypeKind(T) = tkDynArray) then
+            begin
+              Dec(Left, SizeOf(NativeUInt));
+              Dec(Right, SizeOf(NativeUInt));
+              Count := PNativeUInt(Left)^;
+              if (Count <> PNativeUInt(Right)^) then Continue;
+              NativeInt(Count) := NativeInt(Count) * InterfaceDefaults.TDefaultEqualityComparer<T>.Instance.Size;
+              Inc(Left, SizeOf(NativeUInt));
+              Inc(Right, SizeOf(NativeUInt));
+            end else
+            // if (GetTypeKind(T) in [tkLString, tkWString, tkUString]) then
+            begin
+              Dec(Left, SizeOf(Cardinal));
+              Dec(Right, SizeOf(Cardinal));
+              Count := PCardinal(Left)^;
+              if (Cardinal(Count) <> PCardinal(Right)^) then Continue;
+              Inc(Left, SizeOf(Cardinal));
+              Inc(Right, SizeOf(Cardinal));
+            end;
+          end;
+
+          // compare last (after cardinal) words
+          if (GetTypeKind(T) in [tkDynArray, tkString, tkLString]) then
+          begin
+            if (GetTypeKind(T) in [tkString, tkLString]) {ByteStrings + 2} then
+            begin
+              Inc(Count);
+            end;
+            if (Count and 2 <> 0) then
+            begin
+              Offset := Count and -4;
+              Inc(Left, Offset);
+              Inc(Right, Offset);
+              if (PWord(Left)^ <> PWord(Right)^) then Continue;
+              Offset := Count;
+              Offset := Offset and -4;
+              Dec(Left, Offset);
+              Dec(Right, Offset);
+            end;
+          end else
+          // modify Count to have only cardinals to compare
+          // if (GetTypeKind(T) in [tkWString, tkUString]) {UnicodeStrings + 2} then
+          begin
+            {$ifdef MSWINDOWS}
+            if (GetTypeKind(T) = tkWString) then
+            begin
+              if (Count = 0) then goto cmp0;
+            end else
+            {$endif}
+            begin
+              Inc(Count, Count);
+            end;
+            Inc(Count, 2);
+          end;
+
+          {$ifdef LARGEINT}
+          if (Count and 4 <> 0) then
+          begin
+            Offset := Count and -8;
+            Inc(Left, Offset);
+            Inc(Right, Offset);
+            if (PCardinal(Left)^ <> PCardinal(Right)^) then Continue;
+            Dec(Left, Offset);
+            Dec(Right, Offset);
+          end;
+          {$endif}
+        end else
+        begin
+          // non-dynamic (constant) size binary > 16
+          if (SizeOf(T) and {$ifdef LARGEINT}7{$else}3{$endif} <> 0) then
+          with P16(@Value)^ do
+          begin
+            {$ifdef LARGEINT}
+            if (SizeOf(T) and 4 <> 0) then
+            begin
+              if (Integers[(SizeOf(T) and -8) shr 2] <> P16(Item).Integers[(SizeOf(T) and -8) shr 2]) then Continue;
+            end;
+            {$endif}
+            if (SizeOf(T) and 2 <> 0) then
+            begin
+              if (Words[(SizeOf(T) and -4) shr 1] <> P16(Item).Words[(SizeOf(T) and -4) shr 1]) then Continue;
+            end;
+            if (SizeOf(T) and 1 <> 0) then
+            begin
+              if (Bytes[SizeOf(T) and -2] <> P16(Item).Bytes[SizeOf(T) and -2]) then Continue;
+            end;
+          end;
+          Left := Pointer(@Value);
+          Right := Pointer(Item);
+          Count := SizeOf(T);
+        end;
+
+        // natives (40 bytes static) compare
+        Count := Count shr {$ifdef LARGEINT}3{$else}2{$endif};
+        case Count of
+        {$ifdef SMALLINT}
+         10: goto cmp10;
+          9: goto cmp9;
+          8: goto cmp8;
+          7: goto cmp7;
+          6: goto cmp6;
+        {$endif}
+          5: goto cmp5;
+          4: goto cmp4;
+          3: goto cmp3;
+          2: goto cmp2;
+          1: goto cmp1;
+          0: goto cmp0;
+        else
+          repeat
+            if (PNativeUInt(Left)^ <> PNativeUInt(Right)^) then Continue;
+            Dec(Count);
+            Inc(Left, SizeOf(NativeUInt));
+            Inc(Right, SizeOf(NativeUInt));
+          until (Count = {$ifdef LARGEINT}5{$else}10{$endif});
+
+          {$ifdef SMALLINT}
+          cmp10:
+            if (PNativeUInt(Left)^ <> PNativeUInt(Right)^) then Continue;
+            Inc(Left, SizeOf(NativeUInt));
+            Inc(Right, SizeOf(NativeUInt));
+          cmp9:
+            if (PNativeUInt(Left)^ <> PNativeUInt(Right)^) then Continue;
+            Inc(Left, SizeOf(NativeUInt));
+            Inc(Right, SizeOf(NativeUInt));
+          cmp8:
+            if (PNativeUInt(Left)^ <> PNativeUInt(Right)^) then Continue;
+            Inc(Left, SizeOf(NativeUInt));
+            Inc(Right, SizeOf(NativeUInt));
+          cmp7:
+            if (PNativeUInt(Left)^ <> PNativeUInt(Right)^) then Continue;
+            Inc(Left, SizeOf(NativeUInt));
+            Inc(Right, SizeOf(NativeUInt));
+          cmp6:
+            if (PNativeUInt(Left)^ <> PNativeUInt(Right)^) then Continue;
+            Inc(Left, SizeOf(NativeUInt));
+            Inc(Right, SizeOf(NativeUInt));
+          {$endif}
+          cmp5:
+            if (PNativeUInt(Left)^ <> PNativeUInt(Right)^) then Continue;
+            Inc(Left, SizeOf(NativeUInt));
+            Inc(Right, SizeOf(NativeUInt));
+          cmp4:
+            if (PNativeUInt(Left)^ <> PNativeUInt(Right)^) then Continue;
+            Inc(Left, SizeOf(NativeUInt));
+            Inc(Right, SizeOf(NativeUInt));
+          cmp3:
+            if (PNativeUInt(Left)^ <> PNativeUInt(Right)^) then Continue;
+            Inc(Left, SizeOf(NativeUInt));
+            Inc(Right, SizeOf(NativeUInt));
+          cmp2:
+            if (PNativeUInt(Left)^ <> PNativeUInt(Right)^) then Continue;
+            Inc(Left, SizeOf(NativeUInt));
+            Inc(Right, SizeOf(NativeUInt));
+          cmp1:
+            if (PNativeUInt(Left)^ <> PNativeUInt(Right)^) then Continue;
+          cmp0:
+        end;
+      end;
+      {$else}
+        if (not TEquals(InterfaceDefaults.TDefaultEqualityComparer<T>.Instance.Equals)(
+          @InterfaceDefaults.TDefaultEqualityComparer<T>.Instance, Item^, Value)) then Continue;
+      {$endif}
+
+      R := NativeInt(Item) - NativeInt(Stored.Items);
+      case SizeOf(T) of
+      0, 1: Exit(R);
+         2: Exit(R shr 1);
+         4: Exit(R shr 2);
+         8: Exit(R shr 3);
+        16: Exit(R shr 4);
+        32: Exit(R shr 5);
+        64: Exit(R shr 6);
+       128: Exit(R shr 7);
+       256: Exit(R shr 8);
+      else
+        Exit(Round(R * (1 / SizeOf(T))));
+      end;
+    until (False);
+
+    Exit(-1);
+  end else
+  begin
+    Exit(InternalIndexOf(Value, FComparer));
   end;
 end;
 
-procedure TQueueHelper.InternalGrow1;
-begin
-  InternalSetCapacity1(GetNewCap);
-end;
-
-procedure TQueueHelper.InternalGrow2;
-begin
-  InternalSetCapacity2(GetNewCap);
-end;
-
-procedure TQueueHelper.InternalGrow4;
-begin
-  InternalSetCapacity4(GetNewCap);
-end;
-
-procedure TQueueHelper.InternalGrow8;
-begin
-  InternalSetCapacity8(GetNewCap);
-end;
-
-procedure TQueueHelper.InternalGrowManaged;
-begin
-  InternalSetCapacityManaged(GetNewCap);
-end;
-
-procedure TQueueHelper.InternalGrowMRef;
-begin
-  InternalSetCapacityMRef(GetNewCap);
-end;
-
-procedure TQueueHelper.InternalGrowN;
-begin
-  InternalSetCapacityN(GetNewCap);
-end;
-
-procedure TQueueHelper.InternalSetCapacity1(Value: Integer);
-begin
-  InternalSetCapacityInline(Value, SizeOf(Byte));
-end;
-
-procedure TQueueHelper.InternalSetCapacity2(Value: Integer);
-begin
-  InternalSetCapacityInline(Value, SizeOf(Word));
-end;
-
-procedure TQueueHelper.InternalSetCapacity4(Value: Integer);
-begin
-  InternalSetCapacityInline(Value, SizeOf(Cardinal));
-end;
-
-procedure TQueueHelper.InternalSetCapacity8(Value: Integer);
-begin
-  InternalSetCapacityInline(Value, SizeOf(UInt64));
-end;
-
-procedure TQueueHelper.InternalSetCapacityManaged(Value: Integer);
+function TList<T>.InternalIndexOf(const Value: T; const Comparer: IComparer<T>): NativeInt;
+type
+  TCompare = function(Inst: Pointer; const Left, Right: T): Integer;
 var
-  TailCount, Offset: Integer;
-  Items: PByte;
+  Count: NativeInt;
+  Item: PItem;
+  Compare: TMethod;
 begin
-  Offset := Value - DynArraySize(FItems^);
-  if Offset = 0 then
-    Exit;
-
-  // If head <= tail, then part of the queue wraps around
-  // the end of the array; don't introduce a gap in the queue.
-  if (FHead < FTail) or ((FHead = FTail) and (FLH.FCount > 0)) then
-    TailCount := DynArraySize(FItems^) - FTail
-  else
-    TailCount := 0;
-
-  if Offset > 0 then
-    DynArraySetLength(Value);
-  Items := PByte(FItems^);
-  if TailCount > 0 then
+  Count := FCount.Native;
+  Item := Pointer(FItems);
+  Compare.Data := Pointer(Comparer);
+  Compare.Code := PPointer(PNativeUInt(Comparer)^ + 3 * SizeOf(Pointer))^;
+  for Result := 0 to Count - 1 do
   begin
-    CopyArray(@Items[(FTail + Offset) * ElSize], @Items[FTail * ElSize], ElType, ElSize, TailCount);
-    if Offset > 0 then
-      FinalizeArray(@Items[FTail * ElSize], ElType, Offset)
-    else if Offset < 0 then
-      FinalizeArray(@Items[FLH.FCount * ElSize], ElType, (- Offset));
-    Inc(FTail, Offset);
-  end
-  else if FTail > 0 then
+    if (TCompare(Compare.Code)(Compare.Data, Item^, Value) = 0) then Exit;
+    Inc(Item);
+  end;
+
+  Result := -1;
+end;
+
+function TList<T>.InternalIndexOfRev(const Value: T): NativeInt;
+{$ifdef SMARTGENERICS}
+label
+  cmp0, cmp1, cmp2, cmp3, cmp4, cmp5{$ifdef SMALLINT}, cmp6, cmp7, cmp8, cmp9, cmp10{$endif};
+{$endif}
+type
+  TEquals = function(Inst: Pointer; const Left, Right: T): Boolean;
+  T16 = packed record
+  case Integer of
+    0: (Bytes: array[0..15] of Byte);
+    1: (Words: array[0..7] of Word);
+    2: (Integers: array[0..3] of Integer);
+    3: (Int64s: array[0..1] of Int64);
+  end;
+  P16 = ^T16;
+var
+  R: NativeInt;
+  Item, LowItem: PItem;
+  {$ifdef SMARTGENERICS}
+  Count: NativeUInt;
+  Left, Right: PByte;
+  Offset: NativeUInt;
+  {$endif}
+  Stored: record
+    Items: PItem;
+  end;
+begin
+  if (not Assigned(FComparer)) then
   begin
-    if FLH.FCount > 0 then
+    LowItem := Pointer(FItems);
+    Stored.Items := LowItem;
+    Item := LowItem + FCount.Native;
+
+    repeat
+      if (Item = LowItem) then Break;
+      Dec(Item);
+      {$ifdef SMARTGENERICS}
+      if (GetTypeKind(T) = tkVariant) then
+      begin
+        if (not InterfaceDefaults.Equals_Var(nil, PVarData(@Value), PVarData(Item))) then Continue;
+      end else
+      if (GetTypeKind(T) = tkClass) then
+      begin
+        Left := PPointer(@Value)^;
+        Right := PPointer(Item)^;
+        if (Assigned(Left)) then
+        begin
+          if (PPointer(Left^)[vmtEquals div SizeOf(Pointer)] = @TObject.Equals) then
+          begin
+            if (Left <> Right) then Continue;
+          end else
+          begin
+            if (not TObject(PNativeUInt(@Value)^).Equals(TObject(PNativeUInt(Item)^))) then Continue;
+          end;
+        end else
+        begin
+          if (Right <> nil) then Continue;
+        end;
+      end else
+      if (GetTypeKind(T) = tkFloat) then
+      begin
+        case SizeOf(T) of
+          4:
+          begin
+            if (PSingle(@Value)^ <> PSingle(Item)^) then Continue;
+          end;
+          10:
+          begin
+            if (PExtended(@Value)^ <> PExtended(Item)^) then Continue;
+          end;
+        else
+        {$ifdef LARGEINT}
+          if (PInt64(@Value)^ <> PInt64(Item)^) then
+        {$else .SMALLINT}
+          if ((PPoint(@Value).X - PPoint(Item).X) or (PPoint(@Value).Y - PPoint(Item).Y) <> 0) then
+        {$endif}
+          begin
+            if (InterfaceDefaults.TDefaultEqualityComparer<T>.Instance.Size < 0) then Continue;
+            if (PDouble(@Value)^ <> PDouble(Item)^) then Continue;
+          end;
+        end;
+      end else
+      if (not (GetTypeKind(T) in [tkDynArray, tkString, tkLString, tkWString, tkUString])) and
+        (SizeOf(T) <= 16) then
+      begin
+        // small binary
+        if (SizeOf(T) <> 0) then
+        with P16(@Value)^ do
+        begin
+          if (SizeOf(T) >= SizeOf(Integer)) then
+          begin
+            if (SizeOf(T) >= SizeOf(Int64)) then
+            begin
+              {$ifdef LARGEINT}
+              if (Int64s[0] <> P16(Item).Int64s[0]) then Continue;
+              {$else}
+              if (Integers[0] <> P16(Item).Integers[0]) then Continue;
+              if (Integers[1] <> P16(Item).Integers[1]) then Continue;
+              {$endif}
+
+              if (SizeOf(T) = 16) then
+              begin
+                {$ifdef LARGEINT}
+                if (Int64s[1] <> P16(Item).Int64s[1]) then Continue;
+                {$else}
+                if (Integers[2] <> P16(Item).Integers[2]) then Continue;
+                if (Integers[3] <> P16(Item).Integers[3]) then Continue;
+                {$endif}
+              end else
+              if (SizeOf(T) >= 12) then
+              begin
+                if (Integers[2] <> P16(Item).Integers[2]) then Continue;
+              end;
+            end else
+            begin
+              if (Integers[0] <> P16(Item).Integers[0]) then Continue;
+            end;
+          end;
+
+          if (SizeOf(T) and 2 <> 0) then
+          begin
+            if (Words[(SizeOf(T) and -4) shr 1] <> P16(Item).Words[(SizeOf(T) and -4) shr 1]) then Continue;
+          end;
+          if (SizeOf(T) and 1 <> 0) then
+          begin
+            if (Bytes[SizeOf(T) and -2] <> P16(Item).Bytes[SizeOf(T) and -2]) then Continue;
+          end;
+        end;
+      end else
+      begin
+        if (GetTypeKind(T) in [tkDynArray, tkString, tkLString, tkWString, tkUString]) then
+        begin
+          // dynamic size
+          if (GetTypeKind(T) = tkString) then
+          begin
+            Left := Pointer(@Value);
+            Right := Pointer(Item);
+            if (PItem(Left) = {Right}Item) then goto cmp0;
+            Count := Left^;
+            if (Count <> Right^) then Continue;
+            if (Count = 0) then goto cmp0;
+            // compare last bytes
+            if (Left[Count] <> Right[Count]) then Continue;
+          end else
+          // if (GetTypeKind(T) in [tkDynArray, tkLString, tkWString, tkUString]) then
+          begin
+            Left := PPointer(@Value)^;
+            Right := PPointer(Item)^;
+            if (Left = Right) then goto cmp0;
+            if (Left = nil) then
+            begin
+              {$ifdef MSWINDOWS}
+              if (GetTypeKind(T) = tkWString) then
+              begin
+                Dec(Right, SizeOf(Cardinal));
+                if (PCardinal(Right)^ = 0) then goto cmp0;
+              end;
+              {$endif}
+              Continue;
+            end;
+            if (Right = nil) then
+            begin
+              {$ifdef MSWINDOWS}
+              if (GetTypeKind(T) = tkWString) then
+              begin
+                Dec(Left, SizeOf(Cardinal));
+                if (PCardinal(Left)^ = 0) then goto cmp0;
+              end;
+              {$endif}
+              Continue;
+            end;
+
+            if (GetTypeKind(T) = tkDynArray) then
+            begin
+              Dec(Left, SizeOf(NativeUInt));
+              Dec(Right, SizeOf(NativeUInt));
+              Count := PNativeUInt(Left)^;
+              if (Count <> PNativeUInt(Right)^) then Continue;
+              NativeInt(Count) := NativeInt(Count) * InterfaceDefaults.TDefaultEqualityComparer<T>.Instance.Size;
+              Inc(Left, SizeOf(NativeUInt));
+              Inc(Right, SizeOf(NativeUInt));
+            end else
+            // if (GetTypeKind(T) in [tkLString, tkWString, tkUString]) then
+            begin
+              Dec(Left, SizeOf(Cardinal));
+              Dec(Right, SizeOf(Cardinal));
+              Count := PCardinal(Left)^;
+              if (Cardinal(Count) <> PCardinal(Right)^) then Continue;
+              Inc(Left, SizeOf(Cardinal));
+              Inc(Right, SizeOf(Cardinal));
+            end;
+          end;
+
+          // compare last (after cardinal) words
+          if (GetTypeKind(T) in [tkDynArray, tkString, tkLString]) then
+          begin
+            if (GetTypeKind(T) in [tkString, tkLString]) {ByteStrings + 2} then
+            begin
+              Inc(Count);
+            end;
+            if (Count and 2 <> 0) then
+            begin
+              Offset := Count and -4;
+              Inc(Left, Offset);
+              Inc(Right, Offset);
+              if (PWord(Left)^ <> PWord(Right)^) then Continue;
+              Offset := Count;
+              Offset := Offset and -4;
+              Dec(Left, Offset);
+              Dec(Right, Offset);
+            end;
+          end else
+          // modify Count to have only cardinals to compare
+          // if (GetTypeKind(T) in [tkWString, tkUString]) {UnicodeStrings + 2} then
+          begin
+            {$ifdef MSWINDOWS}
+            if (GetTypeKind(T) = tkWString) then
+            begin
+              if (Count = 0) then goto cmp0;
+            end else
+            {$endif}
+            begin
+              Inc(Count, Count);
+            end;
+            Inc(Count, 2);
+          end;
+
+          {$ifdef LARGEINT}
+          if (Count and 4 <> 0) then
+          begin
+            Offset := Count and -8;
+            Inc(Left, Offset);
+            Inc(Right, Offset);
+            if (PCardinal(Left)^ <> PCardinal(Right)^) then Continue;
+            Dec(Left, Offset);
+            Dec(Right, Offset);
+          end;
+          {$endif}
+        end else
+        begin
+          // non-dynamic (constant) size binary > 16
+          if (SizeOf(T) and {$ifdef LARGEINT}7{$else}3{$endif} <> 0) then
+          with P16(@Value)^ do
+          begin
+            {$ifdef LARGEINT}
+            if (SizeOf(T) and 4 <> 0) then
+            begin
+              if (Integers[(SizeOf(T) and -8) shr 2] <> P16(Item).Integers[(SizeOf(T) and -8) shr 2]) then Continue;
+            end;
+            {$endif}
+            if (SizeOf(T) and 2 <> 0) then
+            begin
+              if (Words[(SizeOf(T) and -4) shr 1] <> P16(Item).Words[(SizeOf(T) and -4) shr 1]) then Continue;
+            end;
+            if (SizeOf(T) and 1 <> 0) then
+            begin
+              if (Bytes[SizeOf(T) and -2] <> P16(Item).Bytes[SizeOf(T) and -2]) then Continue;
+            end;
+          end;
+          Left := Pointer(@Value);
+          Right := Pointer(Item);
+          Count := SizeOf(T);
+        end;
+
+        // natives (40 bytes static) compare
+        Count := Count shr {$ifdef LARGEINT}3{$else}2{$endif};
+        case Count of
+        {$ifdef SMALLINT}
+         10: goto cmp10;
+          9: goto cmp9;
+          8: goto cmp8;
+          7: goto cmp7;
+          6: goto cmp6;
+        {$endif}
+          5: goto cmp5;
+          4: goto cmp4;
+          3: goto cmp3;
+          2: goto cmp2;
+          1: goto cmp1;
+          0: goto cmp0;
+        else
+          repeat
+            if (PNativeUInt(Left)^ <> PNativeUInt(Right)^) then Continue;
+            Dec(Count);
+            Inc(Left, SizeOf(NativeUInt));
+            Inc(Right, SizeOf(NativeUInt));
+          until (Count = {$ifdef LARGEINT}5{$else}10{$endif});
+
+          {$ifdef SMALLINT}
+          cmp10:
+            if (PNativeUInt(Left)^ <> PNativeUInt(Right)^) then Continue;
+            Inc(Left, SizeOf(NativeUInt));
+            Inc(Right, SizeOf(NativeUInt));
+          cmp9:
+            if (PNativeUInt(Left)^ <> PNativeUInt(Right)^) then Continue;
+            Inc(Left, SizeOf(NativeUInt));
+            Inc(Right, SizeOf(NativeUInt));
+          cmp8:
+            if (PNativeUInt(Left)^ <> PNativeUInt(Right)^) then Continue;
+            Inc(Left, SizeOf(NativeUInt));
+            Inc(Right, SizeOf(NativeUInt));
+          cmp7:
+            if (PNativeUInt(Left)^ <> PNativeUInt(Right)^) then Continue;
+            Inc(Left, SizeOf(NativeUInt));
+            Inc(Right, SizeOf(NativeUInt));
+          cmp6:
+            if (PNativeUInt(Left)^ <> PNativeUInt(Right)^) then Continue;
+            Inc(Left, SizeOf(NativeUInt));
+            Inc(Right, SizeOf(NativeUInt));
+          {$endif}
+          cmp5:
+            if (PNativeUInt(Left)^ <> PNativeUInt(Right)^) then Continue;
+            Inc(Left, SizeOf(NativeUInt));
+            Inc(Right, SizeOf(NativeUInt));
+          cmp4:
+            if (PNativeUInt(Left)^ <> PNativeUInt(Right)^) then Continue;
+            Inc(Left, SizeOf(NativeUInt));
+            Inc(Right, SizeOf(NativeUInt));
+          cmp3:
+            if (PNativeUInt(Left)^ <> PNativeUInt(Right)^) then Continue;
+            Inc(Left, SizeOf(NativeUInt));
+            Inc(Right, SizeOf(NativeUInt));
+          cmp2:
+            if (PNativeUInt(Left)^ <> PNativeUInt(Right)^) then Continue;
+            Inc(Left, SizeOf(NativeUInt));
+            Inc(Right, SizeOf(NativeUInt));
+          cmp1:
+            if (PNativeUInt(Left)^ <> PNativeUInt(Right)^) then Continue;
+          cmp0:
+        end;
+      end;
+      {$else}
+        if (not TEquals(InterfaceDefaults.TDefaultEqualityComparer<T>.Instance.Equals)(
+          @InterfaceDefaults.TDefaultEqualityComparer<T>.Instance, Item^, Value)) then Continue;
+      {$endif}
+
+      R := NativeInt(Item) - NativeInt(Stored.Items);
+      case SizeOf(T) of
+      0, 1: Exit(R);
+         2: Exit(R shr 1);
+         4: Exit(R shr 2);
+         8: Exit(R shr 3);
+        16: Exit(R shr 4);
+        32: Exit(R shr 5);
+        64: Exit(R shr 6);
+       128: Exit(R shr 7);
+       256: Exit(R shr 8);
+      else
+        Exit(Round(R * (1 / SizeOf(T))));
+      end;
+    until (False);
+
+    Exit(-1);
+  end else
+  begin
+    Exit(InternalIndexOfRev(Value, FComparer));
+  end;
+end;
+
+function TList<T>.InternalIndexOfRev(const Value: T; const Comparer: IComparer<T>): NativeInt;
+type
+  TCompare = function(Inst: Pointer; const Left, Right: T): Integer;
+var
+  Count: NativeInt;
+  Item: PItem;
+  Compare: TMethod;
+begin
+  Count := FCount.Native;
+  Dec(Count);
+  Item := @FItems[Count];
+  Compare.Data := Pointer(Comparer);
+  Compare.Code := PPointer(PNativeUInt(Comparer)^ + 3 * SizeOf(Pointer))^;
+  for Result := Count downto 0 do
+  begin
+    if (TCompare(Compare.Code)(Compare.Data, Item^, Value) = 0) then Exit;
+    Dec(Item);
+  end;
+
+  Result := -1;
+end;
+
+function TList<T>.Contains(const Value: T): Boolean;
+begin
+  Result := (InternalIndexOf(Value) >= 0);
+end;
+
+function TList<T>.IndexOf(const Value: T): Integer;
+begin
+  Result := InternalIndexOf(Value);
+end;
+
+function TList<T>.IndexOfItem(const Value: T; Direction: TDirection): Integer;
+begin
+  if (Direction = FromBeginning) then
+  begin
+    Result := InternalIndexOf(Value);
+  end else
+  begin
+    Result := InternalIndexOfRev(Value);
+  end;
+end;
+
+function TList<T>.LastIndexOf(const Value: T): Integer;
+begin
+  Result := InternalIndexOfRev(Value);
+end;
+
+function TList<T>.Remove(const Value: T): Integer;
+var
+  Index: NativeInt;
+begin
+  Index := IndexOf(Value);
+  if (Index >= 0) then
+    InternalDelete(Index, cnRemoved);
+
+  Result := Index;
+end;
+
+function TList<T>.RemoveItem(const Value: T; Direction: TDirection): Integer;
+var
+  Index: NativeInt;
+begin
+  Index := IndexOfItem(Value, Direction);
+  if (Index >= 0) then
+    InternalDelete(Index, cnRemoved);
+
+  Result := Index;
+end;
+
+function TList<T>.Extract(const Value: T): T;
+var
+  Index: NativeInt;
+begin
+  Index := IndexOf(Value);
+  if (Index < 0) then
+  begin
+    Result := Default(T);
+  end else
+  begin
+    Result := FItems[Index];
+    InternalDelete(Index, cnExtracted);
+  end;
+end;
+
+function TList<T>.ExtractItem(const Value: T; Direction: TDirection): T;
+var
+  Index: NativeInt;
+begin
+  Index := IndexOfItem(Value, Direction);
+  if (Index < 0) then
+  begin
+    Result := Default(T);
+  end else
+  begin
+    Result := FItems[Index];
+    InternalDelete(Index, cnExtracted);
+  end;
+end;
+
+class function TList<T>.InternalIsEmpty(Inst: Pointer; const Left, Right: T): Boolean;
+type
+  TComparerInst = packed record
+    Vtable: Pointer;
+    Compare: function(const Left, Right: T): Integer of object;
+    QueryInterface,
+    AddRef,
+    Release,
+    Call: Pointer;
+  end;
+begin
+  Result := (TComparerInst(Inst^).Compare(Left, Right) = 0);
+end;
+
+{$ifdef SMARTGENERICS}
+procedure TList<T>.InternalPackDifficults;
+label
+  next_item;
+var
+  R: NativeInt;
+  Item, TopItem, DestItem: PItem;
+  VarData: PVarData;
+  {$ifNdef CPUX86}
+  VSingle, VSingleNull: Single;
+  VDouble, VDoubleNull: Double;
+  VExtended, VExtendedNull: Extended;
+  {$endif}
+begin
+  Item := Pointer(FItems);
+  Dec(Item);
+  TopItem := Item + FCount.Native;
+
+  {$ifNdef CPUX86}
+  case SizeOf(T) of
+    4:
     begin
-      CopyArray(@Items[0], @Items[FTail * ElSize], ElType, ElSize, FLH.FCount);
-      FinalizeArray(@Items[FLH.FCount * ElSize], ElType, FTail);
+      VSingleNull := 0;
     end;
-    Dec(FHead, FTail);
-    FTail := 0;
-  end;
-  if Offset < 0 then
-  begin
-    DynArraySetLength(Value);
-    if Value = 0 then
-      FHead := 0
-    else
-      FHead := FHead mod DynArraySize(FItems^);
-  end;
-end;
-
-procedure TQueueHelper.InternalSetCapacityMRef(Value: Integer);
-var
-  TailCount, Offset: Integer;
-begin
-  Offset := Value - DynArraySize(FItems^);
-  if Offset = 0 then
-    Exit;
-
-  // If head <= tail, then part of the queue wraps around
-  // the end of the array; don't introduce a gap in the queue.
-  if (FHead < FTail) or ((FHead = FTail) and (FLH.FCount > 0)) then
-    TailCount := DynArraySize(FItems^) - FTail
-  else
-    TailCount := 0;
-
-  if Offset > 0 then
-    DynArraySetLength(Value);
-  if TailCount > 0 then
-  begin
-    Move(PByte(FItems^)[FTail * SizeOf(Pointer)], PByte(FItems^)[(FTail + Offset) * SizeOf(Pointer)], TailCount * SizeOf(Pointer));
-    if offset > 0 then
-      FillChar(PByte(FItems^)[FTail * SizeOf(Pointer)], Offset * SizeOf(Pointer), 0)
-    else if offset < 0 then
-      FillChar(PByte(FItems^)[FLH.FCount * SizeOf(Pointer)], (-Offset) * SizeOf(Pointer), 0);
-    Inc(FTail, Offset);
-  end else if FTail > 0 then
-  begin
-    if FLH.FCount > 0 then
+    10:
     begin
-      Move(PByte(FItems^)[FTail * SizeOf(Pointer)], PByte(FItems^)[0], FLH.FCount * SizeOf(Pointer));
-      FillChar(PByte(FItems^)[FLH.FCount * SizeOf(Pointer)], FTail * SizeOf(Pointer), 0);
+      VExtendedNull := 0;
     end;
-    Dec(FHead, FTail);
-    FTail := 0;
-  end;
-  if Offset < 0 then
-  begin
-    DynArraySetLength(Value);
-    if Value = 0 then
-      FHead := 0
-    else
-      FHead := FHead mod DynArraySize(FItems^);
-  end;
-end;
-
-procedure TQueueHelper.InternalSetCapacityN(Value: Integer);
-begin
-  InternalSetCapacityInline(Value, ElSize);
-end;
-
-{ TQueue<T> }
-
-procedure TQueue<T>.Notify(const Item: T; Action: TCollectionNotification);
-begin
-  if Assigned(FOnNotify) then
-    FOnNotify(Self, Item, Action);
-end;
-
-constructor TQueue<T>.Create;
-begin
-  inherited Create;
-  FQueueHelper.FLH.FNotify := InternalNotify;
-  FQueueHelper.FLH.FCompare := InternalCompare;
-  FQueueHelper.FLH.FTypeInfo := TypeInfo(arrayOfT);
-end;
-
-destructor TQueue<T>.Destroy;
-begin
-  Clear;
-  inherited;
-end;
-
-procedure TQueue<T>.SetCapacity(Value: Integer);
-begin
-  if IsManagedType(T) then
-    if (SizeOf(T) = SizeOf(Pointer)) and (GetTypeKind(T) <> tkRecord) then
-      FQueueHelper.InternalSetCapacityMRef(Value)
-    else
-      FQueueHelper.InternalSetCapacityManaged(Value)
   else
-  case SizeOf(T) of
-    1: FQueueHelper.InternalSetCapacity1(Value);
-    2: FQueueHelper.InternalSetCapacity2(Value);
-    4: FQueueHelper.InternalSetCapacity4(Value);
-    8: FQueueHelper.InternalSetCapacity8(Value);
-  else
-    FQueueHelper.InternalSetCapacityN(Value);
+    VDoubleNull := 0;
   end;
-end;
+  {$endif}
 
-function TQueue<T>.DoDequeue(Notification: TCollectionNotification): T;
-begin
-  if IsManagedType(T) then
-    if (SizeOf(T) = SizeOf(Pointer)) and (GetTypeKind(T) <> tkRecord) then
-      FQueueHelper.InternalDequeueMRef(Notification, False, Result, GetTypeKind(T))
-    else
-      FQueueHelper.InternalDequeueManaged(Notification, False, Result)
-  else
-  case SizeOf(T) of
-    1: FQueueHelper.InternalDequeue1(Notification, False, Result);
-    2: FQueueHelper.InternalDequeue2(Notification, False, Result);
-    4: FQueueHelper.InternalDequeue4(Notification, False, Result);
-    8: FQueueHelper.InternalDequeue8(Notification, False, Result);
-  else
-    FQueueHelper.InternalDequeueN(Notification, False, Result);
-  end;
-end;
+  repeat
+    if (Item = TopItem) then Exit;
+    Inc(Item);
 
-function TQueue<T>.DoGetEnumerator: TEnumerator<T>;
-begin
-  Result := GetEnumerator;
-end;
-
-procedure TQueue<T>.DoSetCapacity(Value: Integer);
-begin
-  if Value < Count then
-    raise EArgumentOutOfRangeException.CreateRes(Pointer(@SArgumentOutOfRange));
-  SetCapacity(Value);
-end;
-
-function TQueue<T>.Dequeue: T;
-begin
-  Result := DoDequeue(cnRemoved);
-end;
-
-procedure TQueue<T>.Enqueue(const Value: T);
-begin
-  if IsManagedType(T) then
-    if (SizeOf(T) = SizeOf(Pointer)) and (GetTypeKind(T) <> tkRecord) then
-      FQueueHelper.InternalEnqueueMRef(Value, GetTypeKind(T))
-    else
-      FQueueHelper.InternalEnqueueManaged(Value)
-  else
-  case SizeOf(T) of
-    1: FQueueHelper.InternalEnqueue1(Value);
-    2: FQueueHelper.InternalEnqueue2(Value);
-    4: FQueueHelper.InternalEnqueue4(Value);
-    8: FQueueHelper.InternalEnqueue8(Value);
-  else
-    FQueueHelper.InternalEnqueueN(Value);
-  end;
-end;
-
-function TQueue<T>.Extract: T;
-begin
-  Result := DoDequeue(cnExtracted);
-end;
-
-constructor TQueue<T>.Create(const Collection: TEnumerable<T>);
-var
-  Item: T;
-begin
-  inherited Create;
-  FQueueHelper.FLH.FNotify := InternalNotify;
-  FQueueHelper.FLH.FCompare := InternalCompare;
-  FQueueHelper.FLH.FTypeInfo := TypeInfo(arrayOfT);
-  for Item in Collection do
-    Enqueue(Item);
-end;
-
-function TQueue<T>.Peek: T;
-begin
-  if IsManagedType(T) then
-    if (SizeOf(T) = SizeOf(Pointer)) and (GetTypeKind(T) <> tkRecord) then
-      FQueueHelper.InternalDequeueMRef(cnRemoved, True, Result, GetTypeKind(T))
-    else
-      FQueueHelper.InternalDequeueManaged(cnRemoved, True, Result)
-  else
-  case SizeOf(T) of
-    1: FQueueHelper.InternalDequeue1(cnRemoved, True, Result);
-    2: FQueueHelper.InternalDequeue2(cnRemoved, True, Result);
-    4: FQueueHelper.InternalDequeue4(cnRemoved, True, Result);
-    8: FQueueHelper.InternalDequeue8(cnRemoved, True, Result);
-  else
-    FQueueHelper.InternalDequeueN(cnRemoved, True, Result);
-  end;
-end;
-
-procedure TQueue<T>.Clear;
-begin
-  if IsManagedType(T) then
-    if (SizeOf(T) = SizeOf(Pointer)) and (GetTypeKind(T) <> tkRecord) then
-      FQueueHelper.InternalClearMRef(GetTypeKind(T))
-    else
-      FQueueHelper.InternalClearManaged
-  else
-  case SizeOf(T) of
-    1: FQueueHelper.InternalClear1;
-    2: FQueueHelper.InternalClear2;
-    4: FQueueHelper.InternalClear4;
-    8: FQueueHelper.InternalClear8;
-  else
-    FQueueHelper.InternalClearN;
-  end;
-end;
-
-function TQueue<T>.ToArray: TArray<T>;
-begin
-  Result := ToArrayImpl(Count);
-end;
-
-procedure TQueue<T>.TrimExcess;
-begin
-  SetCapacity(Count);
-end;
-
-function TQueue<T>.InternalCompare(const Left, Right): Integer;
-begin
-  Result := 0;
-end;
-
-procedure TQueue<T>.InternalNotify(const Item; Action: TCollectionNotification);
-begin
-  Notify(T(Item), Action);
-end;
-
-function TQueue<T>.GetCapacity: Integer;
-begin
-  Result := Length(FItems);
-end;
-
-function TQueue<T>.GetEnumerator: TEnumerator;
-begin
-  Result := TEnumerator.Create(Self);
-end;
-
-{ TQueue<T>.TEnumerator }
-
-constructor TQueue<T>.TEnumerator.Create(const AQueue: TQueue<T>);
-begin
-  inherited Create;
-  FQueue := AQueue;
-  FIndex := -1;
-end;
-
-function TQueue<T>.TEnumerator.DoGetCurrent: T;
-begin
-  Result := GetCurrent;
-end;
-
-function TQueue<T>.TEnumerator.DoMoveNext: Boolean;
-begin
-  Result := MoveNext;
-end;
-
-function TQueue<T>.TEnumerator.GetCurrent: T;
-begin
-  Result := FQueue.FItems[(FQueue.FQueueHelper.FTail + FIndex) mod Length(FQueue.FItems)];
-end;
-
-function TQueue<T>.TEnumerator.MoveNext: Boolean;
-begin
-  if FIndex >= FQueue.Count then
-    Exit(False);
-  Inc(FIndex);
-  Result := FIndex < FQueue.Count;
-end;
-
-{ TStackHelper }
-
-function TStackHelper.GetElSize: Integer;
-begin
-  Result := FLH.ElSize;
-end;
-
-function TStackHelper.GetElType: Pointer;
-begin
-  Result := FLH.ElType
-end;
-
-function TStackHelper.GetFItems: PPointer;
-begin
-  Result := FLH.FItems;
-end;
-
-procedure TStackHelper.CheckEmpty;
-begin
-  if FLH.FCount = 0 then
-    raise EListError.CreateRes(Pointer(@SUnbalancedOperation));
-end;
-
-procedure TStackHelper.CheckGrow;
-begin
-  if FLH.FCount = DynArraySize(FItems^) then
-    InternalGrow;
-end;
-
-procedure TStackHelper.PopAdjust(const Value; Notification: TCollectionNotification);
-begin
-  Dec(FLH.FCount);
-  FLH.FNotify(Value, Notification);
-end;
-
-procedure TStackHelper.PushAdjust(const Value);
-begin
-  Inc(FLH.FCount);
-  FLH.FNotify(Value, cnAdded);
-end;
-
-procedure TStackHelper.InternalDoPopString(Notification: TCollectionNotification; Peek: Boolean; out Item);
-begin
-  CheckEmpty;
-  string(Item) := PString(FItems^)[FLH.FCount - 1];
-  if not Peek then
-  begin
-    PString(FItems^)[FLH.FCount - 1] := '';
-    PopAdjust(Item, Notification);
-  end;
-end;
-
-procedure TStackHelper.InternalDoPopInterface(Notification: TCollectionNotification; Peek: Boolean; out Item);
-begin
-  CheckEmpty;
-  IInterface(Item) := TListHelper.PInterface(FItems^)[FLH.FCount - 1];
-  if not Peek then
-  begin
-    TListHelper.PInterface(FItems^)[FLH.FCount - 1] := nil;
-    PopAdjust(Item, Notification);
-  end;
-end;
-
-{$IF not Defined(NEXTGEN)}
-procedure TStackHelper.InternalDoPopAnsiString(Notification: TCollectionNotification; Peek: Boolean; out Item);
-begin
-  CheckEmpty;
-  AnsiString(Item) := PAnsiString(FItems^)[FLH.FCount - 1];
-  if not Peek then
-  begin
-    PAnsiString(FItems^)[FLH.FCount - 1] := '';
-    PopAdjust(Item, Notification);
-  end;
-end;
-
-procedure TStackHelper.InternalDoPopWideString(Notification: TCollectionNotification; Peek: Boolean; out Item);
-begin
-  CheckEmpty;
-  WideString(Item) := PWideString(FItems^)[FLH.FCount - 1];
-  if not Peek then
-  begin
-    PWideString(FItems^)[FLH.FCount - 1] := '';
-    PopAdjust(Item, Notification);
-  end;
-end;
-{$IFEND}
-
-{$IF Defined(AUTOREFCOUNT)}
-procedure TStackHelper.InternalDoPopObject(Notification: TCollectionNotification; Peek: Boolean; out Item);
-begin
-  CheckEmpty;
-  TObject(Item) := PObject(FItems^)[FLH.FCount - 1];
-  if not Peek then
-  begin
-    PObject(FItems^)[FLH.FCount - 1] := nil;
-    PopAdjust(Item, Notification);
-  end;
-end;
-{$IFEND}
-
-procedure TStackHelper.InternalClearString;
-var
-  Temp: string;
-begin
-  while FLH.FCount > 0 do
-    InternalDoPopString(cnRemoved, False, Temp);
-  DynArrayClear(FItems^, FLH.FTypeInfo);
-end;
-
-procedure TStackHelper.InternalClearInterface;
-var
-  Temp: IInterface;
-begin
-  while FLH.FCount > 0 do
-    InternalDoPopInterface(cnRemoved, False, Temp);
-  DynArrayClear(FItems^, FLH.FTypeInfo);
-end;
-
-{$IF not Defined(NEXTGEN)}
-procedure TStackHelper.InternalClearAnsiString;
-var
-  Temp: AnsiString;
-begin
-  while FLH.FCount > 0 do
-    InternalDoPopAnsiString(cnRemoved, False, Temp);
-  DynArrayClear(FItems^, FLH.FTypeInfo);
-end;
-
-procedure TStackHelper.InternalClearWideString;
-var
-  Temp: WideString;
-begin
-  while FLH.FCount > 0 do
-    InternalDoPopWideString(cnRemoved, False, Temp);
-  DynArrayClear(FItems^, FLH.FTypeInfo);
-end;
-{$IFEND}
-
-{$IF Defined(AUTOREFCOUNT)}
-procedure TStackHelper.InternalClearObject;
-var
-  Temp: TObject;
-begin
-  while FLH.FCount > 0 do
-    InternalDoPopObject(cnRemoved, False, Temp);
-  DynArrayClear(FItems^, FLH.FTypeInfo);
-end;
-{$IFEND}
-
-procedure TStackHelper.InternalClear1;
-var
-  Temp: Byte;
-begin
-  while FLH.FCount > 0 do
-    InternalDoPop1(cnRemoved, False, Temp);
-  DynArrayClear(FItems^, FLH.FTypeInfo);
-end;
-
-procedure TStackHelper.InternalClear2;
-var
-  Temp: Word;
-begin
-  while FLH.FCount > 0 do
-    InternalDoPop2(cnRemoved, False, Temp);
-  DynArrayClear(FItems^, FLH.FTypeInfo);
-end;
-
-procedure TStackHelper.InternalClear4;
-var
-  Temp: Cardinal;
-begin
-  while FLH.FCount > 0 do
-    InternalDoPop4(cnRemoved, False, Temp);
-  DynArrayClear(FItems^, FLH.FTypeInfo);
-end;
-
-procedure TStackHelper.InternalClear8;
-var
-  Temp: UInt64;
-begin
-  while FLH.FCount > 0 do
-    InternalDoPop8(cnRemoved, False, Temp);
-  DynArrayClear(FItems^, FLH.FTypeInfo);
-end;
-
-procedure TStackHelper.InternalClearManaged;
-var
-  STemp: array[0..63] of Byte;
-  DTemp: PByte;
-  PTemp: PByte;
-begin
-  PTemp := @STemp[0];
-  DTemp := nil;
-  try
-    if SizeOf(STemp) < ElSize then
+    if (GetTypeKind(T) = tkVariant) then
     begin
-      DTemp := AllocMem(ElSize);
-      PTemp := DTemp;
+      VarData := Pointer(Item);
+      while (VarData.VType = varByRef or varVariant) do
+        VarData := PVarData(VarData.VPointer);
+
+      if (VarData.VType > varNull) then Continue;
     end else
-      FillChar(STemp, SizeOf(STemp), 0);
-    while FLH.FCount > 0 do
-      InternalDoPopManaged(cnRemoved, False, PTemp[0]);
-  finally
-    FinalizeArray(@PTemp[0], ElType, 1);
-    FreeMem(DTemp);
-  end;
-  DynArrayClear(FItems^, FLH.FTypeInfo);
-end;
-
-procedure TStackHelper.InternalClearMRef(Kind: TTypeKind);
-begin
-  case Kind of
-    TTypeKind.tkUString: InternalClearString;
-    TTypeKind.tkInterface: InternalClearInterface;
-{$IF not Defined(NEXTGEN)}
-    TTypeKind.tkLString: InternalClearAnsiString;
-    TTypeKind.tkWString: InternalClearWideString;
-{$IFEND}
-{$IF Defined(AUTOREFCOUNT)}
-    TTypeKind.tkClass: InternalClearObject;
-{$IFEND}
-  end;
-end;
-
-procedure TStackHelper.InternalClearN;
-var
-  STemp: array[0..63] of Byte;
-  DTemp: PByte;
-  PTemp: PByte;
-begin
-  PTemp := @STemp[0];
-  DTemp := nil;
-  try
-    if SizeOf(STemp) < ElSize then
+    if (GetTypeKind(T) = tkFloat) then
     begin
-      GetMem(DTemp, ElSize);
-      PTemp := DTemp;
+      case SizeOf(T) of
+        4:
+        begin
+          if (PSingle(Item)^ <> {$ifdef CPUX86}0{$else}VSingleNull{$endif}) then Continue;
+        end;
+        10:
+        begin
+          if (PExtended(Item)^ <> {$ifdef CPUX86}0{$else}VExtendedNull{$endif}) then Continue;
+        end;
+      else
+        if (PDouble(Item)^ <> {$ifdef CPUX86}0{$else}VDoubleNull{$endif}) then Continue;
+      end;
+    end else
+    //if (GetTypeKind(T) = tkString) then
+    begin
+      if (PByte(Item)^ <> 0) then Continue;
     end;
-    while FLH.FCount > 0 do
-      InternalDoPopN(cnRemoved, False, PTemp[0]);
-  finally
-    FreeMem(DTemp);
+    Break;
+  until (False);
+
+  DestItem := Item;
+  goto next_item;
+  repeat
+    if (GetTypeKind(T) = tkVariant) then
+    begin
+      PRect(DestItem)^ := PRect(Item)^;
+    end else
+    if (GetTypeKind(T) = tkFloat) then
+    begin
+      {$ifdef CPUX86}
+        DestItem^ := Item^;
+      {$else !CPUX86}
+      case SizeOf(T) of
+         4: PSingle(DestItem)^ := VSingle;
+        10: PExtended(DestItem)^ := VExtended;
+      else
+        PDouble(DestItem)^ := VDouble;
+      end;
+      {$endif}
+    end else
+    begin
+      DestItem^ := Item^;
+    end;
+
+    Inc(DestItem);
+  next_item:
+    if (Item = TopItem) then Break;
+    Inc(Item);
+
+    if (GetTypeKind(T) = tkVariant) then
+    begin
+      VarData := Pointer(Item);
+      while (VarData.VType = varByRef or varVariant) do
+        VarData := PVarData(VarData.VPointer);
+
+      if (VarData.VType > varNull) then Continue;
+    end else
+    if (GetTypeKind(T) = tkFloat) then
+    begin
+      case SizeOf(T) of
+        4:
+        begin
+          {$ifdef CPUX86}
+            if (PSingle(Item)^ <> 0) then Continue;
+          {$else}
+            VSingle := PSingle(Item)^;
+            if (VSingle <> VSingleNull) then Continue;
+          {$endif}
+        end;
+        10:
+        begin
+          {$ifdef CPUX86}
+            if (PExtended(Item)^ <> 0) then Continue;
+          {$else}
+            VExtended := PExtended(Item)^;
+            if (VExtended <> VExtendedNull) then Continue;
+          {$endif}
+        end;
+      else
+        {$ifdef CPUX86}
+          if (PDouble(Item)^ <> 0) then Continue;
+        {$else}
+          VDouble := PDouble(Item)^;
+          if (VDouble <> VDoubleNull) then Continue;
+        {$endif}
+      end;
+    end else
+    //if (GetTypeKind(T) = tkString) then
+    begin
+      if (PByte(Item)^ <> 0) then Continue;
+    end;
+
+    goto next_item;
+  until (False);
+
+  R := NativeInt(DestItem) - NativeInt(FItems);
+  case SizeOf(T) of
+  0, 1: FCount.Native := R;
+     2: FCount.Native := R shr 1;
+     4: FCount.Native := R shr 2;
+     8: FCount.Native := R shr 3;
+    16: FCount.Native := R shr 4;
+    32: FCount.Native := R shr 5;
+    64: FCount.Native := R shr 6;
+   128: FCount.Native := R shr 7;
+   256: FCount.Native := R shr 8;
+  else
+    FCount.Native := Round(R * (1 / SizeOf(T)));
   end;
-  DynArrayClear(FItems^, FLH.FTypeInfo);
 end;
 
-procedure TStackHelper.InternalDoPop1(Notification: TCollectionNotification; Peek: Boolean; out Item);
+procedure TList<T>.Pack;
+label
+  next_find, next_item, comparer_recall;
+type
+  TEquals = function(Inst: Pointer; const Left, Right: T): Boolean;
+  TComparerInst = packed record
+    Vtable: Pointer;
+    Method: TMethod;
+    QueryInterface,
+    AddRef,
+    Release,
+    Call: Pointer;
+  end;
+  T16 = packed record
+  case Integer of
+    0: (Bytes: array[0..15] of Byte);
+    1: (Words: array[0..7] of Word);
+    2: (Integers: array[0..3] of Integer);
+    3: (Int64s: array[0..1] of Int64);
+  end;
+  P16 = ^T16;
+var
+  R, i: NativeInt;
+  Item, TopItem, DestItem: P16;
+  VByte: Byte;
+  VWord: Word;
+  VInteger: Integer;
+  VNative, Flags: NativeUInt;
+  ComparerInst: TComparerInst;
 begin
-  CheckEmpty;
-  Byte(Item) := PByte(FItems^)[FLH.FCount - 1];
-  if not Peek then
-    PopAdjust(Item, Notification);
-end;
+  if (Assigned(FComparer)) then goto comparer_recall;
 
-procedure TStackHelper.InternalDoPop2(Notification: TCollectionNotification; Peek: Boolean; out Item);
-begin
-  CheckEmpty;
-  Word(Item) := PWord(FItems^)[FLH.FCount - 1];
-  if not Peek then
-    PopAdjust(Item, Notification);
-end;
-
-procedure TStackHelper.InternalDoPop4(Notification: TCollectionNotification; Peek: Boolean; out Item);
-begin
-  CheckEmpty;
-  Cardinal(Item) := PCardinal(FItems^)[FLH.FCount - 1];
-  if not Peek then
-    PopAdjust(Item, Notification);
-end;
-
-procedure TStackHelper.InternalDoPop8(Notification: TCollectionNotification; Peek: Boolean; out Item);
-begin
-  CheckEmpty;
-  UInt64(Item) := PUInt64(FItems^)[FLH.FCount - 1];
-  if not Peek then
-    PopAdjust(Item, Notification);
-end;
-
-procedure TStackHelper.InternalDoPopManaged(Notification: TCollectionNotification; Peek: Boolean; out Item);
-begin
-  CheckEmpty;
-  System.CopyArray(@Item, @PByte(FItems^)[(FLH.FCount - 1) * ElSize], ElType, 1);
-  if not Peek then
+  if (GetTypeKind(T) = tkVariant) or (GetTypeKind(T) = tkString) or
+    (GetTypeKind(T) = tkFloat) and
+    (
+      (SizeOf(T) <> SizeOf(Double)) or (InterfaceDefaults.TDefaultEqualityComparer<T>.Instance.Size >= 0)
+    ) then
   begin
-    FinalizeArray(@PByte(FItems^)[(FLH.FCount - 1) * ElSize], ElType, 1);
-    PopAdjust(Item, Notification);
+    Self.InternalPackDifficults;
+    Exit;
   end;
-end;
 
-procedure TStackHelper.InternalDoPopMRef(Notification: TCollectionNotification; Peek: Boolean; out Item; Kind: TTypeKind);
-begin
-  case Kind of
-    TTypeKind.tkUString: InternalDoPopString(Notification, Peek, Item);
-    TTypeKind.tkInterface: InternalDoPopInterface(Notification, Peek, Item);
-{$IF not Defined(NEXTGEN)}
-    TTypeKind.tkLString: InternalDoPopAnsiString(Notification, Peek, Item);
-    TTypeKind.tkWString: InternalDoPopWideString(Notification, Peek, Item);
-{$IFEND}
-{$IF Defined(AUTOREFCOUNT)}
-    TTypeKind.tkClass: InternalDoPopObject(Notification, Peek, Item);
-{$IFEND}
+  Item := Pointer(FItems);
+  Dec(NativeUInt(Item), SizeOf(T));
+  TopItem := Pointer(TCustomList<T>.PItem(Item) + FCount.Native);
+
+  // find first empty
+  repeat
+  next_find:
+    if (Item = TopItem) then Exit;
+    Inc(NativeUInt(Item), SizeOf(T));
+
+    if (SizeOf(T) <= 16) then
+    begin
+      {$ifdef SMALLINT}
+        if (SizeOf(T) >= SizeOf(Int64) * 1) then
+        begin
+          if (Item.Integers[0] or Item.Integers[1] <> 0) then Continue;
+        end;
+        if (SizeOf(T)  = SizeOf(Int64) * 2) then
+        begin
+          if (Item.Integers[2] or Item.Integers[3] <> 0) then Continue;
+        end;
+      {$else .LARGEINT}
+        if (SizeOf(T) >= SizeOf(Int64) * 1) then
+        begin
+          if (Item.Int64s[0] <> 0) then Continue;
+        end;
+        if (SizeOf(T)  = SizeOf(Int64) * 2) then
+        begin
+          if (Item.Int64s[1] <> 0) then Continue;
+        end;
+      {$endif}
+      case SizeOf(T) of
+         4..7: if (Item.Integers[0] <> 0) then Continue;
+       12..15: if (Item.Integers[2] <> 0) then Continue;
+      end;
+      case SizeOf(T) of
+         2,3: if (Item.Words[0] <> 0) then Continue;
+         6,7: if (Item.Words[2] <> 0) then Continue;
+       10,11: if (Item.Words[4] <> 0) then Continue;
+       14,15: if (Item.Words[6] <> 0) then Continue;
+      end;
+      case SizeOf(T) of
+         1: if (Item.Bytes[ 1-1] <> 0) then Continue;
+         3: if (Item.Bytes[ 3-1] <> 0) then Continue;
+         5: if (Item.Bytes[ 5-1] <> 0) then Continue;
+         7: if (Item.Bytes[ 7-1] <> 0) then Continue;
+         9: if (Item.Bytes[ 9-1] <> 0) then Continue;
+        11: if (Item.Bytes[11-1] <> 0) then Continue;
+        13: if (Item.Bytes[13-1] <> 0) then Continue;
+        15: if (Item.Bytes[15-1] <> 0) then Continue;
+      end;
+    end else
+    begin
+      DestItem := Item;
+      R := NativeInt(SizeOf(T) div SizeOf(NativeUInt)); {x64: Hint2135 OFF}
+      for i := 1 to R do
+      begin
+        if (PNativeUInt(DestItem)^ <> 0) then goto next_find;
+        Inc(NativeUInt(DestItem), SizeOf(NativeUInt));
+      end;
+
+      if (SizeOf(T) and (SizeOf(NativeUInt) - 1) <> 0) then
+      begin
+        Dec(NativeUInt(DestItem), SizeOf(T) - (SizeOf(NativeUInt) - 1));
+        if (PNativeUInt(DestItem)^ <> 0) then goto next_find;
+      end;
+    end;
+    Break;
+  until (False);
+
+  // comare empty and move
+  DestItem := Item;
+  goto next_item;
+  repeat
+    // DestItem^ := Item^;
+    case SizeOf(T) of
+      1: DestItem.Bytes[0] := VByte;
+      2: DestItem.Words[0] := VWord;
+      4: DestItem.Integers[0] := VInteger;
+      8:
+      begin
+        {$ifdef LARGEINT}
+          DestItem.Int64s[0] := VNative;
+        {$else .SMALLINT}
+          DestItem.Integers[0] := VInteger;
+          DestItem.Integers[1] := VNative;
+        {$endif}
+      end;
+    end;
+    Inc(NativeUInt(DestItem), SizeOf(T));
+  next_item:
+    if (Item = TopItem) then Break;
+    Inc(NativeUInt(Item), SizeOf(T));
+
+    case SizeOf(T) of
+      1:
+      begin
+        VByte := Item.Bytes[0];
+        if (VByte <> 0) then Continue;
+      end;
+      2:
+      begin
+        VWord := Item.Words[0];
+        if (VWord <> 0) then Continue;
+      end;
+      4:
+      begin
+        VInteger := Item.Integers[0];
+        if (VInteger <> 0) then Continue;
+      end;
+      8:
+      begin
+        {$ifdef LARGEINT}
+          VNative := Item.Int64s[0];
+          if (VNative <> 0) then Continue;
+        {$else .SMALLINT}
+          VInteger := Item.Integers[0];
+          VNative := Item.Integers[1];
+          if (VInteger or Integer(VNative) <> 0) then Continue;
+        {$endif}
+      end;
+    else
+      if (SizeOf(T) < SizeOf(NativeUInt)) then
+      begin
+        case SizeOf(T) of
+          3:
+          begin
+            Flags := Item.Words[0];
+            DestItem.Words[0] := Flags;
+            VByte := Item.Bytes[2];
+            DestItem.Bytes[2] := VByte;
+            Flags := Flags or VByte;
+          end;
+          5:
+          begin
+            Flags := Item.Integers[0];
+            DestItem.Integers[0] := Flags;
+            VByte := Item.Bytes[4];
+            DestItem.Bytes[4] := VByte;
+            Flags := Flags or VByte;
+          end;
+          6:
+          begin
+            Flags := Item.Integers[0];
+            DestItem.Integers[0] := Flags;
+            VWord := Item.Words[2];
+            DestItem.Words[2] := VWord;
+            Flags := Flags or VWord;
+          end;
+          7:
+          begin
+            Flags := Item.Integers[0];
+            DestItem.Integers[0] := Flags;
+            VWord := Item.Words[2];
+            DestItem.Words[2] := VWord;
+            Flags := Flags or VWord;
+            VByte := Item.Bytes[6];
+            DestItem.Bytes[6] := VByte;
+            Flags := Flags or VByte;
+          end;
+        end;
+      end else
+      if (SizeOf(T) <= 16) then
+      begin
+        {$ifdef LARGEINT}
+          Flags := Item.Int64s[0];
+          DestItem.Int64s[0] := Flags;
+        {$else .SMALLINT}
+          Flags := Item.Integers[0];
+          DestItem.Integers[0] := Flags;
+        {$endif}
+
+        {$ifdef SMALLINT}
+          if (SizeOf(T) >= SizeOf(Integer) * 2) then
+          begin
+            VInteger := Item.Integers[1];
+            Item.Integers[1] := VInteger;
+            Flags := Flags or Cardinal(VInteger);
+          end;
+          if (SizeOf(T) >= SizeOf(Integer) * 3) then
+          begin
+            VInteger := Item.Integers[2];
+            Item.Integers[2] := VInteger;
+            Flags := Flags or Cardinal(VInteger);
+          end;
+          if (SizeOf(T)  = SizeOf(Integer) * 4) then
+          begin
+            VInteger := Item.Integers[3];
+            Item.Integers[3] := VInteger;
+            Flags := Flags or Cardinal(VInteger);
+          end;
+        {$else .LARGEINT}
+          if (SizeOf(T)  = SizeOf(Int64) * 2) then
+          begin
+            VNative := Item.Int64s[1];
+            Item.Int64s[1] := VNative;
+            Flags := Flags or VNative;
+          end;
+        {$endif}
+
+        if (SizeOf(T) and (SizeOf(NativeUInt) - 1) <> 0) then
+        begin
+          VNative := PNativeUInt(@Item.Bytes[SizeOf(T) - SizeOf(NativeUInt)])^;
+          PNativeUInt(@DestItem.Bytes[SizeOf(T) - SizeOf(NativeUInt)])^ := VNative;
+          Flags := Flags or VNative;
+        end;
+      end else
+      begin
+        Flags := 0;
+
+        for i := 1 to SizeOf(T) div SizeOf(NativeUInt) do
+        begin
+          VNative := PNativeUInt(Item)^;
+          PNativeUInt(DestItem)^ := VNative;
+          Inc(NativeUInt(Item), SizeOf(NativeUInt));
+          Inc(NativeUInt(DestItem), SizeOf(NativeUInt));
+          Flags := Flags or VNative;
+        end;
+
+        if (SizeOf(T) and (SizeOf(NativeUInt) - 1) <> 0) then
+        begin
+          Dec(NativeUInt(Item), SizeOf(T) - (SizeOf(NativeUInt) - 1));
+          Dec(NativeUInt(DestItem), SizeOf(T) - (SizeOf(NativeUInt) - 1));
+          VNative := PNativeUInt(Item)^;
+          PNativeUInt(DestItem)^ := VNative;
+          Flags := Flags or VNative;
+        end;
+
+        Dec(NativeUInt(Item), (SizeOf(T) div SizeOf(NativeUInt)) * SizeOf(NativeUInt));
+        Dec(NativeUInt(DestItem), (SizeOf(T) div SizeOf(NativeUInt)) * SizeOf(NativeUInt));
+      end;
+
+      if (Flags <> 0) then Continue;
+    end;
+
+    goto next_item;
+  until (False);
+
+  R := NativeInt(DestItem) - NativeInt(FItems);
+  case SizeOf(T) of
+  0, 1: FCount.Native := R;
+     2: FCount.Native := R shr 1;
+     4: FCount.Native := R shr 2;
+     8: FCount.Native := R shr 3;
+    16: FCount.Native := R shr 4;
+    32: FCount.Native := R shr 5;
+    64: FCount.Native := R shr 6;
+   128: FCount.Native := R shr 7;
+   256: FCount.Native := R shr 8;
+  else
+    FCount.Native := Round(R * (1 / SizeOf(T)));
   end;
+  Exit;
+
+comparer_recall:
+  ComparerInst.Method.Data := Pointer(FComparer);
+  ComparerInst.Method.Code := PPointer(PNativeUInt(FComparer)^ + 3 * SizeOf(Pointer))^;
+  ComparerInst.Vtable := @ComparerInst.QueryInterface;
+  ComparerInst.Call := @TList<T>.InternalIsEmpty;
+  Self.Pack(TEmptyFunc(@ComparerInst));
 end;
 
-procedure TStackHelper.InternalDoPopN(Notification: TCollectionNotification; Peek: Boolean; out Item);
-begin
-  CheckEmpty;
-  Move(PByte(FItems^)[(FLH.FCount - 1) * ElSize], Item, ElSize);
-  if not Peek then
-    PopAdjust(Item, Notification);
-end;
-
-procedure TStackHelper.InternalGrow;
+{$else !SMARTGENERICS}
+procedure TList<T>.Pack;
+label
+  next_item, comparer_recall;
+type
+  TEquals = function(Inst: Pointer; const Left, Right: T): Boolean;
+  TComparerInst = packed record
+    Vtable: Pointer;
+    Method: TMethod;
+    QueryInterface,
+    AddRef,
+    Release,
+    Call: Pointer;
+  end;
+  T1 = Byte;
+  T2 = Word;
+  T3 = array[1..3] of Byte;
+  T4 = Cardinal;
+  T5 = array[1..5] of Byte;
+  T6 = array[1..6] of Byte;
+  T7 = array[1..7] of Byte;
+  T8 = Int64;
+  T9 = array[1..9] of Byte;
+  T10 = array[1..10] of Byte;
+  T11 = array[1..11] of Byte;
+  T12 = array[1..12] of Byte;
+  T13 = array[1..13] of Byte;
+  T14 = array[1..14] of Byte;
+  T15 = array[1..15] of Byte;
+  T16 = array[1..16] of Byte;
+  T17 = array[1..17] of Byte;
+  T18 = array[1..18] of Byte;
+  T19 = array[1..19] of Byte;
+  T20 = array[1..20] of Byte;
+  T21 = array[1..21] of Byte;
+  T22 = array[1..22] of Byte;
+  T23 = array[1..23] of Byte;
+  T24 = array[1..24] of Byte;
+  T25 = array[1..25] of Byte;
+  T26 = array[1..26] of Byte;
+  T27 = array[1..27] of Byte;
+  T28 = array[1..28] of Byte;
+  T29 = array[1..29] of Byte;
+  T30 = array[1..30] of Byte;
+  T31 = array[1..31] of Byte;
+  T32 = array[1..32] of Byte;
+  T33 = array[1..33] of Byte;
+  T34 = array[1..34] of Byte;
+  T35 = array[1..35] of Byte;
+  T36 = array[1..36] of Byte;
+  T37 = array[1..37] of Byte;
+  T38 = array[1..38] of Byte;
+  T39 = array[1..39] of Byte;
+  T40 = array[1..40] of Byte;
 var
-  NewCap: NativeInt;
+  R, i: NativeInt;
+  Item, TopItem, DestItem: PItem;
+  _Self: TList<T>;
+  ComparerInst: TComparerInst;
 begin
-  NewCap := DynArraySize(FItems^) * 2;
-  if NewCap = 0 then
-    NewCap := 4
-  else if NewCap < 0 then
-    OutOfMemoryError;
-  DynArraySetLength(FItems^, FLH.FTypeInfo, 1, @NewCap);
-end;
+  if (Assigned(FComparer)) then goto comparer_recall;
 
-procedure TStackHelper.InternalPushString(const Value);
-begin
-  CheckGrow;
-  PString(FItems^)[FLH.FCount] := string(Value);
-  PushAdjust(Value);
-end;
-
-procedure TStackHelper.InternalPushInterface(const Value);
-begin
-  CheckGrow;
-  TListHelper.PInterface(FItems^)[FLH.FCount] := IInterface(Value);
-  PushAdjust(Value);
-end;
-
-{$IF not Defined(NEXTGEN)}
-procedure TStackHelper.InternalPushAnsiString(const Value);
-begin
-  CheckGrow;
-  PAnsiString(FItems^)[FLH.FCount] := AnsiString(Value);
-  PushAdjust(Value);
-end;
-
-procedure TStackHelper.InternalPushWideString(const Value);
-begin
-  CheckGrow;
-  PWideString(FItems^)[FLH.FCount] := WideString(Value);
-  PushAdjust(Value);
-end;
-{$IFEND}
-
-{$IF Defined(AUTOREFCOUNT)}
-procedure TStackHelper.InternalPushObject(const Value);
-begin
-  CheckGrow;
-  PObject(FItems^)[FLH.FCount] := TObject(Value);
-  PushAdjust(Value);
-end;
-{$IFEND}
-
-procedure TStackHelper.InternalPush1(const Value);
-begin
-  CheckGrow;
-  PByte(FItems^)[FLH.FCount] := Byte(Value);
-  PushAdjust(Value);
-end;
-
-procedure TStackHelper.InternalPush2(const Value);
-begin
-  CheckGrow;
-  PWord(FItems^)[FLH.FCount] := Word(Value);
-  PushAdjust(Value);
-end;
-
-procedure TStackHelper.InternalPush4(const Value);
-begin
-  CheckGrow;
-  PCardinal(FItems^)[FLH.FCount] := Cardinal(Value);
-  PushAdjust(Value);
-end;
-
-procedure TStackHelper.InternalPush8(const Value);
-begin
-  CheckGrow;
-  PUInt64(FItems^)[FLH.FCount] := UInt64(Value);
-  PushAdjust(Value);
-end;
-
-procedure TStackHelper.InternalPushManaged(const Value);
-begin
-  CheckGrow;
-  System.CopyArray(@PByte(FItems^)[FLH.FCount * ElSize], @Value, ElType, 1);
-  PushAdjust(Value);
-end;
-
-procedure TStackHelper.InternalPushMRef(const Value; Kind: TTypeKind);
-begin
-  case Kind of
-    TTypeKind.tkUString: InternalPushString(Value);
-    TTypeKind.tkInterface: InternalPushInterface(Value);
-{$IF not Defined(NEXTGEN)}
-    TTypeKind.tkLString: InternalPushAnsiString(Value);
-    TTypeKind.tkWString: InternalPushWideString(Value);
-{$IFEND}
-{$IF Defined(AUTOREFCOUNT)}
-    TTypeKind.tkClass: InternalPushObject(Value);
-{$IFEND}
+  _Self := Self;
+  with _Self do
+  begin
+    Item := Pointer(FItems);
+    Dec(Item);
+    TopItem := Item + FCount.Native;
   end;
-end;
 
-procedure TStackHelper.InternalPushN(const Value);
-begin
-  CheckGrow;
-  Move(Value, PByte(FItems^)[FLH.FCount * ElSize], ElSize);
-  PushAdjust(Value);
-end;
+  repeat
+    if (Item = TopItem) then Exit;
+    Inc(Item);
+  until (TEquals(InterfaceDefaults.TDefaultEqualityComparer<T>.Instance.Equals)(
+        @InterfaceDefaults.TDefaultEqualityComparer<T>.Instance, Item^, Default(T)));
 
-procedure TStackHelper.InternalSetCapacity(Value: Integer);
+  DestItem := Item;
+  goto next_item;
+  repeat
+    // DestItem^ := Item^;
+    case SizeOf(T) of
+      1: T1(Pointer(DestItem)^) := T1(Pointer(Item)^);
+      2: T2(Pointer(DestItem)^) := T2(Pointer(Item)^);
+      3: T3(Pointer(DestItem)^) := T3(Pointer(Item)^);
+      4: T4(Pointer(DestItem)^) := T4(Pointer(Item)^);
+      5: T5(Pointer(DestItem)^) := T5(Pointer(Item)^);
+      6: T6(Pointer(DestItem)^) := T6(Pointer(Item)^);
+      7: T7(Pointer(DestItem)^) := T7(Pointer(Item)^);
+      8: T8(Pointer(DestItem)^) := T8(Pointer(Item)^);
+      9: T9(Pointer(DestItem)^) := T9(Pointer(Item)^);
+      10: T10(Pointer(DestItem)^) := T10(Pointer(Item)^);
+      11: T11(Pointer(DestItem)^) := T11(Pointer(Item)^);
+      12: T12(Pointer(DestItem)^) := T12(Pointer(Item)^);
+      13: T13(Pointer(DestItem)^) := T13(Pointer(Item)^);
+      14: T14(Pointer(DestItem)^) := T14(Pointer(Item)^);
+      15: T15(Pointer(DestItem)^) := T15(Pointer(Item)^);
+      16: T16(Pointer(DestItem)^) := T16(Pointer(Item)^);
+      17: T17(Pointer(DestItem)^) := T17(Pointer(Item)^);
+      18: T18(Pointer(DestItem)^) := T18(Pointer(Item)^);
+      19: T19(Pointer(DestItem)^) := T19(Pointer(Item)^);
+      20: T20(Pointer(DestItem)^) := T20(Pointer(Item)^);
+      21: T21(Pointer(DestItem)^) := T21(Pointer(Item)^);
+      22: T22(Pointer(DestItem)^) := T22(Pointer(Item)^);
+      23: T23(Pointer(DestItem)^) := T23(Pointer(Item)^);
+      24: T24(Pointer(DestItem)^) := T24(Pointer(Item)^);
+      25: T25(Pointer(DestItem)^) := T25(Pointer(Item)^);
+      26: T26(Pointer(DestItem)^) := T26(Pointer(Item)^);
+      27: T27(Pointer(DestItem)^) := T27(Pointer(Item)^);
+      28: T28(Pointer(DestItem)^) := T28(Pointer(Item)^);
+      29: T29(Pointer(DestItem)^) := T29(Pointer(Item)^);
+      30: T30(Pointer(DestItem)^) := T30(Pointer(Item)^);
+      31: T31(Pointer(DestItem)^) := T31(Pointer(Item)^);
+      32: T32(Pointer(DestItem)^) := T32(Pointer(Item)^);
+      33: T33(Pointer(DestItem)^) := T33(Pointer(Item)^);
+      34: T34(Pointer(DestItem)^) := T34(Pointer(Item)^);
+      35: T35(Pointer(DestItem)^) := T35(Pointer(Item)^);
+      36: T36(Pointer(DestItem)^) := T36(Pointer(Item)^);
+      37: T37(Pointer(DestItem)^) := T37(Pointer(Item)^);
+      38: T38(Pointer(DestItem)^) := T38(Pointer(Item)^);
+      39: T39(Pointer(DestItem)^) := T39(Pointer(Item)^);
+      40: T40(Pointer(DestItem)^) := T40(Pointer(Item)^);
+    else
+      for i := 1 to SizeOf(T) div SizeOf(NativeUInt) do
+      begin
+        NativeUInt(Pointer(DestItem)^) := NativeUInt(Pointer(Item)^);
+        Inc(NativeInt(Item), SizeOf(NativeUInt));
+        Inc(NativeInt(DestItem), SizeOf(NativeUInt));
+      end;
+
+      case SizeOf(T) and (SizeOf(NativeUInt) - 1) of
+        1: T1(Pointer(DestItem)^) := T1(Pointer(Item)^);
+        2: T2(Pointer(DestItem)^) := T2(Pointer(Item)^);
+        3: T3(Pointer(DestItem)^) := T3(Pointer(Item)^);
+      {$ifdef LARGEINT}
+        4: T4(Pointer(DestItem)^) := T4(Pointer(Item)^);
+        5: T5(Pointer(DestItem)^) := T5(Pointer(Item)^);
+        6: T6(Pointer(DestItem)^) := T6(Pointer(Item)^);
+        7: T7(Pointer(DestItem)^) := T7(Pointer(Item)^);
+      {$endif}
+      end;
+
+      Dec(NativeInt(DestItem), (SizeOf(T) div SizeOf(NativeUInt)) * SizeOf(NativeUInt));
+      Dec(NativeInt(Item), (SizeOf(T) div SizeOf(NativeUInt)) * SizeOf(NativeUInt));
+    end;
+
+    Inc(DestItem);
+  next_item:
+    if (Item = TopItem) then Break;
+    Inc(Item);
+
+    if (not TEquals(InterfaceDefaults.TDefaultEqualityComparer<T>.Instance.Equals)(
+      @InterfaceDefaults.TDefaultEqualityComparer<T>.Instance, Item^, Default(T))) then Continue;
+    goto next_item;
+  until (False);
+
+  _Self := Self;
+  with _Self do
+  begin
+    R := NativeInt(DestItem) - NativeInt(FItems);
+    case SizeOf(T) of
+    0, 1: FCount.Native := R;
+       2: FCount.Native := R shr 1;
+       4: FCount.Native := R shr 2;
+       8: FCount.Native := R shr 3;
+      16: FCount.Native := R shr 4;
+      32: FCount.Native := R shr 5;
+      64: FCount.Native := R shr 6;
+     128: FCount.Native := R shr 7;
+     256: FCount.Native := R shr 8;
+    else
+      FCount.Native := Round(R * (1 / SizeOf(T)));
+    end;
+  end;
+  Exit;
+
+comparer_recall:
+  ComparerInst.Method.Data := Pointer(FComparer);
+  ComparerInst.Method.Code := PPointer(PNativeUInt(FComparer)^ + 3 * SizeOf(Pointer))^;
+  ComparerInst.Vtable := @ComparerInst.QueryInterface;
+  ComparerInst.Call := @TList<T>.InternalIsEmpty;
+  Self.Pack(TEmptyFunc(@ComparerInst));
+end;
+{$endif}
+
+procedure TList<T>.Pack(const IsEmpty: TEmptyFunc);
+label
+  next_item;
+type
+  TEquals = function(Inst: Pointer; const Left, Right: T): Boolean;
+  T1 = Byte;
+  T2 = Word;
+  T3 = array[1..3] of Byte;
+  T4 = Cardinal;
+  T5 = array[1..5] of Byte;
+  T6 = array[1..6] of Byte;
+  T7 = array[1..7] of Byte;
+  T8 = Int64;
+  T9 = array[1..9] of Byte;
+  T10 = array[1..10] of Byte;
+  T11 = array[1..11] of Byte;
+  T12 = array[1..12] of Byte;
+  T13 = array[1..13] of Byte;
+  T14 = array[1..14] of Byte;
+  T15 = array[1..15] of Byte;
+  T16 = array[1..16] of Byte;
+  T17 = array[1..17] of Byte;
+  T18 = array[1..18] of Byte;
+  T19 = array[1..19] of Byte;
+  T20 = array[1..20] of Byte;
+  T21 = array[1..21] of Byte;
+  T22 = array[1..22] of Byte;
+  T23 = array[1..23] of Byte;
+  T24 = array[1..24] of Byte;
+  T25 = array[1..25] of Byte;
+  T26 = array[1..26] of Byte;
+  T27 = array[1..27] of Byte;
+  T28 = array[1..28] of Byte;
+  T29 = array[1..29] of Byte;
+  T30 = array[1..30] of Byte;
+  T31 = array[1..31] of Byte;
+  T32 = array[1..32] of Byte;
+  T33 = array[1..33] of Byte;
+  T34 = array[1..34] of Byte;
+  T35 = array[1..35] of Byte;
+  T36 = array[1..36] of Byte;
+  T37 = array[1..37] of Byte;
+  T38 = array[1..38] of Byte;
+  T39 = array[1..39] of Byte;
+  T40 = array[1..40] of Byte;
 var
-  Size: NativeInt;
+  R, i: NativeInt;
+  Item, TopItem, DestItem: PItem;
+  Equals: TMethod;
+  _Self: TList<T>;
 begin
-  if Value < FLH.FCount then
-    raise EArgumentOutOfRangeException.CreateRes(Pointer(@SArgumentOutOfRange));
-  Size := Value;
-  DynArraySetLength(FItems^, FLH.FTypeInfo, 1, @Size);
+  Equals.Data := PPointer(@IsEmpty)^;
+  Equals.Code := PPointer(PNativeUInt(Equals.Data)^ + 3 * SizeOf(Pointer))^;
+
+  _Self := Self;
+  with _Self do
+  begin
+    Item := Pointer(FItems);
+    Dec(Item);
+    TopItem := Item + FCount.Native;
+  end;
+
+  repeat
+    if (Item = TopItem) then Exit;
+    Inc(Item);
+  until (TEquals(Equals.Code)(Equals.Data, Item^, Default(T)));
+
+  DestItem := Item;
+  goto next_item;
+  repeat
+    // DestItem^ := Item^;
+    case SizeOf(T) of
+      1: T1(Pointer(DestItem)^) := T1(Pointer(Item)^);
+      2: T2(Pointer(DestItem)^) := T2(Pointer(Item)^);
+      3: T3(Pointer(DestItem)^) := T3(Pointer(Item)^);
+      4: T4(Pointer(DestItem)^) := T4(Pointer(Item)^);
+      5: T5(Pointer(DestItem)^) := T5(Pointer(Item)^);
+      6: T6(Pointer(DestItem)^) := T6(Pointer(Item)^);
+      7: T7(Pointer(DestItem)^) := T7(Pointer(Item)^);
+      8: T8(Pointer(DestItem)^) := T8(Pointer(Item)^);
+      9: T9(Pointer(DestItem)^) := T9(Pointer(Item)^);
+      10: T10(Pointer(DestItem)^) := T10(Pointer(Item)^);
+      11: T11(Pointer(DestItem)^) := T11(Pointer(Item)^);
+      12: T12(Pointer(DestItem)^) := T12(Pointer(Item)^);
+      13: T13(Pointer(DestItem)^) := T13(Pointer(Item)^);
+      14: T14(Pointer(DestItem)^) := T14(Pointer(Item)^);
+      15: T15(Pointer(DestItem)^) := T15(Pointer(Item)^);
+      16: T16(Pointer(DestItem)^) := T16(Pointer(Item)^);
+      17: T17(Pointer(DestItem)^) := T17(Pointer(Item)^);
+      18: T18(Pointer(DestItem)^) := T18(Pointer(Item)^);
+      19: T19(Pointer(DestItem)^) := T19(Pointer(Item)^);
+      20: T20(Pointer(DestItem)^) := T20(Pointer(Item)^);
+      21: T21(Pointer(DestItem)^) := T21(Pointer(Item)^);
+      22: T22(Pointer(DestItem)^) := T22(Pointer(Item)^);
+      23: T23(Pointer(DestItem)^) := T23(Pointer(Item)^);
+      24: T24(Pointer(DestItem)^) := T24(Pointer(Item)^);
+      25: T25(Pointer(DestItem)^) := T25(Pointer(Item)^);
+      26: T26(Pointer(DestItem)^) := T26(Pointer(Item)^);
+      27: T27(Pointer(DestItem)^) := T27(Pointer(Item)^);
+      28: T28(Pointer(DestItem)^) := T28(Pointer(Item)^);
+      29: T29(Pointer(DestItem)^) := T29(Pointer(Item)^);
+      30: T30(Pointer(DestItem)^) := T30(Pointer(Item)^);
+      31: T31(Pointer(DestItem)^) := T31(Pointer(Item)^);
+      32: T32(Pointer(DestItem)^) := T32(Pointer(Item)^);
+      33: T33(Pointer(DestItem)^) := T33(Pointer(Item)^);
+      34: T34(Pointer(DestItem)^) := T34(Pointer(Item)^);
+      35: T35(Pointer(DestItem)^) := T35(Pointer(Item)^);
+      36: T36(Pointer(DestItem)^) := T36(Pointer(Item)^);
+      37: T37(Pointer(DestItem)^) := T37(Pointer(Item)^);
+      38: T38(Pointer(DestItem)^) := T38(Pointer(Item)^);
+      39: T39(Pointer(DestItem)^) := T39(Pointer(Item)^);
+      40: T40(Pointer(DestItem)^) := T40(Pointer(Item)^);
+    else
+      for i := 1 to SizeOf(T) div SizeOf(NativeUInt) do
+      begin
+        NativeUInt(Pointer(DestItem)^) := NativeUInt(Pointer(Item)^);
+        Inc(NativeInt(Item), SizeOf(NativeUInt));
+        Inc(NativeInt(DestItem), SizeOf(NativeUInt));
+      end;
+
+      case SizeOf(T) and (SizeOf(NativeUInt) - 1) of
+        1: T1(Pointer(DestItem)^) := T1(Pointer(Item)^);
+        2: T2(Pointer(DestItem)^) := T2(Pointer(Item)^);
+        3: T3(Pointer(DestItem)^) := T3(Pointer(Item)^);
+      {$ifdef LARGEINT}
+        4: T4(Pointer(DestItem)^) := T4(Pointer(Item)^);
+        5: T5(Pointer(DestItem)^) := T5(Pointer(Item)^);
+        6: T6(Pointer(DestItem)^) := T6(Pointer(Item)^);
+        7: T7(Pointer(DestItem)^) := T7(Pointer(Item)^);
+      {$endif}
+      end;
+
+      Dec(NativeInt(DestItem), (SizeOf(T) div SizeOf(NativeUInt)) * SizeOf(NativeUInt));
+      Dec(NativeInt(Item), (SizeOf(T) div SizeOf(NativeUInt)) * SizeOf(NativeUInt));
+    end;
+
+    Inc(DestItem);
+  next_item:
+    if (Item = TopItem) then Break;
+    Inc(Item);
+
+    if (not TEquals(Equals.Code)(Equals.Data, Item^, Default(T))) then Continue;
+    goto next_item;
+  until (False);
+
+  _Self := Self;
+  with _Self do
+  begin
+    R := NativeInt(DestItem) - NativeInt(FItems);
+    case SizeOf(T) of
+    0, 1: FCount.Native := R;
+       2: FCount.Native := R shr 1;
+       4: FCount.Native := R shr 2;
+       8: FCount.Native := R shr 3;
+      16: FCount.Native := R shr 4;
+      32: FCount.Native := R shr 5;
+      64: FCount.Native := R shr 6;
+     128: FCount.Native := R shr 7;
+     256: FCount.Native := R shr 8;
+    else
+      FCount.Native := Round(R * (1 / SizeOf(T)));
+    end;
+  end;
 end;
 
 
 { TStack<T> }
 
-procedure TStack<T>.Notify(const Item: T; Action: TCollectionNotification);
+constructor TStack<T>.Create;
 begin
-  if Assigned(FOnNotify) then
-    FOnNotify(Self, Item, Action);
+  inherited Create;
 end;
 
 constructor TStack<T>.Create(const Collection: TEnumerable<T>);
 var
   Item: T;
 begin
-  inherited Create;
-  FStackHelper.FLH.FNotify := InternalNotify;
-  FStackHelper.FLH.FTypeInfo := TypeInfo(arrayOfT);
+  Create;
   for Item in Collection do
     Push(Item);
 end;
 
-constructor TStack<T>.Create;
+procedure TStack<T>.InternalPush(const Value: T);
+label
+  available;
+type
+  T16 = packed record
+  case Integer of
+    0: (Bytes: array[0..15] of Byte);
+    1: (Words: array[0..7] of Word);
+    2: (Integers: array[0..3] of Integer);
+    3: (Int64s: array[0..1] of Int64);
+  end;
+  P16 = ^T16;
+var
+  Count, Null: NativeInt;
+  Item: P16;
 begin
-  inherited Create;
-  FStackHelper.FLH.FNotify := InternalNotify;
-  FStackHelper.FLH.FTypeInfo := TypeInfo(arrayOfT);
-end;
+  Count := FCount.Native;
+  if (Count <> FCapacity.Native) then
+  begin
+  available:
+    FCount.Native := Count + 1;
+    Item := Pointer(@FItems[Count]);
 
-destructor TStack<T>.Destroy;
-begin
-  Clear;
-  inherited;
-end;
+    {$ifdef SMARTGENERICS}
+    if (System.IsManagedType(T) or System.HasWeakRef(T)) then
+    {$else}
+    if (SizeOf(T) >= SizeOf(NativeInt)) then
+    {$endif}
+    begin
+      {$ifdef SMARTGENERICS}
+      if (GetTypeKind(T) = tkVariant) then
+      begin
+        Item.Integers[0] := 0;
+      end else
+      {$endif}
+      if (SizeOf(T) <= 16) then
+      begin
+        Null := 0;
+        {$ifdef SMALLINT}
+          if (SizeOf(T) >= SizeOf(Integer) * 1) then Item.Integers[0] := Null;
+          if (SizeOf(T) >= SizeOf(Integer) * 2) then Item.Integers[1] := Null;
+          if (SizeOf(T) >= SizeOf(Integer) * 3) then Item.Integers[2] := Null;
+          if (SizeOf(T)  = SizeOf(Integer) * 4) then Item.Integers[3] := Null;
+        {$else .LARGEINT}
+          if (SizeOf(T) >= SizeOf(Int64) * 1) then Item.Int64s[0] := Null;
+          if (SizeOf(T)  = SizeOf(Int64) * 2) then Item.Int64s[1] := Null;
+          case SizeOf(T) of
+             4..7: Item.Integers[0] := Null;
+           12..15: Item.Integers[2] := Null;
+          end;
+        {$endif}
+        case SizeOf(T) of
+           2,3: Item.Words[0] := 0;
+           6,7: Item.Words[2] := 0;
+         10,11: Item.Words[4] := 0;
+         14,15: Item.Words[6] := 0;
+        end;
+        case SizeOf(T) of
+           1: Item.Bytes[ 1-1] := 0;
+           3: Item.Bytes[ 3-1] := 0;
+           5: Item.Bytes[ 5-1] := 0;
+           7: Item.Bytes[ 7-1] := 0;
+           9: Item.Bytes[ 9-1] := 0;
+          11: Item.Bytes[11-1] := 0;
+          13: Item.Bytes[13-1] := 0;
+          15: Item.Bytes[15-1] := 0;
+        end;
+      end else
+      begin
+        TRAIIHelper<T>.Init(Pointer(Item));
+      end;
+    end;
 
-function TStack<T>.DoGetEnumerator: TEnumerator<T>;
-begin
-  Result := GetEnumerator;
-end;
-
-procedure TStack<T>.InternalNotify(const Item; Action: TCollectionNotification);
-begin
-  Notify(T(Item), Action);
+    PItem(Item)^ := Value;
+    if Assigned(FInternalNotify) then
+      FInternalNotify(Self, Value, cnAdded);
+    Exit;
+  end else
+  begin
+    Self.Grow;
+    goto available;
+  end;
 end;
 
 procedure TStack<T>.Push(const Value: T);
+type
+  T16 = packed record
+  case Integer of
+    0: (Bytes: array[0..15] of Byte);
+    1: (Words: array[0..7] of Word);
+    2: (Integers: array[0..3] of Integer);
+    3: (Int64s: array[0..1] of Int64);
+  end;
+  P16 = ^T16;
+var
+  Count, Null: NativeInt;
+  Item: P16;
 begin
-  if IsManagedType(T) then
-    if (SizeOf(T) = SizeOf(Pointer)) and (GetTypeKind(T) <> tkRecord) then
-      FStackHelper.InternalPushMRef(Value, GetTypeKind(T))
-    else
-      FStackHelper.InternalPushManaged(Value)
-  else
-  case SizeOf(T) of
-    1: FStackHelper.InternalPush1(Value);
-    2: FStackHelper.InternalPush2(Value);
-    4: FStackHelper.InternalPush4(Value);
-    8: FStackHelper.InternalPush8(Value);
-  else
-    FStackHelper.InternalPushN(Value);
+  Count := FCount.Native;
+  if (Count <> FCapacity.Native) and (not Assigned(FInternalNotify)) then
+  begin
+    Inc(Count);
+    FCount.Native := Count;
+    Dec(Count);
+    Item := Pointer(@FItems[Count]);
+
+    {$ifdef SMARTGENERICS}
+    if (System.IsManagedType(T) or System.HasWeakRef(T)) then
+    {$else}
+    if (SizeOf(T) >= SizeOf(NativeInt)) then
+    {$endif}
+    begin
+      {$ifdef SMARTGENERICS}
+      if (GetTypeKind(T) = tkVariant) then
+      begin
+        Item.Integers[0] := 0;
+      end else
+      {$endif}
+      if (SizeOf(T) <= 16) then
+      begin
+        Null := 0;
+        {$ifdef SMALLINT}
+          if (SizeOf(T) >= SizeOf(Integer) * 1) then Item.Integers[0] := Null;
+          if (SizeOf(T) >= SizeOf(Integer) * 2) then Item.Integers[1] := Null;
+          if (SizeOf(T) >= SizeOf(Integer) * 3) then Item.Integers[2] := Null;
+          if (SizeOf(T)  = SizeOf(Integer) * 4) then Item.Integers[3] := Null;
+        {$else .LARGEINT}
+          if (SizeOf(T) >= SizeOf(Int64) * 1) then Item.Int64s[0] := Null;
+          if (SizeOf(T)  = SizeOf(Int64) * 2) then Item.Int64s[1] := Null;
+          case SizeOf(T) of
+             4..7: Item.Integers[0] := Null;
+           12..15: Item.Integers[2] := Null;
+          end;
+        {$endif}
+        case SizeOf(T) of
+           2,3: Item.Words[0] := 0;
+           6,7: Item.Words[2] := 0;
+         10,11: Item.Words[4] := 0;
+         14,15: Item.Words[6] := 0;
+        end;
+        case SizeOf(T) of
+           1: Item.Bytes[ 1-1] := 0;
+           3: Item.Bytes[ 3-1] := 0;
+           5: Item.Bytes[ 5-1] := 0;
+           7: Item.Bytes[ 7-1] := 0;
+           9: Item.Bytes[ 9-1] := 0;
+          11: Item.Bytes[11-1] := 0;
+          13: Item.Bytes[13-1] := 0;
+          15: Item.Bytes[15-1] := 0;
+        end;
+      end else
+      begin
+        TRAIIHelper<T>.Init(Pointer(Item));
+      end;
+    end;
+
+    PItem(Item)^ := Value;
+    Exit;
+  end else
+  begin
+    Self.InternalPush(Value);
   end;
 end;
 
-function TStack<T>.DoPop(Notification: TCollectionNotification): T;
+function TStack<T>.InternalPop(const Action: TCollectionNotification): T;
+var
+  Count: NativeInt;
+  Item: PItem;
+  VType: Integer;
 begin
-  if IsManagedType(T) then
-    if (SizeOf(T) = SizeOf(Pointer)) and (GetTypeKind(T) <> tkRecord) then
-      FStackHelper.InternalDoPopMRef(Notification, False, Result, GetTypeKind(T))
+  Count := FCount.Native;
+  if (Count <> 0) then
+  begin
+    Dec(Count);
+    FCount.Native := Count;
+    Item := @FItems[Count];
+    Result := Item^;
+
+    if Assigned(FInternalNotify) then
+      Self.FInternalNotify(Self, Item^, Action);
+
+    {$ifdef SMARTGENERICS}
+    case GetTypeKind(T) of
+      {$ifdef AUTOREFCOUNT}
+      tkClass,
+      {$endif}
+      tkWString, tkLString, tkUString, tkInterface, tkDynArray:
+      begin
+        if (PNativeInt(Item)^ <> 0) then
+        case GetTypeKind(T) of
+          {$ifdef AUTOREFCOUNT}
+          tkClass:
+          begin
+            TRAIIHelper.RefObjClear(Item);
+          end;
+          {$endif}
+          {$ifdef MSWINDOWS}
+          tkWString:
+          begin
+            TRAIIHelper.WStrClear(Item);
+          end;
+          {$else}
+          tkWString,
+          {$endif}
+          tkLString, tkUString:
+          begin
+            TRAIIHelper.ULStrClear(Item);
+          end;
+          tkInterface:
+          begin
+            IInterface(PPointer(Item)^)._Release;
+          end;
+          tkDynArray:
+          begin
+            TRAIIHelper.DynArrayClear(Item, TypeInfo(T));
+          end;
+        end;
+      end;
+      {$ifdef WEAKREF}
+      tkMethod:
+      begin
+        if (PMethod(Item).Data <> nil) then
+          TRAIIHelper.WeakMethodClear(@PMethod(Item).Data);
+      end;
+      {$endif}
+      tkVariant:
+      begin
+        VType := PVarData(Item).VType;
+        if (VType and TRAIIHelper.varDeepData <> 0) then
+        case VType of
+          varBoolean, varUnknown+1..varUInt64: ;
+        else
+          System.VarClear(PVariant(Item)^);
+        end;
+      end;
     else
-      FStackHelper.InternalDoPopManaged(Notification, False, Result)
-  else
-  case SizeOf(T) of
-    1: FStackHelper.InternalDoPop1(Notification, False, Result);
-    2: FStackHelper.InternalDoPop2(Notification, False, Result);
-    4: FStackHelper.InternalDoPop4(Notification, False, Result);
-    8: FStackHelper.InternalDoPop8(Notification, False, Result);
-  else
-    FStackHelper.InternalDoPopN(Notification, False, Result);
-  end;
-end;
+      TRAIIHelper<T>.Clear(Item);
+    end;
+    {$else}
+    TRAIIHelper<T>.Clear(Item);
+    {$endif}
 
-procedure TStack<T>.DoSetCapacity(Value: Integer);
-begin
-  FStackHelper.InternalSetCapacity(Value);
-end;
-
-function TStack<T>.Extract: T;
-begin
-  Result := DoPop(cnExtracted);
-end;
-
-function TStack<T>.Peek: T;
-begin
-  if IsManagedType(T) then
-    if (SizeOf(T) = SizeOf(Pointer)) and (GetTypeKind(T) <> tkRecord) then
-      FStackHelper.InternalDoPopMRef(cnRemoved, True, Result, GetTypeKind(T))
-    else
-      FStackHelper.InternalDoPopManaged(cnRemoved, True, Result)
-  else
-  case SizeOf(T) of
-    1: FStackHelper.InternalDoPop1(cnRemoved, True, Result);
-    2: FStackHelper.InternalDoPop2(cnRemoved, True, Result);
-    4: FStackHelper.InternalDoPop4(cnRemoved, True, Result);
-    8: FStackHelper.InternalDoPop8(cnRemoved, True, Result);
-  else
-    FStackHelper.InternalDoPopN(cnRemoved, True, Result);
+    Exit;
+  end else
+  begin
+    raise Self.EmptyException;
   end;
 end;
 
 function TStack<T>.Pop: T;
+var
+  Count: NativeInt;
+  Item: PItem;
+  VType: Integer;
 begin
-  Result := DoPop(cnRemoved);
-end;
+  Count := FCount.Native;
+  if (Count <> 0) and (not Assigned(FInternalNotify)) then
+  begin
+    Dec(Count);
+    FCount.Native := Count;
+    Item := @FItems[Count];
+    Result := Item^;
 
-procedure TStack<T>.Clear;
-begin
-  if IsManagedType(T) then
-    if (SizeOf(T) = SizeOf(Pointer)) and (GetTypeKind(T) <> tkRecord) then
-      FStackHelper.InternalClearMRef(GetTypeKind(T))
+    {$ifdef SMARTGENERICS}
+    case GetTypeKind(T) of
+      {$ifdef AUTOREFCOUNT}
+      tkClass,
+      {$endif}
+      tkWString, tkLString, tkUString, tkInterface, tkDynArray:
+      begin
+        if (PNativeInt(Item)^ <> 0) then
+        case GetTypeKind(T) of
+          {$ifdef AUTOREFCOUNT}
+          tkClass:
+          begin
+            TRAIIHelper.RefObjClear(Item);
+          end;
+          {$endif}
+          {$ifdef MSWINDOWS}
+          tkWString:
+          begin
+            TRAIIHelper.WStrClear(Item);
+          end;
+          {$else}
+          tkWString,
+          {$endif}
+          tkLString, tkUString:
+          begin
+            TRAIIHelper.ULStrClear(Item);
+          end;
+          tkInterface:
+          begin
+            IInterface(PPointer(Item)^)._Release;
+          end;
+          tkDynArray:
+          begin
+            TRAIIHelper.DynArrayClear(Item, TypeInfo(T));
+          end;
+        end;
+      end;
+      {$ifdef WEAKREF}
+      tkMethod:
+      begin
+        if (PMethod(Item).Data <> nil) then
+          TRAIIHelper.WeakMethodClear(@PMethod(Item).Data);
+      end;
+      {$endif}
+      tkVariant:
+      begin
+        VType := PVarData(Item).VType;
+        if (VType and TRAIIHelper.varDeepData <> 0) then
+        case VType of
+          varBoolean, varUnknown+1..varUInt64: ;
+        else
+          System.VarClear(PVariant(Item)^);
+        end;
+      end;
     else
-      FStackHelper.InternalClearManaged
-  else
-  case SizeOf(T) of
-    1: FStackHelper.InternalClear1;
-    2: FStackHelper.InternalClear2;
-    4: FStackHelper.InternalClear4;
-    8: FStackHelper.InternalClear8;
-  else
-    FStackHelper.InternalClearN;
+      TRAIIHelper<T>.Clear(Item);
+    end;
+    {$else}
+    TRAIIHelper<T>.Clear(Item);
+    {$endif}
+
+    Exit;
+  end else
+  begin
+    Result := Self.InternalPop(cnRemoved);
   end;
 end;
 
-function TStack<T>.ToArray: TArray<T>;
+function TStack<T>.Extract: T;
+var
+  Count: NativeInt;
+  Item: PItem;
+  VType: Integer;
 begin
-  Result := ToArrayImpl(Count);
+  Count := FCount.Native;
+  if (Count <> 0) and (not Assigned(FInternalNotify)) then
+  begin
+    Dec(Count);
+    FCount.Native := Count;
+    Item := @FItems[Count];
+    Result := Item^;
+
+    {$ifdef SMARTGENERICS}
+    case GetTypeKind(T) of
+      {$ifdef AUTOREFCOUNT}
+      tkClass,
+      {$endif}
+      tkWString, tkLString, tkUString, tkInterface, tkDynArray:
+      begin
+        if (PNativeInt(Item)^ <> 0) then
+        case GetTypeKind(T) of
+          {$ifdef AUTOREFCOUNT}
+          tkClass:
+          begin
+            TRAIIHelper.RefObjClear(Item);
+          end;
+          {$endif}
+          {$ifdef MSWINDOWS}
+          tkWString:
+          begin
+            TRAIIHelper.WStrClear(Item);
+          end;
+          {$else}
+          tkWString,
+          {$endif}
+          tkLString, tkUString:
+          begin
+            TRAIIHelper.ULStrClear(Item);
+          end;
+          tkInterface:
+          begin
+            IInterface(PPointer(Item)^)._Release;
+          end;
+          tkDynArray:
+          begin
+            TRAIIHelper.DynArrayClear(Item, TypeInfo(T));
+          end;
+        end;
+      end;
+      {$ifdef WEAKREF}
+      tkMethod:
+      begin
+        if (PMethod(Item).Data <> nil) then
+          TRAIIHelper.WeakMethodClear(@PMethod(Item).Data);
+      end;
+      {$endif}
+      tkVariant:
+      begin
+        VType := PVarData(Item).VType;
+        if (VType and TRAIIHelper.varDeepData <> 0) then
+        case VType of
+          varBoolean, varUnknown+1..varUInt64: ;
+        else
+          System.VarClear(PVariant(Item)^);
+        end;
+      end;
+    else
+      TRAIIHelper<T>.Clear(Item);
+    end;
+    {$else}
+    TRAIIHelper<T>.Clear(Item);
+    {$endif}
+
+    Exit;
+  end else
+  begin
+    Result := Self.InternalPop(cnExtracted);
+  end;
 end;
 
-procedure TStack<T>.TrimExcess;
+function TStack<T>.Peek: T;
+var
+  Count: NativeInt;
 begin
-  SetLength(FItems, Count);
+  Count := FCount.Native;
+  if (Count <> 0) then
+  begin
+    Result := FItems[Count - 1];
+    Exit;
+  end else
+  begin
+    raise Self.EmptyException;
+  end;
 end;
 
-function TStack<T>.GetCapacity: Integer;
-begin
-  Result := Length(FItems);
-end;
 
-function TStack<T>.GetEnumerator: TEnumerator;
-begin
-  Result := TEnumerator.Create(Self);
-end;
+{ TQueue<T> }
 
-constructor TStack<T>.TEnumerator.Create(const AStack: TStack<T>);
+constructor TQueue<T>.Create;
 begin
   inherited Create;
-  FStack := AStack;
-  FIndex := -1;
 end;
 
-function TStack<T>.TEnumerator.DoGetCurrent: T;
+constructor TQueue<T>.Create(const Collection: TEnumerable<T>);
+var
+  Item: T;
 begin
-  Result := GetCurrent;
+  Create;
+
+  for Item in Collection do
+    Enqueue(Item);
 end;
 
-function TStack<T>.TEnumerator.DoMoveNext: Boolean;
+procedure TQueue<T>.InternalEnqueue(const Value: T);
+label
+  available, actual;
+type
+  T16 = packed record
+  case Integer of
+    0: (Bytes: array[0..15] of Byte);
+    1: (Words: array[0..7] of Word);
+    2: (Integers: array[0..3] of Integer);
+    3: (Int64s: array[0..1] of Int64);
+  end;
+  P16 = ^T16;
+var
+  Count, Null: NativeInt;
+  Item: P16;
 begin
-  Result := MoveNext;
+  Count := FCount.Native;
+  if (Count <> FCapacity.Native) then
+  begin
+  available:
+    FCount.Native := Count + 1;
+    Count := FHead;
+    if (Count <> FCapacity.Native) then
+    begin
+      Inc(Count);
+      FHead := Count;
+      Dec(Count);
+    actual:
+      Item := Pointer(@FItems[Count]);
+
+      {$ifdef SMARTGENERICS}
+      if (System.IsManagedType(T) or System.HasWeakRef(T)) then
+      {$else}
+      if (SizeOf(T) >= SizeOf(NativeInt)) then
+      {$endif}
+      begin
+        {$ifdef SMARTGENERICS}
+        if (GetTypeKind(T) = tkVariant) then
+        begin
+          Item.Integers[0] := 0;
+        end else
+        {$endif}
+        if (SizeOf(T) <= 16) then
+        begin
+          Null := 0;
+          {$ifdef SMALLINT}
+            if (SizeOf(T) >= SizeOf(Integer) * 1) then Item.Integers[0] := Null;
+            if (SizeOf(T) >= SizeOf(Integer) * 2) then Item.Integers[1] := Null;
+            if (SizeOf(T) >= SizeOf(Integer) * 3) then Item.Integers[2] := Null;
+            if (SizeOf(T)  = SizeOf(Integer) * 4) then Item.Integers[3] := Null;
+          {$else .LARGEINT}
+            if (SizeOf(T) >= SizeOf(Int64) * 1) then Item.Int64s[0] := Null;
+            if (SizeOf(T)  = SizeOf(Int64) * 2) then Item.Int64s[1] := Null;
+            case SizeOf(T) of
+               4..7: Item.Integers[0] := Null;
+             12..15: Item.Integers[2] := Null;
+            end;
+          {$endif}
+          case SizeOf(T) of
+             2,3: Item.Words[0] := 0;
+             6,7: Item.Words[2] := 0;
+           10,11: Item.Words[4] := 0;
+           14,15: Item.Words[6] := 0;
+          end;
+          case SizeOf(T) of
+             1: Item.Bytes[ 1-1] := 0;
+             3: Item.Bytes[ 3-1] := 0;
+             5: Item.Bytes[ 5-1] := 0;
+             7: Item.Bytes[ 7-1] := 0;
+             9: Item.Bytes[ 9-1] := 0;
+            11: Item.Bytes[11-1] := 0;
+            13: Item.Bytes[13-1] := 0;
+            15: Item.Bytes[15-1] := 0;
+          end;
+        end else
+        begin
+          TRAIIHelper<T>.Init(Pointer(Item));
+        end;
+      end;
+
+      PItem(Item)^ := Value;
+      if Assigned(FInternalNotify) then
+        FInternalNotify(Self, Value, cnAdded);
+      Exit;
+    end else
+    begin
+      FHead := 1;
+      Count := 0;
+      goto actual;
+    end;
+  end else
+  begin
+    Self.Grow;
+    goto available;
+  end;
 end;
 
-function TStack<T>.TEnumerator.GetCurrent: T;
+procedure TQueue<T>.Enqueue(const Value: T);
+label
+  actual;
+type
+  T16 = packed record
+  case Integer of
+    0: (Bytes: array[0..15] of Byte);
+    1: (Words: array[0..7] of Word);
+    2: (Integers: array[0..3] of Integer);
+    3: (Int64s: array[0..1] of Int64);
+  end;
+  P16 = ^T16;
+var
+  Count, Null: NativeInt;
+  Item: P16;
 begin
-  Result := FStack.FItems[FIndex];
+  Count := FCount.Native;
+  if (Count <> FCapacity.Native) and (not Assigned(FInternalNotify)) then
+  begin
+    FCount.Native := Count + 1;
+    Count := FHead;
+    if (Count <> FCapacity.Native) then
+    begin
+      Inc(Count);
+      FHead := Count;
+      Dec(Count);
+    actual:
+      Item := Pointer(@FItems[Count]);
+
+      {$ifdef SMARTGENERICS}
+      if (System.IsManagedType(T) or System.HasWeakRef(T)) then
+      {$else}
+      if (SizeOf(T) >= SizeOf(NativeInt)) then
+      {$endif}
+      begin
+        {$ifdef SMARTGENERICS}
+        if (GetTypeKind(T) = tkVariant) then
+        begin
+          Item.Integers[0] := 0;
+        end else
+        {$endif}
+        if (SizeOf(T) <= 16) then
+        begin
+          Null := 0;
+          {$ifdef SMALLINT}
+            if (SizeOf(T) >= SizeOf(Integer) * 1) then Item.Integers[0] := Null;
+            if (SizeOf(T) >= SizeOf(Integer) * 2) then Item.Integers[1] := Null;
+            if (SizeOf(T) >= SizeOf(Integer) * 3) then Item.Integers[2] := Null;
+            if (SizeOf(T)  = SizeOf(Integer) * 4) then Item.Integers[3] := Null;
+          {$else .LARGEINT}
+            if (SizeOf(T) >= SizeOf(Int64) * 1) then Item.Int64s[0] := Null;
+            if (SizeOf(T)  = SizeOf(Int64) * 2) then Item.Int64s[1] := Null;
+            case SizeOf(T) of
+               4..7: Item.Integers[0] := Null;
+             12..15: Item.Integers[2] := Null;
+            end;
+          {$endif}
+          case SizeOf(T) of
+             2,3: Item.Words[0] := 0;
+             6,7: Item.Words[2] := 0;
+           10,11: Item.Words[4] := 0;
+           14,15: Item.Words[6] := 0;
+          end;
+          case SizeOf(T) of
+             1: Item.Bytes[ 1-1] := 0;
+             3: Item.Bytes[ 3-1] := 0;
+             5: Item.Bytes[ 5-1] := 0;
+             7: Item.Bytes[ 7-1] := 0;
+             9: Item.Bytes[ 9-1] := 0;
+            11: Item.Bytes[11-1] := 0;
+            13: Item.Bytes[13-1] := 0;
+            15: Item.Bytes[15-1] := 0;
+          end;
+        end else
+        begin
+          TRAIIHelper<T>.Init(Pointer(Item));
+        end;
+      end;
+
+      PItem(Item)^ := Value;
+      Exit;
+    end else
+    begin
+      FHead := 1;
+      Count := 0;
+      goto actual;
+    end;
+  end else
+  begin
+    Self.InternalEnqueue(Value);
+  end;
 end;
 
-function TStack<T>.TEnumerator.MoveNext: Boolean;
+function TQueue<T>.InternalDequeue(const Action: TCollectionNotification): T;
+label
+  actual;
+var
+  Count: NativeInt;
+  Item: PItem;
+  VType: Integer;
 begin
-  if FIndex >= FStack.Count then
-    Exit(False);
-  Inc(FIndex);
-  Result := FIndex < FStack.Count;
+  Count := FCount.Native;
+  if (Count <> 0) then
+  begin
+    FCount.Native := Count - 1;
+    Count := FTail + 1;
+    if (Count <> FCapacity.Native) then
+    begin
+      FTail := Count;
+    actual:
+      Dec(Count);
+      Item := @FItems[Count];
+      Result := Item^;
+
+      if Assigned(FInternalNotify) then
+        Self.FInternalNotify(Self, Item^, Action);
+
+      {$ifdef SMARTGENERICS}
+      case GetTypeKind(T) of
+        {$ifdef AUTOREFCOUNT}
+        tkClass,
+        {$endif}
+        tkWString, tkLString, tkUString, tkInterface, tkDynArray:
+        begin
+          if (PNativeInt(Item)^ <> 0) then
+          case GetTypeKind(T) of
+            {$ifdef AUTOREFCOUNT}
+            tkClass:
+            begin
+              TRAIIHelper.RefObjClear(Item);
+            end;
+            {$endif}
+            {$ifdef MSWINDOWS}
+            tkWString:
+            begin
+              TRAIIHelper.WStrClear(Item);
+            end;
+            {$else}
+            tkWString,
+            {$endif}
+            tkLString, tkUString:
+            begin
+              TRAIIHelper.ULStrClear(Item);
+            end;
+            tkInterface:
+            begin
+              IInterface(PPointer(Item)^)._Release;
+            end;
+            tkDynArray:
+            begin
+              TRAIIHelper.DynArrayClear(Item, TypeInfo(T));
+            end;
+          end;
+        end;
+        {$ifdef WEAKREF}
+        tkMethod:
+        begin
+          if (PMethod(Item).Data <> nil) then
+            TRAIIHelper.WeakMethodClear(@PMethod(Item).Data);
+        end;
+        {$endif}
+        tkVariant:
+        begin
+          VType := PVarData(Item).VType;
+          if (VType and TRAIIHelper.varDeepData <> 0) then
+          case VType of
+            varBoolean, varUnknown+1..varUInt64: ;
+          else
+            System.VarClear(PVariant(Item)^);
+          end;
+        end;
+      else
+        TRAIIHelper<T>.Clear(Item);
+      end;
+      {$else}
+      TRAIIHelper<T>.Clear(Item);
+      {$endif}
+
+      Exit;
+    end else
+    begin
+      Count := 0;
+      FTail := Count;
+      Count := FCapacity.Native;
+      goto actual;
+    end;
+  end else
+  begin
+    raise Self.EmptyException;
+  end;
+end;
+
+function TQueue<T>.Dequeue: T;
+label
+  actual;
+var
+  Count: NativeInt;
+  Item: PItem;
+  VType: Integer;
+begin
+  Count := FCount.Native;
+  if (Count <> 0) and (not Assigned(FInternalNotify)) then
+  begin
+    FCount.Native := Count - 1;
+    Count := FTail + 1;
+    if (Count <> FCapacity.Native) then
+    begin
+      FTail := Count;
+    actual:
+      Dec(Count);
+      Item := @FItems[Count];
+      Result := Item^;
+
+      {$ifdef SMARTGENERICS}
+      case GetTypeKind(T) of
+        {$ifdef AUTOREFCOUNT}
+        tkClass,
+        {$endif}
+        tkWString, tkLString, tkUString, tkInterface, tkDynArray:
+        begin
+          if (PNativeInt(Item)^ <> 0) then
+          case GetTypeKind(T) of
+            {$ifdef AUTOREFCOUNT}
+            tkClass:
+            begin
+              TRAIIHelper.RefObjClear(Item);
+            end;
+            {$endif}
+            {$ifdef MSWINDOWS}
+            tkWString:
+            begin
+              TRAIIHelper.WStrClear(Item);
+            end;
+            {$else}
+            tkWString,
+            {$endif}
+            tkLString, tkUString:
+            begin
+              TRAIIHelper.ULStrClear(Item);
+            end;
+            tkInterface:
+            begin
+              IInterface(PPointer(Item)^)._Release;
+            end;
+            tkDynArray:
+            begin
+              TRAIIHelper.DynArrayClear(Item, TypeInfo(T));
+            end;
+          end;
+        end;
+        {$ifdef WEAKREF}
+        tkMethod:
+        begin
+          if (PMethod(Item).Data <> nil) then
+            TRAIIHelper.WeakMethodClear(@PMethod(Item).Data);
+        end;
+        {$endif}
+        tkVariant:
+        begin
+          VType := PVarData(Item).VType;
+          if (VType and TRAIIHelper.varDeepData <> 0) then
+          case VType of
+            varBoolean, varUnknown+1..varUInt64: ;
+          else
+            System.VarClear(PVariant(Item)^);
+          end;
+        end;
+      else
+        TRAIIHelper<T>.Clear(Item);
+      end;
+      {$else}
+      TRAIIHelper<T>.Clear(Item);
+      {$endif}
+
+      Exit;
+    end else
+    begin
+      Count := 0;
+      FTail := Count;
+      Count := FCapacity.Native;
+      goto actual;
+    end;
+  end else
+  begin
+    Result := Self.InternalDequeue(cnRemoved);
+  end;
+end;
+
+function TQueue<T>.Extract: T;
+label
+  actual;
+var
+  Count: NativeInt;
+  Item: PItem;
+  VType: Integer;
+begin
+  Count := FCount.Native;
+  if (Count <> 0) and (not Assigned(FInternalNotify)) then
+  begin
+    FCount.Native := Count - 1;
+    Count := FTail + 1;
+    if (Count <> FCapacity.Native) then
+    begin
+      FTail := Count;
+    actual:
+      Dec(Count);
+      Item := @FItems[Count];
+      Result := Item^;
+
+      {$ifdef SMARTGENERICS}
+      case GetTypeKind(T) of
+        {$ifdef AUTOREFCOUNT}
+        tkClass,
+        {$endif}
+        tkWString, tkLString, tkUString, tkInterface, tkDynArray:
+        begin
+          if (PNativeInt(Item)^ <> 0) then
+          case GetTypeKind(T) of
+            {$ifdef AUTOREFCOUNT}
+            tkClass:
+            begin
+              TRAIIHelper.RefObjClear(Item);
+            end;
+            {$endif}
+            {$ifdef MSWINDOWS}
+            tkWString:
+            begin
+              TRAIIHelper.WStrClear(Item);
+            end;
+            {$else}
+            tkWString,
+            {$endif}
+            tkLString, tkUString:
+            begin
+              TRAIIHelper.ULStrClear(Item);
+            end;
+            tkInterface:
+            begin
+              IInterface(PPointer(Item)^)._Release;
+            end;
+            tkDynArray:
+            begin
+              TRAIIHelper.DynArrayClear(Item, TypeInfo(T));
+            end;
+          end;
+        end;
+        {$ifdef WEAKREF}
+        tkMethod:
+        begin
+          if (PMethod(Item).Data <> nil) then
+            TRAIIHelper.WeakMethodClear(@PMethod(Item).Data);
+        end;
+        {$endif}
+        tkVariant:
+        begin
+          VType := PVarData(Item).VType;
+          if (VType and TRAIIHelper.varDeepData <> 0) then
+          case VType of
+            varBoolean, varUnknown+1..varUInt64: ;
+          else
+            System.VarClear(PVariant(Item)^);
+          end;
+        end;
+      else
+        TRAIIHelper<T>.Clear(Item);
+      end;
+      {$else}
+      TRAIIHelper<T>.Clear(Item);
+      {$endif}
+
+      Exit;
+    end else
+    begin
+      Count := 0;
+      FTail := Count;
+      Count := FCapacity.Native;
+      goto actual;
+    end;
+  end else
+  begin
+    Result := Self.InternalDequeue(cnExtracted);
+  end;
+end;
+
+function TQueue<T>.Peek: T;
+begin
+  if (FCount.Native <> 0) then
+  begin
+    Result := FItems[FTail];
+    Exit;
+  end else
+  begin
+    raise Self.EmptyException;
+  end;
 end;
 
 
@@ -13425,68 +13086,76 @@ end;
 
 constructor TObjectList<T>.Create(const AComparer: IComparer<T>; AOwnsObjects: Boolean);
 begin
-  inherited Create(AComparer);
   FOwnsObjects := AOwnsObjects;
+  inherited Create(AComparer);
 end;
 
 constructor TObjectList<T>.Create(const Collection: TEnumerable<T>; AOwnsObjects: Boolean);
 begin
+  FOwnsObjects := AOwnsObjects;
   inherited Create(Collection);
-  FOwnsObjects := AOwnsObjects;
 end;
 
-procedure TObjectList<T>.Notify(const Value: T; Action: TCollectionNotification);
+procedure TObjectList<T>.SetOwnsObjects(const Value: Boolean);
 begin
-  inherited;
-  if OwnsObjects and (Action = cnRemoved) then
-    Value.DisposeOf;
+  if (FOwnsObjects <> Value) then
+  begin
+    FOwnsObjects := Value;
+    SetNotifyMethods;
+  end;
 end;
 
-{ TObjectQueue<T> }
-
-constructor TObjectQueue<T>.Create(AOwnsObjects: Boolean);
+procedure TObjectList<T>.DisposeNotifyEvent(Sender: TObject; const Item: TObject; Action: TCollectionNotification);
 begin
-  inherited Create;
-  FOwnsObjects := AOwnsObjects;
+  Self.FOnNotify(Sender, Item, Action);
+  if (Action = cnRemoved) then
+    Item.DisposeOf;
 end;
 
-constructor TObjectQueue<T>.Create(const Collection: TEnumerable<T>; AOwnsObjects: Boolean);
+procedure TObjectList<T>.DisposeOnly(Sender: TObject; const Item: TObject; Action: TCollectionNotification);
 begin
-  inherited Create(Collection);
-  FOwnsObjects := AOwnsObjects;
+  if (Action = cnRemoved) then
+    Item.DisposeOf;
 end;
 
-procedure TObjectQueue<T>.Dequeue;
+procedure TObjectList<T>.SetNotifyMethods;
+var
+  VMTNotify: procedure(const Item: T; Action: TCollectionNotification) of object;
 begin
-  inherited Dequeue;
+  if (not FOwnsObjects) then
+  begin
+    inherited;
+    Exit;
+  end;
+
+  TMethod(FInternalNotify).Data := Pointer(Self);
+  VMTNotify := Self.Notify;
+  if (TMethod(VMTNotify).Code <> @TCustomList<T>.Notify) then
+  begin
+    TMethod(FInternalNotify).Code := @TCustomList<T>.NotifyCaller;
+  end else
+  if (Assigned(Self.FOnNotify)) then
+  begin
+    TMethod(FInternalNotify).Code := @TObjectList<T>.DisposeNotifyEvent;
+  end else
+  begin
+    TMethod(FInternalNotify).Code := @TObjectList<T>.DisposeOnly;
+  end;
 end;
 
-procedure TObjectQueue<T>.Notify(const Value: T; Action: TCollectionNotification);
-begin
-  inherited;
-  if OwnsObjects and (Action = cnRemoved) then
-    Value.DisposeOf;
-end;
 
 { TObjectStack<T> }
 
 constructor TObjectStack<T>.Create(AOwnsObjects: Boolean);
 begin
-  inherited Create;
   FOwnsObjects := AOwnsObjects;
+  inherited Create;
 end;
 
 constructor TObjectStack<T>.Create(const Collection: TEnumerable<T>; AOwnsObjects: Boolean);
 begin
-  inherited Create(Collection);
   FOwnsObjects := AOwnsObjects;
-end;
-
-procedure TObjectStack<T>.Notify(const Value: T; Action: TCollectionNotification);
-begin
-  inherited;
-  if OwnsObjects and (Action = cnRemoved) then
-    Value.DisposeOf;
+  inherited Create(Collection);
 end;
 
 procedure TObjectStack<T>.Pop;
@@ -13494,21 +13163,122 @@ begin
   inherited Pop;
 end;
 
+procedure TObjectStack<T>.SetOwnsObjects(const Value: Boolean);
+begin
+  if (FOwnsObjects <> Value) then
+  begin
+    FOwnsObjects := Value;
+    SetNotifyMethods;
+  end;
+end;
+
+procedure TObjectStack<T>.DisposeNotifyEvent(Sender: TObject; const Item: TObject; Action: TCollectionNotification);
+begin
+  Self.FOnNotify(Sender, Item, Action);
+  if (Action = cnRemoved) then
+    Item.DisposeOf;
+end;
+
+procedure TObjectStack<T>.DisposeOnly(Sender: TObject; const Item: TObject; Action: TCollectionNotification);
+begin
+  if (Action = cnRemoved) then
+    Item.DisposeOf;
+end;
+
+procedure TObjectStack<T>.SetNotifyMethods;
+var
+  VMTNotify: procedure(const Item: T; Action: TCollectionNotification) of object;
+begin
+  if (not FOwnsObjects) then
+  begin
+    inherited;
+    Exit;
+  end;
+
+  TMethod(FInternalNotify).Data := Pointer(Self);
+  VMTNotify := Self.Notify;
+  if (TMethod(VMTNotify).Code <> @TCustomList<T>.Notify) then
+  begin
+    TMethod(FInternalNotify).Code := @TCustomList<T>.NotifyCaller;
+  end else
+  if (Assigned(Self.FOnNotify)) then
+  begin
+    TMethod(FInternalNotify).Code := @TObjectStack<T>.DisposeNotifyEvent;
+  end else
+  begin
+    TMethod(FInternalNotify).Code := @TObjectStack<T>.DisposeOnly;
+  end;
+end;
+
+
+{ TObjectQueue<T> }
+
+constructor TObjectQueue<T>.Create(AOwnsObjects: Boolean);
+begin
+  FOwnsObjects := AOwnsObjects;
+  inherited Create;
+end;
+
+constructor TObjectQueue<T>.Create(const Collection: TEnumerable<T>; AOwnsObjects: Boolean);
+begin
+  FOwnsObjects := AOwnsObjects;
+  inherited Create(Collection);
+end;
+
+procedure TObjectQueue<T>.Dequeue;
+begin
+  inherited Dequeue;
+end;
+
+procedure TObjectQueue<T>.SetOwnsObjects(const Value: Boolean);
+begin
+  if (FOwnsObjects <> Value) then
+  begin
+    FOwnsObjects := Value;
+    SetNotifyMethods;
+  end;
+end;
+
+procedure TObjectQueue<T>.DisposeNotifyEvent(Sender: TObject; const Item: TObject; Action: TCollectionNotification);
+begin
+  Self.FOnNotify(Sender, Item, Action);
+  if (Action = cnRemoved) then
+    Item.DisposeOf;
+end;
+
+procedure TObjectQueue<T>.DisposeOnly(Sender: TObject; const Item: TObject; Action: TCollectionNotification);
+begin
+  if (Action = cnRemoved) then
+    Item.DisposeOf;
+end;
+
+procedure TObjectQueue<T>.SetNotifyMethods;
+var
+  VMTNotify: procedure(const Item: T; Action: TCollectionNotification) of object;
+begin
+  if (not FOwnsObjects) then
+  begin
+    inherited;
+    Exit;
+  end;
+
+  TMethod(FInternalNotify).Data := Pointer(Self);
+  VMTNotify := Self.Notify;
+  if (TMethod(VMTNotify).Code <> @TCustomList<T>.Notify) then
+  begin
+    TMethod(FInternalNotify).Code := @TCustomList<T>.NotifyCaller;
+  end else
+  if (Assigned(Self.FOnNotify)) then
+  begin
+    TMethod(FInternalNotify).Code := @TObjectQueue<T>.DisposeNotifyEvent;
+  end else
+  begin
+    TMethod(FInternalNotify).Code := @TObjectQueue<T>.DisposeOnly;
+  end;
+end;
+
+
 { TObjectDictionary<TKey,TValue> }
-
-procedure TObjectDictionary<TKey,TValue>.KeyNotify(const Key: TKey; Action: TCollectionNotification);
-begin
-  inherited;
-  if (Action = cnRemoved) and (doOwnsKeys in FOwnerships) then
-    PObject(@Key)^.DisposeOf;
-end;
-
-procedure TObjectDictionary<TKey,TValue>.ValueNotify(const Value: TValue; Action: TCollectionNotification);
-begin
-  inherited;
-  if (Action = cnRemoved) and (doOwnsValues in FOwnerships) then
-    PObject(@Value)^.DisposeOf;
-end;
 
 constructor TObjectDictionary<TKey,TValue>.Create(Ownerships: TDictionaryOwnerships;
   ACapacity: Integer = 0);
@@ -13525,19 +13295,376 @@ end;
 constructor TObjectDictionary<TKey,TValue>.Create(Ownerships: TDictionaryOwnerships;
   ACapacity: Integer; const AComparer: IEqualityComparer<TKey>);
 begin
-  inherited Create(ACapacity, AComparer);
-  if doOwnsKeys in Ownerships then
+  FOwnerships := Ownerships;
+  if (Ownerships = []) then
+    raise EInvalidCast.CreateRes(Pointer(@SInvalidCast));
+
+  if (doOwnsKeys in Ownerships) then
   begin
     if (TypeInfo(TKey) = nil) or (PTypeInfo(TypeInfo(TKey))^.Kind <> tkClass) then
       raise EInvalidCast.CreateRes(Pointer(@SInvalidCast));
   end;
 
-  if doOwnsValues in Ownerships then
+  if (doOwnsValues in Ownerships) then
   begin
     if (TypeInfo(TValue) = nil) or (PTypeInfo(TypeInfo(TValue))^.Kind <> tkClass) then
       raise EInvalidCast.CreateRes(Pointer(@SInvalidCast));
   end;
+
+  inherited Create(ACapacity, AComparer);
+end;
+
+procedure TObjectDictionary<TKey,TValue>.DisposeKeyEvent(Sender: TObject;
+  const Key: TObject; Action: TCollectionNotification);
+type
+  TOnKeyNotify = procedure(Data, Sender: TObject; const Key: TObject; Action: TCollectionNotification);
+begin
+  TOnKeyNotify(TMethod(FOnKeyNotify).Code)(TMethod(FOnKeyNotify).Data, Self, Key, Action);
+  if (Action = cnRemoved) then
+    Key.DisposeOf;
+end;
+
+procedure TObjectDictionary<TKey,TValue>.DisposeKeyOnly(Sender: TObject;
+  const Key: TObject; Action: TCollectionNotification);
+begin
+  if (Action = cnRemoved) then
+    Key.DisposeOf;
+end;
+
+procedure TObjectDictionary<TKey,TValue>.DisposeValueEvent(Sender: TObject;
+  const Value: TObject; Action: TCollectionNotification);
+type
+  TOnValueNotify = procedure(Data, Sender: TObject; const Value: TObject; Action: TCollectionNotification);
+begin
+  TOnValueNotify(TMethod(FOnValueNotify).Code)(TMethod(FOnValueNotify).Data, Self, Value, Action);
+  if (Action = cnRemoved) then
+    Value.DisposeOf;
+end;
+
+procedure TObjectDictionary<TKey,TValue>.DisposeValueOnly(Sender: TObject;
+  const Value: TObject; Action: TCollectionNotification);
+begin
+  if (Action = cnRemoved) then
+    Value.DisposeOf;
+end;
+
+procedure TObjectDictionary<TKey,TValue>.DisposeItemNotifyKeyCaller(const Item: TItem;
+  Action: TCollectionNotification);
+begin
+  Self.KeyNotify(Item.Key, Action);
+end;
+
+procedure TObjectDictionary<TKey,TValue>.DisposeItemNotifyKeyEvent(const Item: TItem;
+  Action: TCollectionNotification);
+begin
+  FOnKeyNotify(Self, Item.Key, Action);
+  if (Action = cnRemoved) then
+    TObject(Pointer(@Item.Key)^).DisposeOf;
+end;
+
+procedure TObjectDictionary<TKey,TValue>.DisposeItemNotifyKeyOnly(const Item: TItem;
+  Action: TCollectionNotification);
+begin
+  if (Action = cnRemoved) then
+    TObject(Pointer(@Item.Key)^).DisposeOf;
+end;
+
+procedure TObjectDictionary<TKey,TValue>.DisposeItemNotifyValueCaller(const Item: TItem;
+  Action: TCollectionNotification);
+begin
+  Self.ValueNotify(Item.Value, Action);
+end;
+
+procedure TObjectDictionary<TKey,TValue>.DisposeItemNotifyValueEvent(const Item: TItem;
+  Action: TCollectionNotification);
+begin
+  FOnValueNotify(Self, Item.Value, Action);
+  if (Action = cnRemoved) then
+    TObject(Pointer(@Item.Value)^).DisposeOf;
+end;
+
+procedure TObjectDictionary<TKey,TValue>.DisposeItemNotifyValueOnly(const Item: TItem;
+  Action: TCollectionNotification);
+begin
+  if (Action = cnRemoved) then
+    TObject(Pointer(@Item.Value)^).DisposeOf;
+end;
+
+procedure TObjectDictionary<TKey,TValue>.SetNotifyMethods;
+var
+  VMTKeyNotify: procedure(const Key: TKey; Action: TCollectionNotification) of object;
+  VMTValueNotify: procedure(const Value: TValue; Action: TCollectionNotification) of object;
+begin
+  // FInternalKeyNotify
+  TMethod(FInternalKeyNotify).Data := Pointer(Self);
+  VMTKeyNotify := Self.KeyNotify;
+  if (TMethod(VMTKeyNotify).Code <> @TCustomDictionary<TKey,TValue>.KeyNotify) then
+  begin
+    TMethod(FInternalKeyNotify).Code := @TCustomDictionary<TKey,TValue>.KeyNotifyCaller;
+  end else
+  if (doOwnsKeys in FOwnerships) then
+  begin
+    if (Assigned(Self.FOnKeyNotify)) then
+    begin
+      TMethod(FInternalKeyNotify).Code := @TObjectDictionary<TKey,TValue>.DisposeValueEvent;
+    end else
+    begin
+      TMethod(FInternalKeyNotify).Code := @TObjectDictionary<TKey,TValue>.DisposeValueOnly;
+    end;
+  end else
+  begin
+    TMethod(FInternalKeyNotify) := TMethod(Self.FOnKeyNotify);
+  end;
+
+  // FInternalValueNotify
+  TMethod(FInternalValueNotify).Data := Pointer(Self);
+  VMTValueNotify := Self.ValueNotify;
+  if (TMethod(VMTValueNotify).Code <> @TCustomDictionary<TValue,TValue>.ValueNotify) then
+  begin
+    TMethod(FInternalValueNotify).Code := @TCustomDictionary<TValue,TValue>.ValueNotifyCaller;
+  end else
+  if (doOwnsValues in FOwnerships) then
+  begin
+    if (Assigned(Self.FOnValueNotify)) then
+    begin
+      TMethod(FInternalValueNotify).Code := @TObjectDictionary<TValue,TValue>.DisposeValueEvent;
+    end else
+    begin
+      TMethod(FInternalValueNotify).Code := @TObjectDictionary<TValue,TValue>.DisposeValueOnly;
+    end;
+  end else
+  begin
+    TMethod(FInternalValueNotify) := TMethod(Self.FOnValueNotify);
+  end;
+
+  // FInternalItemNotify
+  TMethod(FInternalItemNotify).Data := Self;
+  if (TMethod(VMTKeyNotify).Code <> @TCustomDictionary<TKey,TValue>.KeyNotify) and
+    (TMethod(VMTValueNotify).Code <> @TCustomDictionary<TValue,TValue>.ValueNotify) then
+  begin
+    TMethod(FInternalItemNotify).Code := @TCustomDictionary<TValue,TValue>.ItemNotifyCaller;
+  end else
+  if (Assigned(FInternalKeyNotify)) and (Assigned(FInternalValueNotify)) then
+  begin
+    TMethod(FInternalItemNotify).Code := @TCustomDictionary<TValue,TValue>.ItemNotifyEvents;
+  end else
+  if (Assigned(FInternalKeyNotify)) then
+  begin
+    if (TMethod(VMTKeyNotify).Code <> @TCustomDictionary<TKey,TValue>.KeyNotify) then
+    begin
+      TMethod(FInternalItemNotify).Code := @TObjectDictionary<TKey,TKey>.DisposeItemNotifyKeyCaller;
+    end else
+    if (Assigned(Self.FOnKeyNotify)) then
+    begin
+      TMethod(FInternalItemNotify).Code := @TObjectDictionary<TKey,TKey>.DisposeItemNotifyKeyEvent;
+    end else
+    begin
+      TMethod(FInternalItemNotify).Code := @TObjectDictionary<TKey,TKey>.DisposeItemNotifyKeyOnly;
+    end;
+  end else
+  // if (Assigned(FInternalValueNotify)) then
+  begin
+    if (TMethod(VMTValueNotify).Code <> @TCustomDictionary<TValue,TValue>.ValueNotify) then
+    begin
+      TMethod(FInternalItemNotify).Code := @TObjectDictionary<TValue,TValue>.DisposeItemNotifyValueCaller;
+    end else
+    if (Assigned(Self.FOnValueNotify)) then
+    begin
+      TMethod(FInternalItemNotify).Code := @TObjectDictionary<TValue,TValue>.DisposeItemNotifyValueEvent;
+    end else
+    begin
+      TMethod(FInternalItemNotify).Code := @TObjectDictionary<TValue,TValue>.DisposeItemNotifyValueOnly;
+    end;
+  end;
+end;
+
+
+{ TRapidObjectDictionary<TKey,TValue> }
+
+constructor TRapidObjectDictionary<TKey,TValue>.Create(Ownerships: TDictionaryOwnerships;
+  ACapacity: Integer);
+begin
   FOwnerships := Ownerships;
+  if (Ownerships = []) then
+    raise EInvalidCast.CreateRes(Pointer(@SInvalidCast));
+
+  if (doOwnsKeys in Ownerships) then
+  begin
+    if (TypeInfo(TKey) = nil) or (PTypeInfo(TypeInfo(TKey))^.Kind <> tkClass) then
+      raise EInvalidCast.CreateRes(Pointer(@SInvalidCast));
+  end;
+
+  if (doOwnsValues in Ownerships) then
+  begin
+    if (TypeInfo(TValue) = nil) or (PTypeInfo(TypeInfo(TValue))^.Kind <> tkClass) then
+      raise EInvalidCast.CreateRes(Pointer(@SInvalidCast));
+  end;
+
+  inherited Create(ACapacity);
+end;
+
+procedure TRapidObjectDictionary<TKey,TValue>.DisposeKeyEvent(Sender: TObject;
+  const Key: TObject; Action: TCollectionNotification);
+type
+  TOnKeyNotify = procedure(Data, Sender: TObject; const Key: TObject; Action: TCollectionNotification);
+begin
+  TOnKeyNotify(TMethod(FOnKeyNotify).Code)(TMethod(FOnKeyNotify).Data, Self, Key, Action);
+  if (Action = cnRemoved) then
+    Key.DisposeOf;
+end;
+
+procedure TRapidObjectDictionary<TKey,TValue>.DisposeKeyOnly(Sender: TObject;
+  const Key: TObject; Action: TCollectionNotification);
+begin
+  if (Action = cnRemoved) then
+    Key.DisposeOf;
+end;
+
+procedure TRapidObjectDictionary<TKey,TValue>.DisposeValueEvent(Sender: TObject;
+  const Value: TObject; Action: TCollectionNotification);
+type
+  TOnValueNotify = procedure(Data, Sender: TObject; const Value: TObject; Action: TCollectionNotification);
+begin
+  TOnValueNotify(TMethod(FOnValueNotify).Code)(TMethod(FOnValueNotify).Data, Self, Value, Action);
+  if (Action = cnRemoved) then
+    Value.DisposeOf;
+end;
+
+procedure TRapidObjectDictionary<TKey,TValue>.DisposeValueOnly(Sender: TObject;
+  const Value: TObject; Action: TCollectionNotification);
+begin
+  if (Action = cnRemoved) then
+    Value.DisposeOf;
+end;
+
+procedure TRapidObjectDictionary<TKey,TValue>.DisposeItemNotifyKeyCaller(const Item: TItem;
+  Action: TCollectionNotification);
+begin
+  Self.KeyNotify(Item.Key, Action);
+end;
+
+procedure TRapidObjectDictionary<TKey,TValue>.DisposeItemNotifyKeyEvent(const Item: TItem;
+  Action: TCollectionNotification);
+begin
+  FOnKeyNotify(Self, Item.Key, Action);
+  if (Action = cnRemoved) then
+    TObject(Pointer(@Item.Key)^).DisposeOf;
+end;
+
+procedure TRapidObjectDictionary<TKey,TValue>.DisposeItemNotifyKeyOnly(const Item: TItem;
+  Action: TCollectionNotification);
+begin
+  if (Action = cnRemoved) then
+    TObject(Pointer(@Item.Key)^).DisposeOf;
+end;
+
+procedure TRapidObjectDictionary<TKey,TValue>.DisposeItemNotifyValueCaller(const Item: TItem;
+  Action: TCollectionNotification);
+begin
+  Self.ValueNotify(Item.Value, Action);
+end;
+
+procedure TRapidObjectDictionary<TKey,TValue>.DisposeItemNotifyValueEvent(const Item: TItem;
+  Action: TCollectionNotification);
+begin
+  FOnValueNotify(Self, Item.Value, Action);
+  if (Action = cnRemoved) then
+    TObject(Pointer(@Item.Value)^).DisposeOf;
+end;
+
+procedure TRapidObjectDictionary<TKey,TValue>.DisposeItemNotifyValueOnly(const Item: TItem;
+  Action: TCollectionNotification);
+begin
+  if (Action = cnRemoved) then
+    TObject(Pointer(@Item.Value)^).DisposeOf;
+end;
+
+procedure TRapidObjectDictionary<TKey,TValue>.SetNotifyMethods;
+var
+  VMTKeyNotify: procedure(const Key: TKey; Action: TCollectionNotification) of object;
+  VMTValueNotify: procedure(const Value: TValue; Action: TCollectionNotification) of object;
+begin
+  // FInternalKeyNotify
+  TMethod(FInternalKeyNotify).Data := Pointer(Self);
+  VMTKeyNotify := Self.KeyNotify;
+  if (TMethod(VMTKeyNotify).Code <> @TCustomDictionary<TKey,TValue>.KeyNotify) then
+  begin
+    TMethod(FInternalKeyNotify).Code := @TCustomDictionary<TKey,TValue>.KeyNotifyCaller;
+  end else
+  if (doOwnsKeys in FOwnerships) then
+  begin
+    if (Assigned(Self.FOnKeyNotify)) then
+    begin
+      TMethod(FInternalKeyNotify).Code := @TRapidObjectDictionary<TKey,TValue>.DisposeValueEvent;
+    end else
+    begin
+      TMethod(FInternalKeyNotify).Code := @TRapidObjectDictionary<TKey,TValue>.DisposeValueOnly;
+    end;
+  end else
+  begin
+    TMethod(FInternalKeyNotify) := TMethod(Self.FOnKeyNotify);
+  end;
+
+  // FInternalValueNotify
+  TMethod(FInternalValueNotify).Data := Pointer(Self);
+  VMTValueNotify := Self.ValueNotify;
+  if (TMethod(VMTValueNotify).Code <> @TCustomDictionary<TValue,TValue>.ValueNotify) then
+  begin
+    TMethod(FInternalValueNotify).Code := @TCustomDictionary<TValue,TValue>.ValueNotifyCaller;
+  end else
+  if (doOwnsValues in FOwnerships) then
+  begin
+    if (Assigned(Self.FOnValueNotify)) then
+    begin
+      TMethod(FInternalValueNotify).Code := @TRapidObjectDictionary<TValue,TValue>.DisposeValueEvent;
+    end else
+    begin
+      TMethod(FInternalValueNotify).Code := @TRapidObjectDictionary<TValue,TValue>.DisposeValueOnly;
+    end;
+  end else
+  begin
+    TMethod(FInternalValueNotify) := TMethod(Self.FOnValueNotify);
+  end;
+
+  // FInternalItemNotify
+  TMethod(FInternalItemNotify).Data := Self;
+  if (TMethod(VMTKeyNotify).Code <> @TCustomDictionary<TKey,TValue>.KeyNotify) and
+    (TMethod(VMTValueNotify).Code <> @TCustomDictionary<TValue,TValue>.ValueNotify) then
+  begin
+    TMethod(FInternalItemNotify).Code := @TCustomDictionary<TValue,TValue>.ItemNotifyCaller;
+  end else
+  if (Assigned(FInternalKeyNotify)) and (Assigned(FInternalValueNotify)) then
+  begin
+    TMethod(FInternalItemNotify).Code := @TCustomDictionary<TValue,TValue>.ItemNotifyEvents;
+  end else
+  if (Assigned(FInternalKeyNotify)) then
+  begin
+    if (TMethod(VMTKeyNotify).Code <> @TCustomDictionary<TKey,TValue>.KeyNotify) then
+    begin
+      TMethod(FInternalItemNotify).Code := @TRapidObjectDictionary<TKey,TKey>.DisposeItemNotifyKeyCaller;
+    end else
+    if (Assigned(Self.FOnKeyNotify)) then
+    begin
+      TMethod(FInternalItemNotify).Code := @TRapidObjectDictionary<TKey,TKey>.DisposeItemNotifyKeyEvent;
+    end else
+    begin
+      TMethod(FInternalItemNotify).Code := @TRapidObjectDictionary<TKey,TKey>.DisposeItemNotifyKeyOnly;
+    end;
+  end else
+  // if (Assigned(FInternalValueNotify)) then
+  begin
+    if (TMethod(VMTValueNotify).Code <> @TCustomDictionary<TValue,TValue>.ValueNotify) then
+    begin
+      TMethod(FInternalItemNotify).Code := @TRapidObjectDictionary<TValue,TValue>.DisposeItemNotifyValueCaller;
+    end else
+    if (Assigned(Self.FOnValueNotify)) then
+    begin
+      TMethod(FInternalItemNotify).Code := @TRapidObjectDictionary<TValue,TValue>.DisposeItemNotifyValueEvent;
+    end else
+    begin
+      TMethod(FInternalItemNotify).Code := @TRapidObjectDictionary<TValue,TValue>.DisposeItemNotifyValueOnly;
+    end;
+  end;
 end;
 
 
