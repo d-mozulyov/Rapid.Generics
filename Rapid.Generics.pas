@@ -723,14 +723,144 @@ type
 { TArray class }
 
   TArray = class
-  private
-    class procedure QuickSort<T>(var ValuesArray; const Comparer: IComparer<T>; L, R: Integer); static;
+  protected const
+    HIGH_NATIVE_BIT = NativeInt(1) shl {$ifdef LARGEINT}63{$else}31{$endif};
+    BUFFER_SIZE = 1024;
+    RADIX_BUFFER_SIZE = 2048;
+    INSERTION_SORT_LIMIT = 45;
+  protected type
+    TItemList<T> = array[0..15] of T;
+    TSortStackItem<T> = record
+      First: ^T;
+      Last: ^T;
+    end;
+    TSortStack<T> = array[0..63] of TSortStackItem<T>;
+
+    HugeByteArray = array[0..High(Integer) div SizeOf(Byte) - 1] of Byte;
+    HugeWordArray = array[0..High(Integer) div SizeOf(Word) - 1] of Word;
+    HugeCardinalArray = array[0..High(Integer) div SizeOf(Cardinal) - 1] of Cardinal;
+    HugeNativeArray = array[0..High(Integer) div SizeOf(NativeUInt) - 1] of NativeUInt;
+
+    TLMemory = packed record
+    case Integer of
+      0: (LBytes: HugeByteArray);
+      1: (LWords: HugeWordArray);
+      2: (LCardinals: HugeCardinalArray);
+      3: (LNatives: HugeNativeArray);
+      4: (L1: array[1..1] of Byte;
+          case Integer of
+            0: (LWords1: HugeWordArray);
+            1: (LCardinals1: HugeCardinalArray);
+            2: (LNatives1: HugeNativeArray);
+          );
+      5: (L2: array[1..2] of Byte;
+          case Integer of
+            0: (LCardinals2: HugeCardinalArray);
+            1: (LNatives2: HugeNativeArray);
+          );
+      6: (L3: array[1..3] of Byte;
+          case Integer of
+            0: (LCardinals3: HugeCardinalArray);
+            1: (LNatives3: HugeNativeArray);
+          );
+    {$ifdef LARGEINT}
+      7: (L4: array[1..4] of Byte; LNatives4: HugeNativeArray);
+      8: (L5: array[1..5] of Byte; LNatives5: HugeNativeArray);
+      9: (L6: array[1..6] of Byte; LNatives6: HugeNativeArray);
+     10: (L7: array[1..7] of Byte; LNatives7: HugeNativeArray);
+    {$endif}
+    end;
+    PLMemory = ^TLMemory;
+
+    TRMemory = packed record
+    case Integer of
+      0: (RBytes: HugeByteArray);
+      1: (RWords: HugeWordArray);
+      2: (RCardinals: HugeCardinalArray);
+      3: (RNatives: HugeNativeArray);
+      4: (R1: array[1..1] of Byte;
+          case Integer of
+            0: (RWords1: HugeWordArray);
+            1: (RCardinals1: HugeCardinalArray);
+            2: (RNatives1: HugeNativeArray);
+          );
+      5: (R2: array[1..2] of Byte;
+          case Integer of
+            0: (RCardinals2: HugeCardinalArray);
+            1: (RNatives2: HugeNativeArray);
+          );
+      6: (R3: array[1..3] of Byte;
+          case Integer of
+            0: (RCardinals3: HugeCardinalArray);
+            1: (RNatives3: HugeNativeArray);
+          );
+    {$ifdef LARGEINT}
+      7: (R4: array[1..4] of Byte; RNatives4: HugeNativeArray);
+      8: (R5: array[1..5] of Byte; RNatives5: HugeNativeArray);
+      9: (R6: array[1..6] of Byte; RNatives6: HugeNativeArray);
+     10: (R7: array[1..7] of Byte; RNatives7: HugeNativeArray);
+    {$endif}
+    end;
+    PRMemory = ^TRMemory;
+
+    TSortHelper<T> = record
+      Pivot: T;
+      Inst: Pointer;
+      Compare: function(Inst: Pointer; const Left, Right: T): Integer;
+
+      procedure Init(const Comparer: IComparer<T>); overload;
+      procedure Init(const Comparison: TComparison<T>); overload;
+      procedure Init; overload;
+      procedure FillZero;
+    end;
+  protected
+    class function SortItemPivot<T>(const I, J: Pointer): Pointer; static; inline;
+    class function SortItemNext<T>(const StackItem, I, J: Pointer): Pointer; static; inline;
+
+    {$ifdef SMARTGENERICS}
+    class function SortItemCount<T>(const I, J: Pointer): NativeInt; static; inline;
+    class function SortBinaryMarker<T>(const Binary: Pointer): NativeUInt; static; inline;
+    class function SortBinaryComparer<T>(const Pivot, Binary: Pointer): Integer; static; inline;
+
+    class procedure RadixSort<T>(var ValuesArray; const Count, Flags: NativeInt); static;
+    class function RadixSortSigneds<T>(var StackItem: TSortStackItem<T>): Pointer; static;
+    class function RadixSortDescendingSigneds<T>(var StackItem: TSortStackItem<T>): Pointer; static;
+    class function RadixSortUnsigneds<T>(var StackItem: TSortStackItem<T>): Pointer; static;
+    class function RadixSortDescendingUnsigneds<T>(var StackItem: TSortStackItem<T>): Pointer; static;
+    class function RadixSortFloats<T>(var StackItem: TSortStackItem<T>): Pointer; static;
+    class function RadixSortDescendingFloats<T>(var StackItem: TSortStackItem<T>): Pointer; static;
+
+    class procedure SortSigneds<T>(var ValuesArray; const Count: NativeInt); static;
+    class procedure SortDescendingSigneds<T>(var ValuesArray; const Count: NativeInt); static;
+    class procedure SortUnsigneds<T>(var ValuesArray; const Count: NativeInt); static;
+    class procedure SortDescendingUnsigneds<T>(var ValuesArray; const Count: NativeInt); static;
+    class procedure SortFloats<T>(var ValuesArray; const Count: NativeInt); static;
+    class procedure SortDescendingFloats<T>(var ValuesArray; const Count: NativeInt); static;
+    class procedure SortBinaries<T>(var ValuesArray; const Count: NativeInt; var PivotBig: T); static;
+    class procedure SortDescendingBinaries<T>(var ValuesArray; const Count: NativeInt; var PivotBig: T); static;
+    {$endif}
+
+    class procedure SortUniversals<T>(var ValuesArray; const Count: NativeInt; var Helper: TSortHelper<T>); static;
+    class procedure SortDescendingUniversals<T>(var ValuesArray; const Count: NativeInt; var Helper: TSortHelper<T>); static;
     class procedure CheckArrays(Source, Destination: Pointer; SourceIndex, SourceLength, DestIndex, DestLength, Count: NativeInt); static;
   public
+    class procedure Sort<T>(var Values: T; const Count: Integer); overload; static;
+    class procedure Sort<T>(var Values: T; const Count: Integer; const Comparer: IComparer<T>); overload; static;
+    class procedure Sort<T>(var Values: T; const Count: Integer; const Comparison: TComparison<T>); overload; static;
     class procedure Sort<T>(var Values: array of T); overload; static;
     class procedure Sort<T>(var Values: array of T; const Comparer: IComparer<T>); overload; static;
-    class procedure Sort<T>(var Values: array of T;
-      const Comparer: IComparer<T>; Index, Count: Integer); overload; static;
+    class procedure Sort<T>(var Values: array of T; const Comparer: IComparer<T>; Index, Count: Integer); overload; static;
+    class procedure Sort<T>(var Values: array of T; const Comparison: TComparison<T>); overload; static;
+    class procedure Sort<T>(var Values: array of T; const Comparison: TComparison<T>; Index, Count: Integer); overload; static;
+
+    class procedure SortDescending<T>(var Values: T; const Count: Integer); overload; static;
+    class procedure SortDescending<T>(var Values: T; const Count: Integer; const Comparer: IComparer<T>); overload; static;
+    class procedure SortDescending<T>(var Values: T; const Count: Integer; const Comparison: TComparison<T>); overload; static;
+    class procedure SortDescending<T>(var Values: array of T); overload; static;
+    class procedure SortDescending<T>(var Values: array of T; const Comparer: IComparer<T>); overload; static;
+    class procedure SortDescending<T>(var Values: array of T; const Comparer: IComparer<T>; Index, Count: Integer); overload; static;
+    class procedure SortDescending<T>(var Values: array of T; const Comparison: TComparison<T>); overload; static;
+    class procedure SortDescending<T>(var Values: array of T; const Comparison: TComparison<T>; Index, Count: Integer); overload; static;
 
     class function BinarySearch<T>(const Values: array of T; const Item: T;
       out FoundIndex: Integer; const Comparer: IComparer<T>;
@@ -742,6 +872,10 @@ type
 
     class procedure Copy<T>(const Source: array of T; var Destination: array of T; SourceIndex, DestIndex, Count: NativeInt); overload; static;
     class procedure Copy<T>(const Source: array of T; var Destination: array of T; Count: NativeInt); overload; static;
+
+    class procedure Exchange<T>(const Left, Right: Pointer); static; inline;
+    class procedure CopyMemory<T>(const Destination, Source: Pointer); static; inline;
+    class procedure ZeroMemory<T>(const Destination: Pointer); static; inline;
   end;
 
 
@@ -819,12 +953,8 @@ type
     function InternalInsert(Index: NativeInt; const Value: T): Integer;
     procedure InternalDelete(Index: NativeInt; Action: TCollectionNotification);
     procedure SetCount(Value: Integer);
-    procedure InternalExchange(Index1, Index2: Integer);
-    procedure InternalExchange40(Index1, Index2: Integer);
     procedure InternalMove(CurIndex, NewIndex: Integer);
     procedure InternalMove40(CurIndex, NewIndex: Integer);
-    procedure InternalReverse;
-    procedure InternalReverse40;
     function InternalBinarySearch(const Item: T; const Comparer: IComparer<T>): NativeInt;
     function InternalIndexOf(const Value: T): NativeInt; overload;
     function InternalIndexOf(const Value: T; const Comparer: IComparer<T>): NativeInt; overload;
@@ -866,12 +996,16 @@ type
     procedure DeleteRange(AIndex, ACount: Integer);
 
     function Expand: TList<T>; inline;
-    procedure Exchange(Index1, Index2: Integer); inline;
+    procedure Exchange(Index1, Index2: Integer);
     procedure Move(CurIndex, NewIndex: Integer); inline;
-    procedure Reverse; inline;
+    procedure Reverse; 
 
     procedure Sort; overload;
     procedure Sort(const AComparer: IComparer<T>); overload;
+    procedure Sort(const AComparison: TComparison<T>); overload;
+    procedure SortDescending; overload;
+    procedure SortDescending(const AComparer: IComparer<T>); overload;
+    procedure SortDescending(const AComparison: TComparison<T>); overload;
     function BinarySearch(const Item: T; out Index: Integer): Boolean; overload;
     function BinarySearch(const Item: T; out Index: Integer; const AComparer: IComparer<T>): Boolean; overload;
 
@@ -7934,61 +8068,4090 @@ begin
   Copy<T>(Source, Destination, 0, 0, Count);
 end;
 
-class procedure TArray.QuickSort<T>(var ValuesArray; const Comparer: IComparer<T>;
-  L, R: Integer);
+class procedure TArray.Exchange<T>(const Left, Right: Pointer);
+var
+  Index: NativeInt;
+  Temp1: Byte;
+  Temp2: Word;
+  Temp4: Cardinal;
+  TempNative: NativeUInt;
+begin
+  with TLMemory(Left^), TRMemory(Right^) do
+  case SizeOf(T) of
+    0: ;
+    1:
+    begin
+      Temp1 := LBytes[0];
+      LBytes[0] := RBytes[0];
+      RBytes[0] := Temp1;
+    end;
+    2:
+    begin
+      Temp2 := LWords[0];
+      LWords[0] := RWords[0];
+      RWords[0] := Temp2;
+    end;
+    3:
+    begin
+      Temp2 := LWords[0];
+      LWords[0] := RWords[0];
+      RWords[0] := Temp2;
+
+      Temp1 := LBytes[2];
+      LBytes[2] := RBytes[2];
+      RBytes[2] := Temp1;
+    end;
+    4..7:
+    begin
+      Temp4 := LCardinals[0];
+      LCardinals[0] := RCardinals[0];
+      RCardinals[0] := Temp4;
+
+      case SizeOf(T) of
+        5:
+        begin
+          Temp1 := LBytes[4];
+          LBytes[4] := RBytes[4];
+          RBytes[4] := Temp1;
+        end;
+        6:
+        begin
+          Temp2 := LWords[2];
+          LWords[2] := RWords[2];
+          RWords[2] := Temp2;
+        end;
+        7:
+        begin
+          Temp2 := LWords[2];
+          LWords[2] := RWords[2];
+          RWords[2] := Temp2;
+          Temp1 := LBytes[6];
+          LBytes[6] := RBytes[6];
+          RBytes[6] := Temp1;
+        end;
+      end;
+    end;
+    8..16:
+    begin
+      TempNative := LNatives[0];
+      LNatives[0] := RNatives[0];
+      RNatives[0] := TempNative;
+
+      if (SizeOf(T) >= SizeOf(NativeUInt) * 2) then
+      begin
+        TempNative := LNatives[1];
+        LNatives[1] := RNatives[1];
+        RNatives[1] := TempNative;
+      end;
+
+      if (SizeOf(T) >= SizeOf(NativeUInt) * 3) then
+      begin
+        TempNative := LNatives[2];
+        LNatives[2] := RNatives[2];
+        RNatives[2] := TempNative;
+      end;
+
+      if (SizeOf(T)  = SizeOf(NativeUInt) * 4) then
+      begin
+        TempNative := LNatives[3];
+        LNatives[3] := RNatives[3];
+        RNatives[3] := TempNative;
+      end;
+
+      {$ifdef LARGEINT}
+      case SizeOf(T) of
+        12, 13, 14, 15:
+        begin
+          Temp4 := LCardinals[2];
+          LCardinals[2] := RCardinals[2];
+          RCardinals[2] := Temp4;
+        end;
+      end;
+      {$endif}
+
+      case SizeOf(T) of
+        9:
+        begin
+          Temp1 := LBytes[8];
+          LBytes[8] := RBytes[8];
+          RBytes[8] := Temp1;
+        end;
+        10:
+        begin
+          Temp2 := LWords[4];
+          LWords[4] := RWords[4];
+          RWords[4] := Temp2;
+        end;
+        11:
+        begin
+          Temp2 := LWords[4];
+          LWords[4] := RWords[4];
+          RWords[4] := Temp2;
+          Temp1 := LBytes[10];
+          LBytes[10] := RBytes[10];
+          RBytes[10] := Temp1;
+        end;
+        13:
+        begin
+          Temp2 := LWords[5];
+          LWords[5] := RWords[5];
+          RWords[5] := Temp2;
+          Temp1 := LBytes[12];
+          LBytes[12] := RBytes[12];
+          RBytes[12] := Temp1;
+        end;
+        14:
+        begin
+          Temp2 := LWords[6];
+          LWords[6] := RWords[6];
+          RWords[6] := Temp2;
+        end;
+        15:
+        begin
+          Temp2 := LWords[6];
+          LWords[6] := RWords[6];
+          RWords[6] := Temp2;
+          Temp1 := LBytes[14];
+          LBytes[14] := RBytes[14];
+          RBytes[14] := Temp1;
+        end;
+      end;
+    end;
+  else
+    Index := 0;
+    repeat
+      TempNative := LNatives[Index];
+      LNatives[Index] := RNatives[Index];
+      RNatives[Index] := TempNative;
+      Inc(Index);
+    until (Index = SizeOf(T) div SizeOf(NativeUInt));
+
+    if (SizeOf(T) and (SizeOf(NativeUInt) - 1) <> 0) then
+    begin
+      {$ifdef LARGEINT}
+      if (SizeOf(T) and 4 <> 0) then
+      begin
+        Index := SizeOf(T) div SizeOf(Cardinal) - 1;
+        Temp4 := LCardinals[Index];
+        LCardinals[Index] := RCardinals[Index];
+        RCardinals[Index] := Temp4;
+      end;
+      {$endif}
+
+      if (SizeOf(T) and 2 <> 0) then
+      begin
+        Index := SizeOf(T) div SizeOf(Word) - 1;
+        Temp2 := LWords[Index];
+        LWords[Index] := RWords[Index];
+        RWords[Index] := Temp2;
+      end;
+
+      if (SizeOf(T) and 1 <> 0) then
+      begin
+        Index := SizeOf(T) div SizeOf(Byte) - 1;
+        Temp1 := LBytes[Index];
+        LBytes[Index] := RBytes[Index];
+        RBytes[Index] := Temp1;
+      end;
+    end;
+  end;
+end;
+
+class procedure TArray.CopyMemory<T>(const Destination, Source: Pointer);
+var
+  Index: NativeInt;
+begin
+  with TLMemory(Destination^), TRMemory(Source^) do
+  case SizeOf(T) of
+    0: ;
+    1: LBytes[0] := RBytes[0];
+    2: LWords[0] := RWords[0];
+    3:
+    begin
+      LWords[0] := RWords[0];
+      LBytes[2] := RBytes[2];
+    end;
+    4..7:
+    begin
+      LCardinals[0] := RCardinals[0];
+
+      case SizeOf(T) of
+        5: LCardinals1[0] := RCardinals1[0];
+        6: LCardinals2[0] := RCardinals2[0];
+        7: LCardinals3[0] := RCardinals3[0];
+      end;
+    end;
+    8..16:
+    begin
+      LNatives[0] := RNatives[0];
+
+      if (SizeOf(T) >= SizeOf(NativeUInt) * 2) then
+        LNatives[1] := RNatives[1];
+
+      if (SizeOf(T) >= SizeOf(NativeUInt) * 3) then
+        LNatives[2] := RNatives[2];
+
+      if (SizeOf(T)  = SizeOf(NativeUInt) * 4) then
+        LNatives[3] := RNatives[3];
+
+      {$ifdef SMALLINT}
+      case SizeOf(T) of
+         9: LNatives1[1] := RNatives1[1];
+        10: LNatives2[1] := RNatives2[1];
+        11: LNatives3[1] := RNatives3[1];
+        13: LNatives1[2] := RNatives1[2];
+        14: LNatives2[2] := RNatives2[2];
+        15: LNatives3[2] := RNatives3[2];
+      end;
+      {$else .LARGEINT}
+      case SizeOf(T) of
+         9: LNatives1[1] := RNatives1[1];
+        10: LNatives2[1] := RNatives2[1];
+        11: LNatives3[1] := RNatives3[1];
+        12: LNatives4[1] := RNatives4[1];
+        13: LNatives5[1] := RNatives5[1];
+        14: LNatives6[1] := RNatives6[1];
+        15: LNatives7[1] := RNatives7[1];
+      end;
+      {$endif}
+    end;
+  else
+    Index := 0;
+    repeat
+      LNatives[Index] := RNatives[Index];
+      Inc(Index);
+    until (Index = SizeOf(T) div SizeOf(NativeUInt) - 1);
+
+    if (SizeOf(T) and (SizeOf(NativeUInt) - 1) <> 0) then
+    begin
+      Index := SizeOf(T) div SizeOf(NativeUInt) - 1;
+      case SizeOf(T) and (SizeOf(NativeUInt) - 1) of
+        1: LNatives1[Index] := RNatives1[Index];
+        2: LNatives2[Index] := RNatives2[Index];
+        3: LNatives3[Index] := RNatives3[Index];
+      {$ifdef LARGEINT}
+        4: LNatives4[Index] := RNatives4[Index];
+        5: LNatives5[Index] := RNatives5[Index];
+        6: LNatives6[Index] := RNatives6[Index];
+        7: LNatives7[Index] := RNatives7[Index];
+      {$endif}
+      end;
+    end;
+  end;
+end;
+
+class procedure TArray.ZeroMemory<T>(const Destination: Pointer);
+var
+  Null4: Cardinal;
+  NullNative: NativeUInt;
+  Index: NativeInt;
+begin
+  with TLMemory(Destination^) do
+  case SizeOf(T) of
+    0: ;
+    1: LBytes[0] := 0;
+    2: LWords[0] := 0;
+    3:
+    begin
+      LWords[0] := 0;
+      LBytes[2] := 0;
+    end;
+    4..7:
+    begin
+      Null4 := 0;
+      LCardinals[0] := Null4;
+
+      case SizeOf(T) of
+        5: LCardinals1[0] := Null4;
+        6: LCardinals2[0] := Null4;
+        7: LCardinals3[0] := Null4;
+      end;
+    end;
+    8..16:
+    begin
+      NullNative := 0;
+      LNatives[0] := NullNative;
+
+      if (SizeOf(T) >= SizeOf(NativeUInt) * 2) then
+        LNatives[1] := NullNative;
+
+      if (SizeOf(T) >= SizeOf(NativeUInt) * 3) then
+        LNatives[2] := NullNative;
+
+      if (SizeOf(T)  = SizeOf(NativeUInt) * 4) then
+        LNatives[3] := NullNative;
+
+      {$ifdef SMALLINT}
+      case SizeOf(T) of
+         9: LNatives1[1] := NullNative;
+        10: LNatives2[1] := NullNative;
+        11: LNatives3[1] := NullNative;
+        13: LNatives1[2] := NullNative;
+        14: LNatives2[2] := NullNative;
+        15: LNatives3[2] := NullNative;
+      end;
+      {$else .LARGEINT}
+      case SizeOf(T) of
+         9: LNatives1[1] := NullNative;
+        10: LNatives2[1] := NullNative;
+        11: LNatives3[1] := NullNative;
+        12: LNatives4[1] := NullNative;
+        13: LNatives5[1] := NullNative;
+        14: LNatives6[1] := NullNative;
+        15: LNatives7[1] := NullNative;
+      end;
+      {$endif}
+    end;
+  else
+    Index := 0;
+    repeat
+      LNatives[Index] := NullNative;
+      Inc(Index);
+    until (Index = SizeOf(T) div SizeOf(NativeUInt) - 1);
+
+    if (SizeOf(T) and (SizeOf(NativeUInt) - 1) <> 0) then
+    begin
+      Index := SizeOf(T) div SizeOf(NativeUInt) - 1;
+      case SizeOf(T) and (SizeOf(NativeUInt) - 1) of
+        1: LNatives1[Index] := NullNative;
+        2: LNatives2[Index] := NullNative;
+        3: LNatives3[Index] := NullNative;
+      {$ifdef LARGEINT}
+        4: LNatives4[Index] := NullNative;
+        5: LNatives5[Index] := NullNative;
+        6: LNatives6[Index] := NullNative;
+        7: LNatives7[Index] := NullNative;
+      {$endif}
+      end;
+    end;
+  end;
+end;
+
+procedure TArray.TSortHelper<T>.Init(const Comparer: IComparer<T>);
+begin
+  Self.Inst := Pointer(Comparer);
+  Self.Compare := PPointer(PNativeUInt(Self.Inst)^ + 3 * SizeOf(Pointer))^;
+end;
+
+procedure TArray.TSortHelper<T>.Init(const Comparison: TComparison<T>);
+begin
+  Self.Inst := PPointer(@Comparison)^;
+  Self.Compare := PPointer(PNativeUInt(Self.Inst)^ + 3 * SizeOf(Pointer))^;
+end;
+
+procedure TArray.TSortHelper<T>.Init;
+begin
+  Self.Inst := @InterfaceDefaults.TDefaultComparer<T>.Instance;
+  Self.Compare := InterfaceDefaults.TDefaultComparer<T>.Instance.Compare;
+end;
+
+procedure TArray.TSortHelper<T>.FillZero;
+begin
+  FillChar(Self, SizeOf(T), #0);
+end;
+
+class function TArray.SortItemPivot<T>(const I, J: Pointer): Pointer;
 type
-  TItemList = array[0..0] of T;
+  P = ^T;
+  TItemList = TItemList<T>;
   PItemList = ^TItemList;
 var
-  I, J: Integer;
-  pivot, temp: T;
-  Values: PItemList;
+  Index: NativeInt;
 begin
-  if (@ValuesArray = nil) or ((R - L) <= 0) then
-    Exit;
-  Values := @ValuesArray;
+  if (SizeOf(T) and (SizeOf(T) - 1) = 0) and (SizeOf(T) <= 256) then
+  begin
+    Index := NativeInt(J) - NativeInt(I);
+    case SizeOf(T) of
+    0, 1: Index := Index shr 1;
+       2: Index := Index shr 2;
+       4: Index := Index shr 3;
+       8: Index := Index shr 4;
+      16: Index := Index shr 5;
+      32: Index := Index shr 6;
+      64: Index := Index shr 7;
+     128: Index := Index shr 8;
+    else
+    // 256:
+      Index := Index shr 9;
+    end;
+  end else
+  begin
+    Index := NativeInt(Round((NativeInt(J) - NativeInt(I)) * (1 / SizeOf(T)))) shr 1;
+  end;
+
+  Result := P(I) + Index;
+end;
+
+class function TArray.SortItemNext<T>(const StackItem, I, J: Pointer): Pointer;
+var
+  Item: ^TSortStackItem<T>;
+  DiffI, DiffJ: NativeInt;
+  Buf: Pointer;
+begin
+  Item := StackItem;
+
+  // next "recursion" iteration
+  // if (i < last) qs(s_arr, i, last);
+  // if (first < j) qs(s_arr, first, j);
+  DiffI := NativeInt(Item.Last) - NativeInt(I);
+  DiffJ := NativeInt(J) - NativeInt(Item.First);
+  if (DiffI > 0) then
+  begin
+    if (DiffJ <= 0) then
+    begin
+      Item.First := I;
+      // Item.Last := Item.Last;
+    end else
+    if (DiffI >= DiffJ) then
+    begin
+      // i..last, first..j
+      Buf := Item.First;
+      Item.First := I;
+      Inc(Item);
+      Item.First := Buf;
+      Item.Last := J;
+    end else
+    begin
+      // first..j, i..last
+      Buf := Item.Last;
+      Item.Last := J;
+      Inc(Item);
+      Item.First := I;
+      Item.Last := Buf;
+    end;
+  end else
+  if (DiffJ > 0) then
+  begin
+    // Item.First := Item.First;
+    Item.Last := J;
+  end else
+  begin
+    Inc(NativeInt(Item), HIGH_NATIVE_BIT);
+  end;
+
+  Result := Item;
+end;
+
+{$ifdef SMARTGENERICS}
+class function TArray.SortItemCount<T>(const I, J: Pointer): NativeInt;
+begin
+  if (SizeOf(T) and (SizeOf(T) - 1) = 0) and (SizeOf(T) <= 256) then
+  begin
+    Result := NativeInt(J) + SizeOf(T) - NativeInt(I);
+    case SizeOf(T) of
+       2: Result := Result shr 1;
+       4: Result := Result shr 2;
+       8: Result := Result shr 3;
+      16: Result := Result shr 4;
+      32: Result := Result shr 5;
+      64: Result := Result shr 6;
+     128: Result := Result shr 7;
+     256: Result := Result shr 8;
+    end;
+  end else
+  begin
+    Result := Round((NativeInt(J) + SizeOf(T) - NativeInt(I)) * (1 / SizeOf(T)));
+  end;
+end;
+
+class function TArray.SortBinaryMarker<T>(const Binary: Pointer): NativeUInt;
+begin
+  case GetTypeKind(T) of
+    tkMethod: Result := NativeUInt(TMethod(Binary^).Data);
+    tkLString, tkWString, tkUString, tkDynArray:
+    begin
+      Result := PNativeUInt(Binary)^;
+      if (Result <> 0) then
+      case GetTypeKind(T) of
+        tkLString:
+        begin
+          Result := PWord(Result)^;
+          Result := Swap(Result);
+        end;
+        {$ifdef MSWINDOWS}
+        tkWString:
+        begin
+          Dec(Result, SizeOf(Integer));
+          if (PInteger(Result)^ = 0) then
+          begin
+            Result := 0;
+            Exit;
+          end else
+          begin
+            Inc(Result, SizeOf(Integer));
+            Result := PCardinal(Result)^;
+            Result := Cardinal((Result shl 16) + (Result shr 16));
+          end;
+        end;
+        {$else}
+        tkWString,
+        {$endif}
+        tkUString:
+        begin
+          Result := PCardinal(Result)^;
+          Result := Cardinal((Result shl 16) + (Result shr 16));
+        end;
+        tkDynArray:
+        begin
+          Result := PByte(Result)^;
+        end;
+      end;
+    end;
+    tkString:
+    begin
+      Result := PWord(Binary)^;
+      if (Result and $ff = 0) then
+      begin
+        Result := 0;
+      end else
+      begin
+        Result := Result shr 8;
+      end;
+    end;
+  else
+    with TLMemory(Binary^) do
+    case SizeOf(T) of
+      1: Result := LBytes[0];
+      2:
+      begin
+        Result := LWords[0];
+        Result := Swap(Result);
+      end;
+      3:
+      begin
+        Result := LWords[0];
+        Result := Swap(Result);
+        Result := Result shl 8;
+        Inc(Result, LBytes[2]);
+      end;
+    else
+      Result := LCardinals[0];
+      Result := (Swap(Result) shl 16) + Swap(Result shr 16);
+    end;
+  end;
+end;
+
+class function TArray.SortBinaryComparer<T>(const Pivot, Binary: Pointer): Integer;
+begin
+  if (GetTypeKind(T) = tkString) then
+  begin
+    Result := InterfaceDefaults.Compare_OStr(nil, Pivot, Binary);
+  end else
+  if (SizeOf(T) <= SizeOf(Cardinal)) then
+  begin
+    Result := 0;
+  end else
+  {$ifdef LARGEINT}
+  if (SizeOf(T) = SizeOf(Int64) then
+  begin
+    Result := InterfaceDefaults.Compare_Bin8(nil, PInt64(Pivot)^, PInt64(Binary)^);
+  end else
+  {$endif}
+  begin
+    Result := InterfaceDefaults.Compare_Bin(InterfaceDefaults.TDefaultComparer<T>.Instance, Pivot, Binary);
+  end;
+end;
+
+class procedure TArray.RadixSort<T>(var ValuesArray; const Count, Flags: NativeInt);
+label
+  clean_radixes;
+type
+  PItem = ^T;
+  TRadixes = array[Byte] of Word;
+  PRadixes = ^TRadixes;
+var
+  i, Mask, Index, TargetIndex: NativeInt;
+  Source, TopSourceFirst, TopSource: PByte;
+  Radixes: PRadixes;
+  Radix, TopRadix: PWord;
+  Target: NativeInt;
+  Buffers: record
+    Radixes: TRadixes;
+    Data: array[0..RADIX_BUFFER_SIZE - 1] of T;
+    Index: NativeInt;
+    Ptr: array[0..1] of Pointer;
+    Mask: NativeInt;
+    SingleRadix: Word;
+  end;
+begin
+  Buffers.SingleRadix := Count * SizeOf(T);
+  Buffers.Ptr[0] := @ValuesArray;
+  Buffers.Ptr[1] := @Buffers.Data;
+  Buffers.Index := 0;
+
+  i := 0;
+  repeat
+    // clear radixes
+    FillChar(Buffers.Radixes, SizeOf(Buffers.Radixes), #0);
+  clean_radixes:
+
+    // xor mask
+    Mask := Flags;
+    if (i = SizeOf(T) - 1) then Mask := Mask shr 8;
+    Mask := Byte(Mask);
+
+    // fill radixes basics
+    Source := Pointer(Buffers.Ptr[Buffers.Index]);
+    Inc(Source, i);
+    TopSourceFirst := Pointer(PItem(Source) + Count);
+    repeat
+      Index := Source^;
+      Index := Index xor Mask;
+      Radixes := @Buffers.Radixes;
+      Inc(Radixes[Index], SizeOf(T));
+      Inc(Source, SizeOf(T));
+    until (Source = TopSourceFirst);
+
+    // check the same radixes
+    Dec(Source, SizeOf(T));
+    Index := Source^;
+    Index := Index xor Mask;
+    if (Buffers.Radixes[Index] = Buffers.SingleRadix) then
+    begin
+      Inc(i);
+      if (i = SizeOf(T)) then Break;
+
+      Buffers.Radixes[Index] := 0;
+      goto clean_radixes;
+    end;
+    Buffers.Mask := Mask;
+
+    // calculate offsets
+    Radix := @Buffers.Radixes[0];
+    TopRadix := Radix + 256;
+    Index := 0;
+    repeat
+      TargetIndex := Radix^;
+      Inc(Radix);
+      if (TargetIndex = 0) then
+      begin
+        if (Radix = TopRadix) then Break;
+      end else
+      begin
+        Dec(Radix);
+        Radix^ := Index;
+        Inc(Index, TargetIndex);
+        Inc(Radix);
+        if (Radix = TopRadix) then Break;
+      end;
+    until (False);
+
+    // fill target
+    Source := Pointer(Buffers.Ptr[Buffers.Index]);
+    Inc(Source, i);
+    Buffers.Index := Buffers.Index xor 1;
+    TopSource := Pointer(PItem(Source) + Count);
+    Target := NativeInt(Buffers.Ptr[Buffers.Index]) - SizeOf(T);
+    case Buffers.Mask of
+      $80:
+      begin
+        repeat
+          Index := Source^;
+          Index := Index xor $80;
+
+          Radixes := @Buffers.Radixes;
+          TargetIndex := Radixes[Index];
+          Inc(TargetIndex, SizeOf(T));
+          Radixes[Index] := TargetIndex;
+
+          PItem(TargetIndex + Target)^ := PItem(Source - i)^;
+          Inc(Source, SizeOf(T));
+        until (Source = TopSource);
+      end;
+      $ff:
+      begin
+        repeat
+          Index := Source^;
+          Index := Index xor $ff;
+
+          Radixes := @Buffers.Radixes;
+          TargetIndex := Radixes[Index];
+          Inc(TargetIndex, SizeOf(T));
+          Radixes[Index] := TargetIndex;
+
+          PItem(TargetIndex + Target)^ := PItem(Source - i)^;
+          Inc(Source, SizeOf(T));
+        until (Source = TopSource);
+      end;
+      $7f:
+      begin
+        repeat
+          Index := Source^;
+          Index := Index xor $7f;
+
+          Radixes := @Buffers.Radixes;
+          TargetIndex := Radixes[Index];
+          Inc(TargetIndex, SizeOf(T));
+          Radixes[Index] := TargetIndex;
+
+          PItem(TargetIndex + Target)^ := PItem(Source - i)^;
+          Inc(Source, SizeOf(T));
+        until (Source = TopSource);
+      end;
+    else
+      // $00
+      repeat
+        Index := Source^;
+
+        Radixes := @Buffers.Radixes;
+        TargetIndex := Radixes[Index];
+        Inc(TargetIndex, SizeOf(T));
+        Radixes[Index] := TargetIndex;
+
+        PItem(TargetIndex + Target)^ := PItem(Source - i)^;
+        Inc(Source, SizeOf(T));
+      until (Source = TopSource);
+    end;
+
+    // next iteration
+    Inc(i);
+  until (i = SizeOf(T));
+
+  // ValuesArray guarantee
+  if (Buffers.Index <> 0) then
+    Move(Buffers.Data, Buffers.Ptr[0]^, Count * SizeOf(T));
+end;
+
+class function TArray.RadixSortSigneds<T>(var StackItem: TSortStackItem<T>): Pointer;
+begin
+  TArray.RadixSort<T>(StackItem.First^, SortItemCount<T>(StackItem.First, StackItem.Last), $8000);
+  Result := @StackItem;
+end;
+
+class function TArray.RadixSortDescendingSigneds<T>(var StackItem: TSortStackItem<T>): Pointer;
+begin
+  TArray.RadixSort<T>(StackItem.First^, SortItemCount<T>(StackItem.First, StackItem.Last), not $8000);
+  Result := @StackItem;
+end;
+
+class function TArray.RadixSortUnsigneds<T>(var StackItem: TSortStackItem<T>): Pointer;
+begin
+  TArray.RadixSort<T>(StackItem.First^, SortItemCount<T>(StackItem.First, StackItem.Last), $0000);
+  Result := @StackItem;
+end;
+
+class function TArray.RadixSortDescendingUnsigneds<T>(var StackItem: TSortStackItem<T>): Pointer;
+begin
+  TArray.RadixSort<T>(StackItem.First^, SortItemCount<T>(StackItem.First, StackItem.Last), not $0000);
+  Result := @StackItem;
+end;
+
+class function TArray.RadixSortFloats<T>(var StackItem: TSortStackItem<T>): Pointer;
+label
+  sign_sorted;
+type
+  TFloat = packed record
+  case Integer of
+    0: (VSingle: Single);
+    1: (VDouble: Double);
+    2: (VExtended: Extended);
+    3: (SSingle: Integer);
+    4: (B1: array[1..SizeOf(Double) - SizeOf(Integer)] of Byte; SDouble: Integer);
+    5: (B2: array[1..SizeOf(Extended) - SizeOf(Integer)] of Byte; SExtended: Integer);
+  end;
+var
+  I, J: ^TFloat;
+  Count: NativeInt;
+begin
+  I := Pointer(StackItem.First);
+  J := Pointer(StackItem.Last);
 
   repeat
-    I := L;
-    J := R;
-    pivot := Values[L + (R - L) shr 1];
+    Dec(NativeInt(I), SizeOf(T));
     repeat
-      while Comparer.Compare(Values[I], pivot) < 0 do
-        Inc(I);
-      while Comparer.Compare(Values[J], pivot) > 0 do
-        Dec(J);
-      if I <= J then
-      begin
-        if I <> J then
-        begin
-          temp := Values[I];
-          Values[I] := Values[J];
-          Values[J] := temp;
-        end;
-        Inc(I);
-        Dec(J);
+      Inc(NativeInt(I), SizeOf(T));
+      if (I > J) then goto sign_sorted;
+      case SizeOf(T) of
+        4: if (I.SSingle >= 0) then Break;
+        8: if (I.SDouble >= 0) then Break;
+       10: if (I.SExtended >= 0) then Break;
       end;
-    until I > J;
-    if L < J then
-      QuickSort<T>(Values^, Comparer, L, J);
-    L := I;
-  until I >= R;
+    until (False);
+
+    Inc(NativeInt(J), SizeOf(T));
+    repeat
+      Dec(NativeInt(J), SizeOf(T));
+      if (J < I) then goto sign_sorted;
+      case SizeOf(T) of
+        4: if (J.SSingle < 0) then Break;
+        8: if (J.SDouble < 0) then Break;
+       10: if (J.SExtended < 0) then Break;
+      end;
+    until (False);
+
+    TArray.Exchange<T>(I, J);
+    Inc(NativeInt(I), SizeOf(T));
+    Dec(NativeInt(J), SizeOf(T));
+  until (False);
+sign_sorted:
+
+  Count := SortItemCount<T>(StackItem.First, J);
+  if (Count > 1) then
+  begin
+    if (Count <= ((SizeOf(T) div 4) * 125 - (SizeOf(T) div 10) * 1050)) then
+    begin
+      TArray.SortFloats<T>(StackItem.First^, Count);
+    end else
+    case SizeOf(T) of
+      4: TArray.RadixSort<Integer>(StackItem.First^, Count, not $0000);
+      8: TArray.RadixSort<Int64>(StackItem.First^, Count, not $0000);
+    else
+      TArray.RadixSort<Extended>(StackItem.First^, Count, not $0000);
+    end;
+  end;
+
+  Count := SortItemCount<T>(I, StackItem.Last);
+  if (Count > 1) then
+  begin
+    if (Count <= ((SizeOf(T) div 4) * 125 - (SizeOf(T) div 10) * 1050)) then
+    begin
+      TArray.SortFloats<T>(I^, Count);
+    end else
+    case SizeOf(T) of
+      4: TArray.RadixSort<Integer>(I^, Count, $0000);
+      8: TArray.RadixSort<Int64>(I^, Count, $0000);
+    else
+      TArray.RadixSort<Extended>(I^, Count, $0000);
+    end;
+  end;
+
+  Result := @StackItem;
+end;
+
+class function TArray.RadixSortDescendingFloats<T>(var StackItem: TSortStackItem<T>): Pointer;
+label
+  sign_sorted;
+type
+  TFloat = packed record
+  case Integer of
+    0: (VSingle: Single);
+    1: (VDouble: Double);
+    2: (VExtended: Extended);
+    3: (SSingle: Integer);
+    4: (B1: array[1..SizeOf(Double) - SizeOf(Integer)] of Byte; SDouble: Integer);
+    5: (B2: array[1..SizeOf(Extended) - SizeOf(Integer)] of Byte; SExtended: Integer);
+  end;
+var
+  I, J: ^TFloat;
+  Count: NativeInt;
+begin
+  I := Pointer(StackItem.First);
+  J := Pointer(StackItem.Last);
+
+  repeat
+    Dec(NativeInt(I), SizeOf(T));
+    repeat
+      Inc(NativeInt(I), SizeOf(T));
+      if (I > J) then goto sign_sorted;
+      case SizeOf(T) of
+        4: if (I.SSingle < 0) then Break;
+        8: if (I.SDouble < 0) then Break;
+       10: if (I.SExtended < 0) then Break;
+      end;
+    until (False);
+
+    Inc(NativeInt(J), SizeOf(T));
+    repeat
+      Dec(NativeInt(J), SizeOf(T));
+      if (J < I) then goto sign_sorted;
+      case SizeOf(T) of
+        4: if (J.SSingle >= 0) then Break;
+        8: if (J.SDouble >= 0) then Break;
+       10: if (J.SExtended >= 0) then Break;
+      end;
+    until (False);
+
+    TArray.Exchange<T>(I, J);
+    Inc(NativeInt(I), SizeOf(T));
+    Dec(NativeInt(J), SizeOf(T));
+  until (False);
+sign_sorted:
+
+  Count := SortItemCount<T>(StackItem.First, J);
+  if (Count > 1) then
+  begin
+    if (Count <= ((SizeOf(T) div 4) * 125 - (SizeOf(T) div 10) * 1050)) then
+    begin
+      TArray.SortDescendingFloats<T>(StackItem.First^, Count);
+    end else
+    case SizeOf(T) of
+      4: TArray.RadixSort<Integer>(StackItem.First^, Count, not $0000);
+      8: TArray.RadixSort<Int64>(StackItem.First^, Count, not $0000);
+    else
+      TArray.RadixSort<Extended>(StackItem.First^, Count, not $0000);
+    end;
+  end;
+
+  Count := SortItemCount<T>(I, StackItem.Last);
+  if (Count > 1) then
+  begin
+    if (Count <= ((SizeOf(T) div 4) * 125 - (SizeOf(T) div 10) * 1050)) then
+    begin
+      TArray.SortDescendingFloats<T>(I^, Count);
+    end else
+    case SizeOf(T) of
+      4: TArray.RadixSort<Integer>(I^, Count, $0000);
+      8: TArray.RadixSort<Int64>(I^, Count, $0000);
+    else
+      TArray.RadixSort<Extended>(I^, Count, $0000);
+    end;
+  end;
+
+  Result := @StackItem;
+end;
+
+class procedure TArray.SortSigneds<T>(var ValuesArray; const Count: NativeInt);
+label
+  proc_loop, proc_loop_current, insertion_init, swap_loop;
+type
+  P1 = ^ShortInt;
+  P2 = ^SmallInt;
+  P4 = ^Integer;
+  P8 = ^Int64;
+var
+  Pivot4: Integer;
+  {$ifdef LARGEINT}
+    Pivot8: Int64;
+  {$else .SMALLINT}
+    Pivot8Low: Cardinal;
+    Pivot8High, Buffer8High: Integer;
+  {$endif}
+  Temp: T;
+  Temp4: Cardinal;
+  Size: NativeInt;
+
+  I, J, PStop: ^T;
+  StackItem: ^TSortStackItem<T>;
+  Stack: TSortStack<T>;
+begin
+  Stack[0].First := @ValuesArray;
+  Stack[0].Last := Stack[0].First + Count - 1;
+  StackItem := @Stack[1];
+
+proc_loop:
+  Dec(StackItem);
+proc_loop_current:
+  I := StackItem.First;
+  J := StackItem.Last;
+
+  // insertion/radix sort
+  Size := NativeInt(J) - NativeInt(I) + SizeOf(T);
+  if (Size <= RADIX_BUFFER_SIZE * SizeOf(T)) and
+    (
+    (Size <= INSERTION_SORT_LIMIT * SizeOf(T)) or
+    (Size >= (SizeOf(T) * 45 + (SizeOf(T) div 4) * 30 - (SizeOf(T) div 8) * 220) * SizeOf(T))
+    ) then
+  begin
+    if (Size <= INSERTION_SORT_LIMIT * SizeOf(T)) then
+    begin
+      PStop := StackItem.First;
+      goto insertion_init;
+      repeat
+        if (J = PStop) then Break;
+        Dec(J);
+
+        case SizeOf(T) of
+          1: if (Pivot4 <= P1(J)^) then Continue;
+          2: if (Pivot4 <= P2(J)^) then Continue;
+          4: if (Pivot4 <= P4(J)^) then Continue;
+        else
+          {$ifdef LARGEINT}
+            if (Pivot8 <= P8(J)^) then Continue;
+          {$else .SMALLINT}
+            Buffer8High := PPoint(J).Y;
+            if (Pivot8High < Buffer8High) or
+              ((Pivot8High = Buffer8High) and (Pivot8Low <= PCardinal(J)^)) then Continue;
+          {$endif}
+        end;
+
+      insertion_init:
+        I := J;
+        case SizeOf(T) of
+          1: Pivot4 := P1(J)^;
+          2: Pivot4 := P2(J)^;
+          4: Pivot4 := P4(J)^;
+        else
+          {$ifdef LARGEINT}
+            Pivot8 := P8(J)^;
+          {$else .SMALLINT}
+            with PPoint(J)^ do
+            begin
+              Pivot8Low := X;
+              Pivot8High := Y;
+            end;
+          {$endif}
+        end;
+      until (False);
+      I^ := J^;
+      case SizeOf(T) of
+        1: P1(J)^ := Pivot4;
+        2: P2(J)^ := Pivot4;
+        4: P4(J)^ := Pivot4;
+      else
+        {$ifdef LARGEINT}
+          P8(J)^ := Pivot8;
+        {$else .SMALLINT}
+          with PPoint(J)^ do
+          begin
+            X := Pivot8Low;
+            Y := Pivot8High;
+          end;
+        {$endif}
+      end;
+
+      PStop := StackItem.Last;
+      repeat
+        Inc(J);
+        if (J = PStop) then Break;
+
+        case SizeOf(T) of
+          1: Pivot4 := P1(J + 1)^;
+          2: Pivot4 := P2(J + 1)^;
+          4: Pivot4 := P4(J + 1)^;
+        else
+          {$ifdef LARGEINT}
+            Pivot8 := P8(J + 1)^;
+          {$else .SMALLINT}
+            with PPoint(J + 1)^ do
+            begin
+              Pivot8Low := X;
+              Pivot8High := Y;
+            end;
+          {$endif}
+        end;
+        case SizeOf(T) of
+          1: if (P1(J)^ <= Pivot4) then Continue;
+          2: if (P2(J)^ <= Pivot4) then Continue;
+          4: if (P4(J)^ <= Pivot4) then Continue;
+        else
+          {$ifdef LARGEINT}
+            if (P8(J)^ <= Pivot8)  then Continue;
+          {$else .SMALLINT}
+            Buffer8High := PPoint(J).Y;
+            if (Buffer8High < Pivot8High) or
+              ((Buffer8High = Pivot8High) and (PCardinal(J)^ <= Pivot8Low)) then Continue;
+          {$endif}
+        end;
+
+        I := J;
+        repeat
+          (I + 1)^ := I^;
+          Dec(I);
+          case SizeOf(T) of
+            1: if (P1(I)^ <= Pivot4) then Break;
+            2: if (P2(I)^ <= Pivot4) then Break;
+            4: if (P4(I)^ <= Pivot4) then Break;
+          else
+            {$ifdef LARGEINT}
+              if (P8(I)^ <= Pivot8)  then Break;
+            {$else .SMALLINT}
+              Buffer8High := PPoint(I).Y;
+              if (Buffer8High < Pivot8High) or
+                ((Buffer8High = Pivot8High) and (PCardinal(I)^ <= Pivot8Low)) then Break;
+            {$endif}
+          end;
+        until (False);
+
+        case SizeOf(T) of
+          1: P1(I + 1)^ := Pivot4;
+          2: P2(I + 1)^ := Pivot4;
+          4: P4(I + 1)^ := Pivot4;
+        else
+          {$ifdef LARGEINT}
+            P8(I + 1)^ := Pivot8;
+          {$else .SMALLINT}
+            with PPoint(I + 1)^ do
+            begin
+              X := Pivot8Low;
+              Y := Pivot8High;
+            end;
+          {$endif}
+        end;
+      until (False);
+
+      if (StackItem <> @STACK[0]) then goto proc_loop;
+      Exit;
+    end else
+    begin
+      StackItem := TArray.RadixSortSigneds<T>(StackItem^);
+      if (StackItem <> @STACK[0]) then goto proc_loop;
+      Exit;
+    end;
+  end;
+
+  // pivot
+  case SizeOf(T) of
+    1: Pivot4 := P1(SortItemPivot<T>(I, J))^;
+    2: Pivot4 := P2(SortItemPivot<T>(I, J))^;
+    4: Pivot4 := P4(SortItemPivot<T>(I, J))^;
+  else
+    {$ifdef LARGEINT}
+      Pivot8 := P8(SortItemPivot<T>(I, J))^;
+    {$else .SMALLINT}
+      with PPoint(I + ((NativeInt(J) - NativeInt(I)) shr 4))^ do
+      begin
+        Pivot8Low := X;
+        Pivot8High := Y;
+      end;
+    {$endif}
+  end;
+
+  // quick sort
+  Dec(J);
+  Dec(I);
+  swap_loop:
+  begin
+    Inc(J, 2);
+
+    repeat
+      Inc(I);
+      case SizeOf(T) of
+        1: if (Pivot4 <= P1(I)^) then Break;
+        2: if (Pivot4 <= P2(I)^) then Break;
+        4: if (Pivot4 <= P4(I)^) then Break;
+      else
+        {$ifdef LARGEINT}
+          if (Pivot8 <= P8(I)^) then Break;
+        {$else .SMALLINT}
+          Buffer8High := PPoint(I).Y;
+          if (Pivot8High < Buffer8High) or
+            ((Pivot8High = Buffer8High) and (Pivot8Low <= PCardinal(I)^)) then Break;
+        {$endif}
+      end;
+    until (False);
+
+    repeat
+      Dec(J);
+      case SizeOf(T) of
+        1: if (P1(J)^ <= Pivot4) then Break;
+        2: if (P2(J)^ <= Pivot4) then Break;
+        4: if (P4(J)^ <= Pivot4) then Break;
+      else
+        {$ifdef LARGEINT}
+          if (P8(J)^ <= Pivot8)  then Break;
+        {$else .SMALLINT}
+          Buffer8High := PPoint(J).Y;
+          if (Buffer8High < Pivot8High) or
+            ((Buffer8High = Pivot8High) and (PCardinal(J)^ <= Pivot8Low)) then Break;
+        {$endif}
+      end;
+    until (False);
+
+    if (I <= J) then
+    begin
+      {$ifdef SMALLINT}
+      if (SizeOf(T) = 8) then
+      begin
+        Temp4 := TLMemory(Pointer(I)^).LCardinals[0];
+        TLMemory(Pointer(I)^).LCardinals[0] := TLMemory(Pointer(J)^).LCardinals[0];
+        TLMemory(Pointer(J)^).LCardinals[0] := Temp4;
+        Temp4 := TLMemory(Pointer(I)^).LCardinals[1];
+        TLMemory(Pointer(I)^).LCardinals[1] := TLMemory(Pointer(J)^).LCardinals[1];
+        TLMemory(Pointer(J)^).LCardinals[1] := Temp4;
+      end else
+      {$endif}
+      begin
+        Temp := I^;
+        I^ := J^;
+        J^ := Temp;
+      end;
+
+      Dec(J, 2);
+      if (I <= J) then goto swap_loop;
+      Inc(I);
+      Inc(J);
+    end;
+  end;
+
+  // next iteration
+  StackItem := SortItemNext<T>(StackItem, I, J);
+  if (NativeInt(StackItem) >= 0) then goto proc_loop_current;
+  Dec(NativeInt(StackItem), HIGH_NATIVE_BIT);
+  if (StackItem <> @Stack[0]) then goto proc_loop;
+end;
+
+class procedure TArray.SortDescendingSigneds<T>(var ValuesArray; const Count: NativeInt);
+label
+  proc_loop, proc_loop_current, insertion_init, swap_loop;
+type
+  P1 = ^ShortInt;
+  P2 = ^SmallInt;
+  P4 = ^Integer;
+  P8 = ^Int64;
+var
+  Pivot4: Integer;
+  {$ifdef LARGEINT}
+    Pivot8: Int64;
+  {$else .SMALLINT}
+    Pivot8Low: Cardinal;
+    Pivot8High, Buffer8High: Integer;
+  {$endif}
+  Temp: T;
+  Temp4: Cardinal;
+  Size: NativeInt;
+
+  I, J, PStop: ^T;
+  StackItem: ^TSortStackItem<T>;
+  Stack: TSortStack<T>;
+begin
+  Stack[0].First := @ValuesArray;
+  Stack[0].Last := Stack[0].First + Count - 1;
+  StackItem := @Stack[1];
+
+proc_loop:
+  Dec(StackItem);
+proc_loop_current:
+  I := StackItem.First;
+  J := StackItem.Last;
+
+  // insertion/radix sort
+  Size := NativeInt(J) - NativeInt(I) + SizeOf(T);
+  if (Size <= RADIX_BUFFER_SIZE * SizeOf(T)) and
+    (
+    (Size <= INSERTION_SORT_LIMIT * SizeOf(T)) or
+    (Size >= (SizeOf(T) * 45 + (SizeOf(T) div 4) * 30 - (SizeOf(T) div 8) * 220) * SizeOf(T))
+    ) then
+  begin
+    if (Size <= INSERTION_SORT_LIMIT * SizeOf(T)) then
+    begin
+      PStop := StackItem.First;
+      goto insertion_init;
+      repeat
+        if (J = PStop) then Break;
+        Dec(J);
+
+        case SizeOf(T) of
+          1: if (Pivot4 >= P1(J)^) then Continue;
+          2: if (Pivot4 >= P2(J)^) then Continue;
+          4: if (Pivot4 >= P4(J)^) then Continue;
+        else
+          {$ifdef LARGEINT}
+            if (Pivot8 >= P8(J)^) then Continue;
+          {$else .SMALLINT}
+            Buffer8High := PPoint(J).Y;
+            if (Pivot8High > Buffer8High) or
+              ((Pivot8High = Buffer8High) and (Pivot8Low >= PCardinal(J)^)) then Continue;
+          {$endif}
+        end;
+
+      insertion_init:
+        I := J;
+        case SizeOf(T) of
+          1: Pivot4 := P1(J)^;
+          2: Pivot4 := P2(J)^;
+          4: Pivot4 := P4(J)^;
+        else
+          {$ifdef LARGEINT}
+            Pivot8 := P8(J)^;
+          {$else .SMALLINT}
+            with PPoint(J)^ do
+            begin
+              Pivot8Low := X;
+              Pivot8High := Y;
+            end;
+          {$endif}
+        end;
+      until (False);
+      I^ := J^;
+      case SizeOf(T) of
+        1: P1(J)^ := Pivot4;
+        2: P2(J)^ := Pivot4;
+        4: P4(J)^ := Pivot4;
+      else
+        {$ifdef LARGEINT}
+          P8(J)^ := Pivot8;
+        {$else .SMALLINT}
+          with PPoint(J)^ do
+          begin
+            X := Pivot8Low;
+            Y := Pivot8High;
+          end;
+        {$endif}
+      end;
+
+      PStop := StackItem.Last;
+      repeat
+        Inc(J);
+        if (J = PStop) then Break;
+
+        case SizeOf(T) of
+          1: Pivot4 := P1(J + 1)^;
+          2: Pivot4 := P2(J + 1)^;
+          4: Pivot4 := P4(J + 1)^;
+        else
+          {$ifdef LARGEINT}
+            Pivot8 := P8(J + 1)^;
+          {$else .SMALLINT}
+            with PPoint(J + 1)^ do
+            begin
+              Pivot8Low := X;
+              Pivot8High := Y;
+            end;
+          {$endif}
+        end;
+        case SizeOf(T) of
+          1: if (P1(J)^ >= Pivot4) then Continue;
+          2: if (P2(J)^ >= Pivot4) then Continue;
+          4: if (P4(J)^ >= Pivot4) then Continue;
+        else
+          {$ifdef LARGEINT}
+            if (P8(J)^ >= Pivot8)  then Continue;
+          {$else .SMALLINT}
+            Buffer8High := PPoint(J).Y;
+            if (Buffer8High > Pivot8High) or
+              ((Buffer8High = Pivot8High) and (PCardinal(J)^ >= Pivot8Low)) then Continue;
+          {$endif}
+        end;
+
+        I := J;
+        repeat
+          (I + 1)^ := I^;
+          Dec(I);
+          case SizeOf(T) of
+            1: if (P1(I)^ >= Pivot4) then Break;
+            2: if (P2(I)^ >= Pivot4) then Break;
+            4: if (P4(I)^ >= Pivot4) then Break;
+          else
+            {$ifdef LARGEINT}
+              if (P8(I)^ >= Pivot8)  then Break;
+            {$else .SMALLINT}
+              Buffer8High := PPoint(I).Y;
+              if (Buffer8High > Pivot8High) or
+                ((Buffer8High = Pivot8High) and (PCardinal(I)^ >= Pivot8Low)) then Break;
+            {$endif}
+          end;
+        until (False);
+
+        case SizeOf(T) of
+          1: P1(I + 1)^ := Pivot4;
+          2: P2(I + 1)^ := Pivot4;
+          4: P4(I + 1)^ := Pivot4;
+        else
+          {$ifdef LARGEINT}
+            P8(I + 1)^ := Pivot8;
+          {$else .SMALLINT}
+            with PPoint(I + 1)^ do
+            begin
+              X := Pivot8Low;
+              Y := Pivot8High;
+            end;
+          {$endif}
+        end;
+      until (False);
+
+      if (StackItem <> @STACK[0]) then goto proc_loop;
+      Exit;
+    end else
+    begin
+      StackItem := TArray.RadixSortDescendingSigneds<T>(StackItem^);
+      if (StackItem <> @STACK[0]) then goto proc_loop;
+      Exit;
+    end;
+  end;
+
+  // pivot
+  case SizeOf(T) of
+    1: Pivot4 := P1(SortItemPivot<T>(I, J))^;
+    2: Pivot4 := P2(SortItemPivot<T>(I, J))^;
+    4: Pivot4 := P4(SortItemPivot<T>(I, J))^;
+  else
+    {$ifdef LARGEINT}
+      Pivot8 := P8(SortItemPivot<T>(I, J))^;
+    {$else .SMALLINT}
+      with PPoint(I + ((NativeInt(J) - NativeInt(I)) shr 4))^ do
+      begin
+        Pivot8Low := X;
+        Pivot8High := Y;
+      end;
+    {$endif}
+  end;
+
+  // quick sort
+  Dec(J);
+  Dec(I);
+  swap_loop:
+  begin
+    Inc(J, 2);
+
+    repeat
+      Inc(I);
+      case SizeOf(T) of
+        1: if (Pivot4 >= P1(I)^) then Break;
+        2: if (Pivot4 >= P2(I)^) then Break;
+        4: if (Pivot4 >= P4(I)^) then Break;
+      else
+        {$ifdef LARGEINT}
+          if (Pivot8 >= P8(I)^) then Break;
+        {$else .SMALLINT}
+          Buffer8High := PPoint(I).Y;
+          if (Pivot8High > Buffer8High) or
+            ((Pivot8High = Buffer8High) and (Pivot8Low >= PCardinal(I)^)) then Break;
+        {$endif}
+      end;
+    until (False);
+
+    repeat
+      Dec(J);
+      case SizeOf(T) of
+        1: if (P1(J)^ >= Pivot4) then Break;
+        2: if (P2(J)^ >= Pivot4) then Break;
+        4: if (P4(J)^ >= Pivot4) then Break;
+      else
+        {$ifdef LARGEINT}
+          if (P8(J)^ >= Pivot8)  then Break;
+        {$else .SMALLINT}
+          Buffer8High := PPoint(J).Y;
+          if (Buffer8High > Pivot8High) or
+            ((Buffer8High = Pivot8High) and (PCardinal(J)^ >= Pivot8Low)) then Break;
+        {$endif}
+      end;
+    until (False);
+
+    if (I <= J) then
+    begin
+      {$ifdef SMALLINT}
+      if (SizeOf(T) = 8) then
+      begin
+        Temp4 := TLMemory(Pointer(I)^).LCardinals[0];
+        TLMemory(Pointer(I)^).LCardinals[0] := TLMemory(Pointer(J)^).LCardinals[0];
+        TLMemory(Pointer(J)^).LCardinals[0] := Temp4;
+        Temp4 := TLMemory(Pointer(I)^).LCardinals[1];
+        TLMemory(Pointer(I)^).LCardinals[1] := TLMemory(Pointer(J)^).LCardinals[1];
+        TLMemory(Pointer(J)^).LCardinals[1] := Temp4;
+      end else
+      {$endif}
+      begin
+        Temp := I^;
+        I^ := J^;
+        J^ := Temp;
+      end;
+
+      Dec(J, 2);
+      if (I <= J) then goto swap_loop;
+      Inc(I);
+      Inc(J);
+    end;
+  end;
+
+  // next iteration
+  StackItem := SortItemNext<T>(StackItem, I, J);
+  if (NativeInt(StackItem) >= 0) then goto proc_loop_current;
+  Dec(NativeInt(StackItem), HIGH_NATIVE_BIT);
+  if (StackItem <> @Stack[0]) then goto proc_loop;
+end;
+
+class procedure TArray.SortUnsigneds<T>(var ValuesArray; const Count: NativeInt);
+label
+  proc_loop, proc_loop_current, insertion_init, swap_loop;
+type
+  P1 = ^Byte;
+  P2 = ^Word;
+  P4 = ^Cardinal;
+  P8 = ^UInt64;
+var
+  Pivot4: Cardinal;
+  {$ifdef LARGEINT}
+    Pivot8: UInt64;
+  {$else .SMALLINT}
+    Pivot8Low: Cardinal;
+    Pivot8High, Buffer8High: Cardinal;
+  {$endif}
+  Temp: T;
+  Temp4: Cardinal;
+  Size: NativeInt;
+
+  I, J, PStop: ^T;
+  StackItem: ^TSortStackItem<T>;
+  Stack: TSortStack<T>;
+begin
+  Stack[0].First := @ValuesArray;
+  Stack[0].Last := Stack[0].First + Count - 1;
+  StackItem := @Stack[1];
+
+proc_loop:
+  Dec(StackItem);
+proc_loop_current:
+  I := StackItem.First;
+  J := StackItem.Last;
+
+  // insertion/radix sort
+  Size := NativeInt(J) - NativeInt(I) + SizeOf(T);
+  if (Size <= RADIX_BUFFER_SIZE * SizeOf(T)) and
+    (
+    (Size <= INSERTION_SORT_LIMIT * SizeOf(T)) or
+    (Size >= (SizeOf(T) * 45 + (SizeOf(T) div 4) * 30 - (SizeOf(T) div 8) * 220) * SizeOf(T))
+    ) then
+  begin
+    if (Size <= INSERTION_SORT_LIMIT * SizeOf(T)) then
+    begin
+      PStop := StackItem.First;
+      goto insertion_init;
+      repeat
+        if (J = PStop) then Break;
+        Dec(J);
+
+        case SizeOf(T) of
+          1: if (Pivot4 <= P1(J)^) then Continue;
+          2: if (Pivot4 <= P2(J)^) then Continue;
+          4: if (Pivot4 <= P4(J)^) then Continue;
+        else
+          {$ifdef LARGEINT}
+            if (Pivot8 <= P8(J)^) then Continue;
+          {$else .SMALLINT}
+            Buffer8High := PPoint(J).Y;
+            if (Pivot8High < Buffer8High) or
+              ((Pivot8High = Buffer8High) and (Pivot8Low <= PCardinal(J)^)) then Continue;
+          {$endif}
+        end;
+
+      insertion_init:
+        I := J;
+        case SizeOf(T) of
+          1: Pivot4 := P1(J)^;
+          2: Pivot4 := P2(J)^;
+          4: Pivot4 := P4(J)^;
+        else
+          {$ifdef LARGEINT}
+            Pivot8 := P8(J)^;
+          {$else .SMALLINT}
+            with PPoint(J)^ do
+            begin
+              Pivot8Low := X;
+              Pivot8High := Y;
+            end;
+          {$endif}
+        end;
+      until (False);
+      I^ := J^;
+      case SizeOf(T) of
+        1: P1(J)^ := Pivot4;
+        2: P2(J)^ := Pivot4;
+        4: P4(J)^ := Pivot4;
+      else
+        {$ifdef LARGEINT}
+          P8(J)^ := Pivot8;
+        {$else .SMALLINT}
+          with PPoint(J)^ do
+          begin
+            X := Pivot8Low;
+            Y := Pivot8High;
+          end;
+        {$endif}
+      end;
+
+      PStop := StackItem.Last;
+      repeat
+        Inc(J);
+        if (J = PStop) then Break;
+
+        case SizeOf(T) of
+          1: Pivot4 := P1(J + 1)^;
+          2: Pivot4 := P2(J + 1)^;
+          4: Pivot4 := P4(J + 1)^;
+        else
+          {$ifdef LARGEINT}
+            Pivot8 := P8(J + 1)^;
+          {$else .SMALLINT}
+            with PPoint(J + 1)^ do
+            begin
+              Pivot8Low := X;
+              Pivot8High := Y;
+            end;
+          {$endif}
+        end;
+        case SizeOf(T) of
+          1: if (P1(J)^ <= Pivot4) then Continue;
+          2: if (P2(J)^ <= Pivot4) then Continue;
+          4: if (P4(J)^ <= Pivot4) then Continue;
+        else
+          {$ifdef LARGEINT}
+            if (P8(J)^ <= Pivot8)  then Continue;
+          {$else .SMALLINT}
+            Buffer8High := PPoint(J).Y;
+            if (Buffer8High < Pivot8High) or
+              ((Buffer8High = Pivot8High) and (PCardinal(J)^ <= Pivot8Low)) then Continue;
+          {$endif}
+        end;
+
+        I := J;
+        repeat
+          (I + 1)^ := I^;
+          Dec(I);
+          case SizeOf(T) of
+            1: if (P1(I)^ <= Pivot4) then Break;
+            2: if (P2(I)^ <= Pivot4) then Break;
+            4: if (P4(I)^ <= Pivot4) then Break;
+          else
+            {$ifdef LARGEINT}
+              if (P8(I)^ <= Pivot8)  then Break;
+            {$else .SMALLINT}
+              Buffer8High := PPoint(I).Y;
+              if (Buffer8High < Pivot8High) or
+                ((Buffer8High = Pivot8High) and (PCardinal(I)^ <= Pivot8Low)) then Break;
+            {$endif}
+          end;
+        until (False);
+
+        case SizeOf(T) of
+          1: P1(I + 1)^ := Pivot4;
+          2: P2(I + 1)^ := Pivot4;
+          4: P4(I + 1)^ := Pivot4;
+        else
+          {$ifdef LARGEINT}
+            P8(I + 1)^ := Pivot8;
+          {$else .SMALLINT}
+            with PPoint(I + 1)^ do
+            begin
+              X := Pivot8Low;
+              Y := Pivot8High;
+            end;
+          {$endif}
+        end;
+      until (False);
+
+      if (StackItem <> @STACK[0]) then goto proc_loop;
+      Exit;
+    end else
+    begin
+      StackItem := TArray.RadixSortUnsigneds<T>(StackItem^);
+      if (StackItem <> @STACK[0]) then goto proc_loop;
+      Exit;
+    end;
+  end;
+
+  // pivot
+  case SizeOf(T) of
+    1: Pivot4 := P1(SortItemPivot<T>(I, J))^;
+    2: Pivot4 := P2(SortItemPivot<T>(I, J))^;
+    4: Pivot4 := P4(SortItemPivot<T>(I, J))^;
+  else
+    {$ifdef LARGEINT}
+      Pivot8 := P8(SortItemPivot<T>(I, J))^;
+    {$else .SMALLINT}
+      with PPoint(I + ((NativeInt(J) - NativeInt(I)) shr 4))^ do
+      begin
+        Pivot8Low := X;
+        Pivot8High := Y;
+      end;
+    {$endif}
+  end;
+
+  // quick sort
+  Dec(J);
+  Dec(I);
+  swap_loop:
+  begin
+    Inc(J, 2);
+
+    repeat
+      Inc(I);
+      case SizeOf(T) of
+        1: if (Pivot4 <= P1(I)^) then Break;
+        2: if (Pivot4 <= P2(I)^) then Break;
+        4: if (Pivot4 <= P4(I)^) then Break;
+      else
+        {$ifdef LARGEINT}
+          if (Pivot8 <= P8(I)^) then Break;
+        {$else .SMALLINT}
+          Buffer8High := PPoint(I).Y;
+          if (Pivot8High < Buffer8High) or
+            ((Pivot8High = Buffer8High) and (Pivot8Low <= PCardinal(I)^)) then Break;
+        {$endif}
+      end;
+    until (False);
+
+    repeat
+      Dec(J);
+      case SizeOf(T) of
+        1: if (P1(J)^ <= Pivot4) then Break;
+        2: if (P2(J)^ <= Pivot4) then Break;
+        4: if (P4(J)^ <= Pivot4) then Break;
+      else
+        {$ifdef LARGEINT}
+          if (P8(J)^ <= Pivot8)  then Break;
+        {$else .SMALLINT}
+          Buffer8High := PPoint(J).Y;
+          if (Buffer8High < Pivot8High) or
+            ((Buffer8High = Pivot8High) and (PCardinal(J)^ <= Pivot8Low)) then Break;
+        {$endif}
+      end;
+    until (False);
+
+    if (I <= J) then
+    begin
+      {$ifdef SMALLINT}
+      if (SizeOf(T) = 8) then
+      begin
+        Temp4 := TLMemory(Pointer(I)^).LCardinals[0];
+        TLMemory(Pointer(I)^).LCardinals[0] := TLMemory(Pointer(J)^).LCardinals[0];
+        TLMemory(Pointer(J)^).LCardinals[0] := Temp4;
+        Temp4 := TLMemory(Pointer(I)^).LCardinals[1];
+        TLMemory(Pointer(I)^).LCardinals[1] := TLMemory(Pointer(J)^).LCardinals[1];
+        TLMemory(Pointer(J)^).LCardinals[1] := Temp4;
+      end else
+      {$endif}
+      begin
+        Temp := I^;
+        I^ := J^;
+        J^ := Temp;
+      end;
+
+      Dec(J, 2);
+      if (I <= J) then goto swap_loop;
+      Inc(I);
+      Inc(J);
+    end;
+  end;
+
+  // next iteration
+  StackItem := SortItemNext<T>(StackItem, I, J);
+  if (NativeInt(StackItem) >= 0) then goto proc_loop_current;
+  Dec(NativeInt(StackItem), HIGH_NATIVE_BIT);
+  if (StackItem <> @Stack[0]) then goto proc_loop;
+end;
+
+class procedure TArray.SortDescendingUnsigneds<T>(var ValuesArray; const Count: NativeInt);
+label
+  proc_loop, proc_loop_current, insertion_init, swap_loop;
+type
+  P1 = ^Byte;
+  P2 = ^Word;
+  P4 = ^Cardinal;
+  P8 = ^UInt64;
+var
+  Pivot4: Cardinal;
+  {$ifdef LARGEINT}
+    Pivot8: UInt64;
+  {$else .SMALLINT}
+    Pivot8Low: Cardinal;
+    Pivot8High, Buffer8High: Cardinal;
+  {$endif}
+  Temp: T;
+  Temp4: Cardinal;
+  Size: NativeInt;
+
+  I, J, PStop: ^T;
+  StackItem: ^TSortStackItem<T>;
+  Stack: TSortStack<T>;
+begin
+  Stack[0].First := @ValuesArray;
+  Stack[0].Last := Stack[0].First + Count - 1;
+  StackItem := @Stack[1];
+
+proc_loop:
+  Dec(StackItem);
+proc_loop_current:
+  I := StackItem.First;
+  J := StackItem.Last;
+
+  // insertion/radix sort
+  Size := NativeInt(J) - NativeInt(I) + SizeOf(T);
+  if (Size <= RADIX_BUFFER_SIZE * SizeOf(T)) and
+    (
+    (Size <= INSERTION_SORT_LIMIT * SizeOf(T)) or
+    (Size >= (SizeOf(T) * 45 + (SizeOf(T) div 4) * 30 - (SizeOf(T) div 8) * 220) * SizeOf(T))
+    ) then
+  begin
+    if (Size <= INSERTION_SORT_LIMIT * SizeOf(T)) then
+    begin
+      PStop := StackItem.First;
+      goto insertion_init;
+      repeat
+        if (J = PStop) then Break;
+        Dec(J);
+
+        case SizeOf(T) of
+          1: if (Pivot4 >= P1(J)^) then Continue;
+          2: if (Pivot4 >= P2(J)^) then Continue;
+          4: if (Pivot4 >= P4(J)^) then Continue;
+        else
+          {$ifdef LARGEINT}
+            if (Pivot8 >= P8(J)^) then Continue;
+          {$else .SMALLINT}
+            Buffer8High := PPoint(J).Y;
+            if (Pivot8High > Buffer8High) or
+              ((Pivot8High = Buffer8High) and (Pivot8Low >= PCardinal(J)^)) then Continue;
+          {$endif}
+        end;
+
+      insertion_init:
+        I := J;
+        case SizeOf(T) of
+          1: Pivot4 := P1(J)^;
+          2: Pivot4 := P2(J)^;
+          4: Pivot4 := P4(J)^;
+        else
+          {$ifdef LARGEINT}
+            Pivot8 := P8(J)^;
+          {$else .SMALLINT}
+            with PPoint(J)^ do
+            begin
+              Pivot8Low := X;
+              Pivot8High := Y;
+            end;
+          {$endif}
+        end;
+      until (False);
+      I^ := J^;
+      case SizeOf(T) of
+        1: P1(J)^ := Pivot4;
+        2: P2(J)^ := Pivot4;
+        4: P4(J)^ := Pivot4;
+      else
+        {$ifdef LARGEINT}
+          P8(J)^ := Pivot8;
+        {$else .SMALLINT}
+          with PPoint(J)^ do
+          begin
+            X := Pivot8Low;
+            Y := Pivot8High;
+          end;
+        {$endif}
+      end;
+
+      PStop := StackItem.Last;
+      repeat
+        Inc(J);
+        if (J = PStop) then Break;
+
+        case SizeOf(T) of
+          1: Pivot4 := P1(J + 1)^;
+          2: Pivot4 := P2(J + 1)^;
+          4: Pivot4 := P4(J + 1)^;
+        else
+          {$ifdef LARGEINT}
+            Pivot8 := P8(J + 1)^;
+          {$else .SMALLINT}
+            with PPoint(J + 1)^ do
+            begin
+              Pivot8Low := X;
+              Pivot8High := Y;
+            end;
+          {$endif}
+        end;
+        case SizeOf(T) of
+          1: if (P1(J)^ >= Pivot4) then Continue;
+          2: if (P2(J)^ >= Pivot4) then Continue;
+          4: if (P4(J)^ >= Pivot4) then Continue;
+        else
+          {$ifdef LARGEINT}
+            if (P8(J)^ >= Pivot8)  then Continue;
+          {$else .SMALLINT}
+            Buffer8High := PPoint(J).Y;
+            if (Buffer8High > Pivot8High) or
+              ((Buffer8High = Pivot8High) and (PCardinal(J)^ >= Pivot8Low)) then Continue;
+          {$endif}
+        end;
+
+        I := J;
+        repeat
+          (I + 1)^ := I^;
+          Dec(I);
+          case SizeOf(T) of
+            1: if (P1(I)^ >= Pivot4) then Break;
+            2: if (P2(I)^ >= Pivot4) then Break;
+            4: if (P4(I)^ >= Pivot4) then Break;
+          else
+            {$ifdef LARGEINT}
+              if (P8(I)^ >= Pivot8)  then Break;
+            {$else .SMALLINT}
+              Buffer8High := PPoint(I).Y;
+              if (Buffer8High > Pivot8High) or
+                ((Buffer8High = Pivot8High) and (PCardinal(I)^ >= Pivot8Low)) then Break;
+            {$endif}
+          end;
+        until (False);
+
+        case SizeOf(T) of
+          1: P1(I + 1)^ := Pivot4;
+          2: P2(I + 1)^ := Pivot4;
+          4: P4(I + 1)^ := Pivot4;
+        else
+          {$ifdef LARGEINT}
+            P8(I + 1)^ := Pivot8;
+          {$else .SMALLINT}
+            with PPoint(I + 1)^ do
+            begin
+              X := Pivot8Low;
+              Y := Pivot8High;
+            end;
+          {$endif}
+        end;
+      until (False);
+
+      if (StackItem <> @STACK[0]) then goto proc_loop;
+      Exit;
+    end else
+    begin
+      StackItem := TArray.RadixSortDescendingUnsigneds<T>(StackItem^);
+      if (StackItem <> @STACK[0]) then goto proc_loop;
+      Exit;
+    end;
+  end;
+
+  // pivot
+  case SizeOf(T) of
+    1: Pivot4 := P1(SortItemPivot<T>(I, J))^;
+    2: Pivot4 := P2(SortItemPivot<T>(I, J))^;
+    4: Pivot4 := P4(SortItemPivot<T>(I, J))^;
+  else
+    {$ifdef LARGEINT}
+      Pivot8 := P8(SortItemPivot<T>(I, J))^;
+    {$else .SMALLINT}
+      with PPoint(I + ((NativeInt(J) - NativeInt(I)) shr 4))^ do
+      begin
+        Pivot8Low := X;
+        Pivot8High := Y;
+      end;
+    {$endif}
+  end;
+
+  // quick sort
+  Dec(J);
+  Dec(I);
+  swap_loop:
+  begin
+    Inc(J, 2);
+
+    repeat
+      Inc(I);
+      case SizeOf(T) of
+        1: if (Pivot4 >= P1(I)^) then Break;
+        2: if (Pivot4 >= P2(I)^) then Break;
+        4: if (Pivot4 >= P4(I)^) then Break;
+      else
+        {$ifdef LARGEINT}
+          if (Pivot8 >= P8(I)^) then Break;
+        {$else .SMALLINT}
+          Buffer8High := PPoint(I).Y;
+          if (Pivot8High > Buffer8High) or
+            ((Pivot8High = Buffer8High) and (Pivot8Low >= PCardinal(I)^)) then Break;
+        {$endif}
+      end;
+    until (False);
+
+    repeat
+      Dec(J);
+      case SizeOf(T) of
+        1: if (P1(J)^ >= Pivot4) then Break;
+        2: if (P2(J)^ >= Pivot4) then Break;
+        4: if (P4(J)^ >= Pivot4) then Break;
+      else
+        {$ifdef LARGEINT}
+          if (P8(J)^ >= Pivot8)  then Break;
+        {$else .SMALLINT}
+          Buffer8High := PPoint(J).Y;
+          if (Buffer8High > Pivot8High) or
+            ((Buffer8High = Pivot8High) and (PCardinal(J)^ >= Pivot8Low)) then Break;
+        {$endif}
+      end;
+    until (False);
+
+    if (I <= J) then
+    begin
+      {$ifdef SMALLINT}
+      if (SizeOf(T) = 8) then
+      begin
+        Temp4 := TLMemory(Pointer(I)^).LCardinals[0];
+        TLMemory(Pointer(I)^).LCardinals[0] := TLMemory(Pointer(J)^).LCardinals[0];
+        TLMemory(Pointer(J)^).LCardinals[0] := Temp4;
+        Temp4 := TLMemory(Pointer(I)^).LCardinals[1];
+        TLMemory(Pointer(I)^).LCardinals[1] := TLMemory(Pointer(J)^).LCardinals[1];
+        TLMemory(Pointer(J)^).LCardinals[1] := Temp4;
+      end else
+      {$endif}
+      begin
+        Temp := I^;
+        I^ := J^;
+        J^ := Temp;
+      end;
+
+      Dec(J, 2);
+      if (I <= J) then goto swap_loop;
+      Inc(I);
+      Inc(J);
+    end;
+  end;
+
+  // next iteration
+  StackItem := SortItemNext<T>(StackItem, I, J);
+  if (NativeInt(StackItem) >= 0) then goto proc_loop_current;
+  Dec(NativeInt(StackItem), HIGH_NATIVE_BIT);
+  if (StackItem <> @Stack[0]) then goto proc_loop;
+end;
+
+class procedure TArray.SortFloats<T>(var ValuesArray; const Count: NativeInt);
+label
+  proc_loop, proc_loop_current, insertion_init, swap_loop;
+type
+  P4 = ^Single;
+  P8 = ^Double;
+  PE = ^Extended;
+var
+  Pivot4: Single;
+  Pivot8: Double;
+  PivotE: Extended;
+  TempNative: NativeUInt;
+  Size: NativeInt;
+
+  I, J, PStop: ^T;
+  StackItem: ^TSortStackItem<T>;
+  Stack: TSortStack<T>;
+begin
+  Stack[0].First := @ValuesArray;
+  Stack[0].Last := Stack[0].First + Count - 1;
+  StackItem := @Stack[1];
+
+proc_loop:
+  Dec(StackItem);
+proc_loop_current:
+  I := StackItem.First;
+  J := StackItem.Last;
+
+  // insertion/radix sort
+  Size := NativeInt(J) - NativeInt(I) + SizeOf(T);
+  if (Size <= RADIX_BUFFER_SIZE * SizeOf(T)) and
+    (
+    (Size <= INSERTION_SORT_LIMIT * SizeOf(T)) or
+    (Size >= ((SizeOf(T) div 4) * 125 - (SizeOf(T) div 10) * 50) * SizeOf(T))
+    ) then
+  begin
+    if (Size <= INSERTION_SORT_LIMIT * SizeOf(T)) then
+    begin
+      PStop := StackItem.First;
+      goto insertion_init;
+      repeat
+        if (J = PStop) then Break;
+        Dec(J);
+
+        case SizeOf(T) of
+          4: if (Pivot4 <= P4(J)^) then Continue;
+          8: if (Pivot8 <= P8(J)^) then Continue;
+        else
+          if (PivotE <= PE(J)^) then Continue;
+        end;
+
+      insertion_init:
+        I := J;
+        case SizeOf(T) of
+          4: Pivot4 := P4(J)^;
+          8: Pivot8 := P8(J)^;
+        else
+          PivotE := PE(J)^;
+        end;
+      until (False);
+      I^ := J^;
+      case SizeOf(T) of
+        4: P4(J)^ := Pivot4;
+        8: P8(J)^ := Pivot8;
+      else
+        PE(J)^ := PivotE;
+      end;
+
+      PStop := StackItem.Last;
+      repeat
+        Inc(J);
+        if (J = PStop) then Break;
+
+        case SizeOf(T) of
+          4: Pivot4 := P4(J + 1)^;
+          8: Pivot8 := P8(J + 1)^;
+        else
+          PivotE := PE(J + 1)^;
+        end;
+        case SizeOf(T) of
+          4: if (P4(J)^ <= Pivot4) then Continue;
+          8: if (P8(J)^ <= Pivot8) then Continue;
+        else
+          if (PE(J)^ <= PivotE)  then Continue;
+        end;
+
+        I := J;
+        repeat
+          (I + 1)^ := I^;
+          Dec(I);
+          case SizeOf(T) of
+            4: if (P4(I)^ <= Pivot4) then Break;
+            8: if (P8(I)^ <= Pivot8) then Break;
+          else
+            if (PE(I)^ <= PivotE)  then Break;
+          end;
+        until (False);
+
+        case SizeOf(T) of
+          4: P4(I + 1)^ := Pivot4;
+          8: P8(I + 1)^ := Pivot8;
+        else
+          PE(I + 1)^ := PivotE;
+        end;
+      until (False);
+
+      if (StackItem <> @STACK[0]) then goto proc_loop;
+      Exit;
+    end else
+    begin
+      StackItem := TArray.RadixSortFloats<T>(StackItem^);
+      if (StackItem <> @STACK[0]) then goto proc_loop;
+      Exit;
+    end;
+  end;
+
+  // pivot
+  case SizeOf(T) of
+    4: Pivot4 := P4(SortItemPivot<T>(I, J))^;
+    8: Pivot8 := P8(SortItemPivot<T>(I, J))^;
+  else
+    PivotE := PE(SortItemPivot<T>(I, J))^;
+  end;
+
+  // quick sort
+  Dec(J);
+  Dec(I);
+  swap_loop:
+  begin
+    Inc(J, 2);
+
+    repeat
+      Inc(I);
+      case SizeOf(T) of
+        4: if (Pivot4 <= P4(I)^) then Break;
+        8: if (Pivot8 <= P8(I)^) then Break;
+      else
+        if (PivotE <= PE(I)^) then Break;
+      end;
+    until (False);
+
+    repeat
+      Dec(J);
+      case SizeOf(T) of
+        4: if (P4(J)^ <= Pivot4) then Break;
+        8: if (P8(J)^ <= Pivot8) then Break;
+      else
+        if (PE(J)^ <= PivotE)  then Break;
+      end;
+    until (False);
+
+    if (I <= J) then
+    begin
+      if (SizeOf(T) = 4) then
+      begin
+        TempNative := TLMemory(Pointer(I)^).LCardinals[0];
+        TLMemory(Pointer(I)^).LCardinals[0] := TLMemory(Pointer(J)^).LCardinals[0];
+        TLMemory(Pointer(J)^).LCardinals[0] := TempNative;
+      end else
+      begin
+        TempNative := TLMemory(Pointer(I)^).LNatives[0];
+        TLMemory(Pointer(I)^).LNatives[0] := TLMemory(Pointer(J)^).LNatives[0];
+        TLMemory(Pointer(J)^).LNatives[0] := TempNative;
+
+        if (SizeOf(T) >= 2 * SizeOf(NativeUInt)) then
+        begin
+          TempNative := TLMemory(Pointer(I)^).LNatives[1];
+          TLMemory(Pointer(I)^).LNatives[1] := TLMemory(Pointer(J)^).LNatives[1];
+          TLMemory(Pointer(J)^).LNatives[1] := TempNative;
+        end;
+
+        if (SizeOf(T) = 10) then
+        begin
+          TempNative := TLMemory(Pointer(I)^).LWords[4];
+          TLMemory(Pointer(I)^).LWords[4] := TLMemory(Pointer(J)^).LWords[4];
+          TLMemory(Pointer(J)^).LWords[4] := TempNative;
+        end;
+      end;
+
+      Dec(J, 2);
+      if (I <= J) then goto swap_loop;
+      Inc(I);
+      Inc(J);
+    end;
+  end;
+
+  // next iteration
+  StackItem := SortItemNext<T>(StackItem, I, J);
+  if (NativeInt(StackItem) >= 0) then goto proc_loop_current;
+  Dec(NativeInt(StackItem), HIGH_NATIVE_BIT);
+  if (StackItem <> @Stack[0]) then goto proc_loop;
+end;
+
+class procedure TArray.SortDescendingFloats<T>(var ValuesArray; const Count: NativeInt);
+label
+  proc_loop, proc_loop_current, insertion_init, swap_loop;
+type
+  P4 = ^Single;
+  P8 = ^Double;
+  PE = ^Extended;
+var
+  Pivot4: Single;
+  Pivot8: Double;
+  PivotE: Extended;
+  TempNative: NativeUInt;
+  Size: NativeInt;
+
+  I, J, PStop: ^T;
+  StackItem: ^TSortStackItem<T>;
+  Stack: TSortStack<T>;
+begin
+  Stack[0].First := @ValuesArray;
+  Stack[0].Last := Stack[0].First + Count - 1;
+  StackItem := @Stack[1];
+
+proc_loop:
+  Dec(StackItem);
+proc_loop_current:
+  I := StackItem.First;
+  J := StackItem.Last;
+
+  // insertion/radix sort
+  Size := NativeInt(J) - NativeInt(I) + SizeOf(T);
+  if (Size <= RADIX_BUFFER_SIZE * SizeOf(T)) and
+    (
+    (Size <= INSERTION_SORT_LIMIT * SizeOf(T)) or
+    (Size >= ((SizeOf(T) div 4) * 125 - (SizeOf(T) div 10) * 50) * SizeOf(T))
+    ) then
+  begin
+    if (Size <= INSERTION_SORT_LIMIT * SizeOf(T)) then
+    begin
+      PStop := StackItem.First;
+      goto insertion_init;
+      repeat
+        if (J = PStop) then Break;
+        Dec(J);
+
+        case SizeOf(T) of
+          4: if (Pivot4 >= P4(J)^) then Continue;
+          8: if (Pivot8 >= P8(J)^) then Continue;
+        else
+          if (PivotE >= PE(J)^) then Continue;
+        end;
+
+      insertion_init:
+        I := J;
+        case SizeOf(T) of
+          4: Pivot4 := P4(J)^;
+          8: Pivot8 := P8(J)^;
+        else
+          PivotE := PE(J)^;
+        end;
+      until (False);
+      I^ := J^;
+      case SizeOf(T) of
+        4: P4(J)^ := Pivot4;
+        8: P8(J)^ := Pivot8;
+      else
+        PE(J)^ := PivotE;
+      end;
+
+      PStop := StackItem.Last;
+      repeat
+        Inc(J);
+        if (J = PStop) then Break;
+
+        case SizeOf(T) of
+          4: Pivot4 := P4(J + 1)^;
+          8: Pivot8 := P8(J + 1)^;
+        else
+          PivotE := PE(J + 1)^;
+        end;
+        case SizeOf(T) of
+          4: if (P4(J)^ >= Pivot4) then Continue;
+          8: if (P8(J)^ >= Pivot8) then Continue;
+        else
+          if (PE(J)^ >= PivotE)  then Continue;
+        end;
+
+        I := J;
+        repeat
+          (I + 1)^ := I^;
+          Dec(I);
+          case SizeOf(T) of
+            4: if (P4(I)^ >= Pivot4) then Break;
+            8: if (P8(I)^ >= Pivot8) then Break;
+          else
+            if (PE(I)^ >= PivotE)  then Break;
+          end;
+        until (False);
+
+        case SizeOf(T) of
+          4: P4(I + 1)^ := Pivot4;
+          8: P8(I + 1)^ := Pivot8;
+        else
+          PE(I + 1)^ := PivotE;
+        end;
+      until (False);
+
+      if (StackItem <> @STACK[0]) then goto proc_loop;
+      Exit;
+    end else
+    begin
+      StackItem := TArray.RadixSortDescendingFloats<T>(StackItem^);
+      if (StackItem <> @STACK[0]) then goto proc_loop;
+      Exit;
+    end;
+  end;
+
+  // pivot
+  case SizeOf(T) of
+    4: Pivot4 := P4(SortItemPivot<T>(I, J))^;
+    8: Pivot8 := P8(SortItemPivot<T>(I, J))^;
+  else
+    PivotE := PE(SortItemPivot<T>(I, J))^;
+  end;
+
+  // quick sort
+  Dec(J);
+  Dec(I);
+  swap_loop:
+  begin
+    Inc(J, 2);
+
+    repeat
+      Inc(I);
+      case SizeOf(T) of
+        4: if (Pivot4 >= P4(I)^) then Break;
+        8: if (Pivot8 >= P8(I)^) then Break;
+      else
+        if (PivotE >= PE(I)^) then Break;
+      end;
+    until (False);
+
+    repeat
+      Dec(J);
+      case SizeOf(T) of
+        4: if (P4(J)^ >= Pivot4) then Break;
+        8: if (P8(J)^ >= Pivot8) then Break;
+      else
+        if (PE(J)^ >= PivotE)  then Break;
+      end;
+    until (False);
+
+    if (I <= J) then
+    begin
+      if (SizeOf(T) = 4) then
+      begin
+        TempNative := TLMemory(Pointer(I)^).LCardinals[0];
+        TLMemory(Pointer(I)^).LCardinals[0] := TLMemory(Pointer(J)^).LCardinals[0];
+        TLMemory(Pointer(J)^).LCardinals[0] := TempNative;
+      end else
+      begin
+        TempNative := TLMemory(Pointer(I)^).LNatives[0];
+        TLMemory(Pointer(I)^).LNatives[0] := TLMemory(Pointer(J)^).LNatives[0];
+        TLMemory(Pointer(J)^).LNatives[0] := TempNative;
+
+        if (SizeOf(T) >= 2 * SizeOf(NativeUInt)) then
+        begin
+          TempNative := TLMemory(Pointer(I)^).LNatives[1];
+          TLMemory(Pointer(I)^).LNatives[1] := TLMemory(Pointer(J)^).LNatives[1];
+          TLMemory(Pointer(J)^).LNatives[1] := TempNative;
+        end;
+
+        if (SizeOf(T) = 10) then
+        begin
+          TempNative := TLMemory(Pointer(I)^).LWords[4];
+          TLMemory(Pointer(I)^).LWords[4] := TLMemory(Pointer(J)^).LWords[4];
+          TLMemory(Pointer(J)^).LWords[4] := TempNative;
+        end;
+      end;
+
+      Dec(J, 2);
+      if (I <= J) then goto swap_loop;
+      Inc(I);
+      Inc(J);
+    end;
+  end;
+
+  // next iteration
+  StackItem := SortItemNext<T>(StackItem, I, J);
+  if (NativeInt(StackItem) >= 0) then goto proc_loop_current;
+  Dec(NativeInt(StackItem), HIGH_NATIVE_BIT);
+  if (StackItem <> @Stack[0]) then goto proc_loop;
+end;
+
+class procedure TArray.SortBinaries<T>(var ValuesArray; const Count: NativeInt; var PivotBig: T);
+label
+  proc_loop, proc_loop_current, insertion_init, swap_loop;
+var
+  Index: NativeInt;
+  Temp1: Byte;
+  Temp2: Word;
+  Temp4: Cardinal;
+  TempNative: NativeUInt;
+
+  I, J, PStop: ^T;
+  Pivot: packed record
+  case Integer of
+    0: (Ptr: Pointer);
+    1: (Data: array[0..BUFFER_SIZE - 1] of Byte);
+  end;
+  X, Y: NativeUInt;
+  Buffer: Pointer;
+  StackItem: ^TSortStackItem<T>;
+  Stack: TSortStack<T>;
+begin
+  Stack[0].First := @ValuesArray;
+  Stack[0].Last := Stack[0].First + Count - 1;
+  StackItem := @Stack[1];
+
+proc_loop:
+  Dec(StackItem);
+proc_loop_current:
+  I := StackItem.First;
+  J := StackItem.Last;
+
+  // insertion sort
+  if (SizeOf(T) <= SizeOf(Pivot)) then
+  if ((NativeUInt(J) - NativeUInt(I)) < INSERTION_SORT_LIMIT * SizeOf(T)) then
+  begin
+    PStop := StackItem.First;
+    goto insertion_init;
+    repeat
+      if (J = PStop) then Break;
+      Dec(J);
+
+      // compare pivot/J
+      Y := TArray.SortBinaryMarker<T>(J);
+      if (X < Y) then Continue;
+      if (X = Y) then
+      begin
+        if (GetTypeKind(T) = tkMethod) then
+        begin
+          if (NativeUInt(Pivot.Ptr) <= NativeUInt(Pointer(J)^)) then Continue;
+        end else
+        if (GetTypeKind(T) in [tkLString, tkWString, tkUString, tkDynArray]) then
+        begin
+          Buffer := Pointer(Pointer(J)^);
+          if (Pivot.Ptr = Buffer) then Continue;
+          case GetTypeKind(T) of
+            tkLString: if (InterfaceDefaults.Compare_LStr(nil, Pivot.Ptr, Buffer) <= 0) then Continue;
+            tkWString: if (InterfaceDefaults.Compare_WStr(nil, Pivot.Ptr, Buffer) <= 0) then Continue;
+            tkUString: if (InterfaceDefaults.Compare_UStr(nil, Pivot.Ptr, Buffer) <= 0) then Continue;
+           tkDynArray: if (InterfaceDefaults.Compare_Dyn(InterfaceDefaults.TDefaultComparer<T>.Instance, Pivot.Ptr, Buffer) <= 0) then Continue;
+          end;
+        end else
+        begin
+          if (SortBinaryComparer<T>(@Pivot, J) <= 0) then Continue;
+        end;
+      end;
+    insertion_init:
+      I := J;
+      // pivot := J^
+      if (SizeOf(T) = SizeOf(Pointer)) then
+      begin
+        Pivot.Ptr := Pointer(Pointer(J)^);
+      end else
+      begin
+        TArray.CopyMemory<T>(@Pivot, J);
+      end;
+      X := TArray.SortBinaryMarker<T>(@Pivot);
+    until (False);
+    // I^ := J^
+    if (SizeOf(T) = SizeOf(Pointer)) then
+    begin
+      PNativeUInt(I)^ := PNativeUInt(J)^;
+    end else
+    begin
+      TArray.CopyMemory<T>(I, J);
+    end;
+    // J := pivot
+    if (SizeOf(T) = SizeOf(Pointer)) then
+    begin
+      Pointer(Pointer(J)^) := Pivot.Ptr;
+    end else
+    begin
+      TArray.CopyMemory<T>(J, @Pivot);
+    end;
+
+    PStop := StackItem.Last;
+    repeat
+      Inc(J);
+      if (J = PStop) then Break;
+
+      // pivot := J[1]
+      if (SizeOf(T) = SizeOf(Pointer)) then
+      begin
+        Pivot.Ptr := Pointer(Pointer(J + 1)^);
+      end else
+      begin
+        TArray.CopyMemory<T>(@Pivot, J + 1);
+      end;
+      X := TArray.SortBinaryMarker<T>(@Pivot);
+
+      // compare J/pivot
+      Y := TArray.SortBinaryMarker<T>(J);
+      if (Y < X) then Continue;
+      if (Y = X) then
+      begin
+        if (GetTypeKind(T) = tkMethod) then
+        begin
+          if (NativeUInt(Pointer(J)^) <= NativeUInt(Pivot.Ptr)) then Continue;
+        end else
+        if (GetTypeKind(T) in [tkLString, tkWString, tkUString, tkDynArray]) then
+        begin
+          Buffer := Pointer(Pointer(J)^);
+          if (Buffer = Pivot.Ptr) then Continue;
+          case GetTypeKind(T) of
+            tkLString: if (InterfaceDefaults.Compare_LStr(nil, Buffer, Pivot.Ptr) <= 0) then Continue;
+            tkWString: if (InterfaceDefaults.Compare_WStr(nil, Buffer, Pivot.Ptr) <= 0) then Continue;
+            tkUString: if (InterfaceDefaults.Compare_UStr(nil, Buffer, Pivot.Ptr) <= 0) then Continue;
+           tkDynArray: if (InterfaceDefaults.Compare_Dyn(InterfaceDefaults.TDefaultComparer<T>.Instance, Buffer, Pivot.Ptr) <= 0) then Continue;
+          end;
+        end else
+        begin
+          if (SortBinaryComparer<T>(J, @Pivot) <= 0) then Continue;
+        end;
+      end;
+
+      I := J;
+      repeat
+        // I[1] := I^;
+        if (SizeOf(T) = SizeOf(Pointer)) then
+        begin
+          PNativeUInt(I + 1)^ := PNativeUInt(I)^;
+        end else
+        begin
+          TArray.CopyMemory<T>(I + 1, I);
+        end;
+        Dec(I);
+
+        // compare I/pivot
+        Y := TArray.SortBinaryMarker<T>(I);
+        if (Y < X) then Break;
+        if (Y = X) then
+        begin
+          if (GetTypeKind(T) = tkMethod) then
+          begin
+            if (NativeUInt(Pointer(I)^) <= NativeUInt(Pivot.Ptr)) then Break;
+          end else
+          if (GetTypeKind(T) in [tkLString, tkWString, tkUString, tkDynArray]) then
+          begin
+            Buffer := Pointer(Pointer(I)^);
+            if (Buffer = Pivot.Ptr) then Break;
+            case GetTypeKind(T) of
+              tkLString: if (InterfaceDefaults.Compare_LStr(nil, Buffer, Pivot.Ptr) <= 0) then Break;
+              tkWString: if (InterfaceDefaults.Compare_WStr(nil, Buffer, Pivot.Ptr) <= 0) then Break;
+              tkUString: if (InterfaceDefaults.Compare_UStr(nil, Buffer, Pivot.Ptr) <= 0) then Break;
+             tkDynArray: if (InterfaceDefaults.Compare_Dyn(InterfaceDefaults.TDefaultComparer<T>.Instance, Buffer, Pivot.Ptr) <= 0) then Break;
+            end;
+          end else
+          begin
+            if (SortBinaryComparer<T>(I, @Pivot) <= 0) then Break;
+          end;
+        end;
+      until (False);
+
+      // I[1] := pivot
+      if (SizeOf(T) = SizeOf(Pointer)) then
+      begin
+        Pointer(Pointer(I + 1)^) := Pivot.Ptr;
+      end else
+      begin
+        TArray.CopyMemory<T>(I + 1, @Pivot);
+      end;
+    until (False);
+
+    if (StackItem <> @STACK[0]) then goto proc_loop;
+    Exit;
+  end;
+
+  // pivot
+  if (SizeOf(T) <= SizeOf(Pivot)) then
+  begin
+    if (SizeOf(T) = SizeOf(Pointer)) then
+    begin
+      Pivot.Ptr := Pointer(SortItemPivot<T>(I, J)^);
+    end else
+    begin
+      TArray.CopyMemory<T>(@Pivot, SortItemPivot<T>(I, J));
+    end;
+    X := TArray.SortBinaryMarker<T>(@Pivot);
+  end else
+  begin
+    TArray.CopyMemory<T>(@PivotBig, SortItemPivot<T>(I, J));
+    X := TArray.SortBinaryMarker<T>(@PivotBig);
+  end;
+
+  // quick sort
+  Dec(J);
+  Dec(I);
+  swap_loop:
+  begin
+    Inc(J, 2);
+
+    repeat
+      Inc(I);
+
+      Y := TArray.SortBinaryMarker<T>(I);
+      if (X < Y) then Break;
+      if (X = Y) then
+      begin
+        if (SizeOf(T) <= SizeOf(Pivot)) then
+        begin
+          // compare pivot/I
+          if (GetTypeKind(T) = tkMethod) then
+          begin
+            if (NativeUInt(Pivot.Ptr) <= NativeUInt(Pointer(I)^)) then Break;
+          end else
+          if (GetTypeKind(T) in [tkLString, tkWString, tkUString, tkDynArray]) then
+          begin
+            Buffer := Pointer(Pointer(I)^);
+            if (Pivot.Ptr = Buffer) then Break;
+            case GetTypeKind(T) of
+              tkLString: if (InterfaceDefaults.Compare_LStr(nil, Pivot.Ptr, Buffer) <= 0) then Break;
+              tkWString: if (InterfaceDefaults.Compare_WStr(nil, Pivot.Ptr, Buffer) <= 0) then Break;
+              tkUString: if (InterfaceDefaults.Compare_UStr(nil, Pivot.Ptr, Buffer) <= 0) then Break;
+             tkDynArray: if (InterfaceDefaults.Compare_Dyn(InterfaceDefaults.TDefaultComparer<T>.Instance, Pivot.Ptr, Buffer) <= 0) then Break;
+            end;
+          end else
+          begin
+            if (SortBinaryComparer<T>(@Pivot, I) <= 0) then Break;
+          end;
+        end else
+        begin
+          if (SortBinaryComparer<T>(@PivotBig, I) <= 0) then Break;
+        end;
+      end;
+    until (False);
+
+    repeat
+      Dec(J);
+
+      Y := TArray.SortBinaryMarker<T>(J);
+      if (Y < X) then Break;
+      if (Y = X) then
+      begin
+        if (SizeOf(T) <= SizeOf(Pivot)) then
+        begin
+          // compare J/pivot
+          if (GetTypeKind(T) = tkMethod) then
+          begin
+            if (NativeUInt(Pointer(J)^) <= NativeUInt(Pivot.Ptr)) then Break;
+          end else
+          if (GetTypeKind(T) in [tkLString, tkWString, tkUString, tkDynArray]) then
+          begin
+            Buffer := Pointer(Pointer(J)^);
+            if (Buffer = Pivot.Ptr) then Break;
+            case GetTypeKind(T) of
+              tkLString: if (InterfaceDefaults.Compare_LStr(nil, Buffer, Pivot.Ptr) <= 0) then Break;
+              tkWString: if (InterfaceDefaults.Compare_WStr(nil, Buffer, Pivot.Ptr) <= 0) then Break;
+              tkUString: if (InterfaceDefaults.Compare_UStr(nil, Buffer, Pivot.Ptr) <= 0) then Break;
+             tkDynArray: if (InterfaceDefaults.Compare_Dyn(InterfaceDefaults.TDefaultComparer<T>.Instance, Buffer, Pivot.Ptr) <= 0) then Break;
+            end;
+          end else
+          begin
+            if (SortBinaryComparer<T>(J, @Pivot) <= 0) then Break;
+          end;
+        end else
+        begin
+          if (SortBinaryComparer<T>(J, @PivotBig) <= 0) then Break;
+        end;
+      end;
+    until (False);
+
+    if (I <= J) then
+    begin
+      // TArray.Exchange<T>(I, J);
+      case SizeOf(T) of
+        0: ;
+        1:
+        begin
+          Temp1 := PLMemory(I).LBytes[0];
+          PLMemory(I).LBytes[0] := PRMemory(J).RBytes[0];
+          PRMemory(J).RBytes[0] := Temp1;
+        end;
+        2:
+        begin
+          Temp2 := PLMemory(I).LWords[0];
+          PLMemory(I).LWords[0] := PRMemory(J).RWords[0];
+          PRMemory(J).RWords[0] := Temp2;
+        end;
+        3:
+        begin
+          Temp2 := PLMemory(I).LWords[0];
+          PLMemory(I).LWords[0] := PRMemory(J).RWords[0];
+          PRMemory(J).RWords[0] := Temp2;
+
+          Temp1 := PLMemory(I).LBytes[2];
+          PLMemory(I).LBytes[2] := PRMemory(J).RBytes[2];
+          PRMemory(J).RBytes[2] := Temp1;
+        end;
+        4..7:
+        begin
+          Temp4 := PLMemory(I).LCardinals[0];
+          PLMemory(I).LCardinals[0] := PRMemory(J).RCardinals[0];
+          PRMemory(J).RCardinals[0] := Temp4;
+
+          case SizeOf(T) of
+            5:
+            begin
+              Temp1 := PLMemory(I).LBytes[4];
+              PLMemory(I).LBytes[4] := PRMemory(J).RBytes[4];
+              PRMemory(J).RBytes[4] := Temp1;
+            end;
+            6:
+            begin
+              Temp2 := PLMemory(I).LWords[2];
+              PLMemory(I).LWords[2] := PRMemory(J).RWords[2];
+              PRMemory(J).RWords[2] := Temp2;
+            end;
+            7:
+            begin
+              Temp2 := PLMemory(I).LWords[2];
+              PLMemory(I).LWords[2] := PRMemory(J).RWords[2];
+              PRMemory(J).RWords[2] := Temp2;
+              Temp1 := PLMemory(I).LBytes[6];
+              PLMemory(I).LBytes[6] := PRMemory(J).RBytes[6];
+              PRMemory(J).RBytes[6] := Temp1;
+            end;
+          end;
+        end;
+        8..16:
+        begin
+          TempNative := PLMemory(I).LNatives[0];
+          PLMemory(I).LNatives[0] := PRMemory(J).RNatives[0];
+          PRMemory(J).RNatives[0] := TempNative;
+
+          if (SizeOf(T) >= SizeOf(NativeUInt) * 2) then
+          begin
+            TempNative := PLMemory(I).LNatives[1];
+            PLMemory(I).LNatives[1] := PRMemory(J).RNatives[1];
+            PRMemory(J).RNatives[1] := TempNative;
+          end;
+
+          if (SizeOf(T) >= SizeOf(NativeUInt) * 3) then
+          begin
+            TempNative := PLMemory(I).LNatives[2];
+            PLMemory(I).LNatives[2] := PRMemory(J).RNatives[2];
+            PRMemory(J).RNatives[2] := TempNative;
+          end;
+
+          if (SizeOf(T)  = SizeOf(NativeUInt) * 4) then
+          begin
+            TempNative := PLMemory(I).LNatives[3];
+            PLMemory(I).LNatives[3] := PRMemory(J).RNatives[3];
+            PRMemory(J).RNatives[3] := TempNative;
+          end;
+
+          {$ifdef LARGEINT}
+          case SizeOf(T) of
+            12, 13, 14, 15:
+            begin
+              Temp4 := PLMemory(I).LCardinals[2];
+              PLMemory(I).LCardinals[2] := PRMemory(J).RCardinals[2];
+              PRMemory(J).RCardinals[2] := Temp4;
+            end;
+          end;
+          {$endif}
+
+          case SizeOf(T) of
+            9:
+            begin
+              Temp1 := PLMemory(I).LBytes[8];
+              PLMemory(I).LBytes[8] := PRMemory(J).RBytes[8];
+              PRMemory(J).RBytes[8] := Temp1;
+            end;
+            10:
+            begin
+              Temp2 := PLMemory(I).LWords[4];
+              PLMemory(I).LWords[4] := PRMemory(J).RWords[4];
+              PRMemory(J).RWords[4] := Temp2;
+            end;
+            11:
+            begin
+              Temp2 := PLMemory(I).LWords[4];
+              PLMemory(I).LWords[4] := PRMemory(J).RWords[4];
+              PRMemory(J).RWords[4] := Temp2;
+              Temp1 := PLMemory(I).LBytes[10];
+              PLMemory(I).LBytes[10] := PRMemory(J).RBytes[10];
+              PRMemory(J).RBytes[10] := Temp1;
+            end;
+            13:
+            begin
+              Temp2 := PLMemory(I).LWords[5];
+              PLMemory(I).LWords[5] := PRMemory(J).RWords[5];
+              PRMemory(J).RWords[5] := Temp2;
+              Temp1 := PLMemory(I).LBytes[12];
+              PLMemory(I).LBytes[12] := PRMemory(J).RBytes[12];
+              PRMemory(J).RBytes[12] := Temp1;
+            end;
+            14:
+            begin
+              Temp2 := PLMemory(I).LWords[6];
+              PLMemory(I).LWords[6] := PRMemory(J).RWords[6];
+              PRMemory(J).RWords[6] := Temp2;
+            end;
+            15:
+            begin
+              Temp2 := PLMemory(I).LWords[6];
+              PLMemory(I).LWords[6] := PRMemory(J).RWords[6];
+              PRMemory(J).RWords[6] := Temp2;
+              Temp1 := PLMemory(I).LBytes[14];
+              PLMemory(I).LBytes[14] := PRMemory(J).RBytes[14];
+              PRMemory(J).RBytes[14] := Temp1;
+            end;
+          end;
+        end;
+      else
+        Index := 0;
+        repeat
+          TempNative := PLMemory(I).LNatives[Index];
+          PLMemory(I).LNatives[Index] := PRMemory(J).RNatives[Index];
+          PRMemory(J).RNatives[Index] := TempNative;
+          Inc(Index);
+        until (Index = SizeOf(T) div SizeOf(NativeUInt));
+
+        if (SizeOf(T) and (SizeOf(NativeUInt) - 1) <> 0) then
+        begin
+          {$ifdef LARGEINT}
+          if (SizeOf(T) and 4 <> 0) then
+          begin
+            Index := SizeOf(T) div SizeOf(Cardinal) - 1;
+            Temp4 := PLMemory(I).LCardinals[Index];
+            PLMemory(I).LCardinals[Index] := PRMemory(J).RCardinals[Index];
+            PRMemory(J).RCardinals[Index] := Temp4;
+          end;
+          {$endif}
+
+          if (SizeOf(T) and 2 <> 0) then
+          begin
+            Index := SizeOf(T) div SizeOf(Word) - 1;
+            Temp2 := PLMemory(I).LWords[Index];
+            PLMemory(I).LWords[Index] := PRMemory(J).RWords[Index];
+            PRMemory(J).RWords[Index] := Temp2;
+          end;
+
+          if (SizeOf(T) and 1 <> 0) then
+          begin
+            Index := SizeOf(T) div SizeOf(Byte) - 1;
+            Temp1 := PLMemory(I).LBytes[Index];
+            PLMemory(I).LBytes[Index] := PRMemory(J).RBytes[Index];
+            PRMemory(J).RBytes[Index] := Temp1;
+          end;
+        end;
+      end;
+
+      Dec(J, 2);
+      if (I <= J) then goto swap_loop;
+      Inc(I);
+      Inc(J);
+    end;
+  end;
+
+  // next iteration
+  StackItem := SortItemNext<T>(StackItem, I, J);
+  if (NativeInt(StackItem) >= 0) then goto proc_loop_current;
+  Dec(NativeInt(StackItem), HIGH_NATIVE_BIT);
+  if (StackItem <> @Stack[0]) then goto proc_loop;
+end;
+
+class procedure TArray.SortDescendingBinaries<T>(var ValuesArray; const Count: NativeInt; var PivotBig: T);
+label
+  proc_loop, proc_loop_current, insertion_init, swap_loop;
+var
+  Index: NativeInt;
+  Temp1: Byte;
+  Temp2: Word;
+  Temp4: Cardinal;
+  TempNative: NativeUInt;
+
+  I, J, PStop: ^T;
+  Pivot: packed record
+  case Integer of
+    0: (Ptr: Pointer);
+    1: (Data: array[0..BUFFER_SIZE - 1] of Byte);
+  end;
+  X, Y: NativeUInt;
+  Buffer: Pointer;
+  StackItem: ^TSortStackItem<T>;
+  Stack: TSortStack<T>;
+begin
+  Stack[0].First := @ValuesArray;
+  Stack[0].Last := Stack[0].First + Count - 1;
+  StackItem := @Stack[1];
+
+proc_loop:
+  Dec(StackItem);
+proc_loop_current:
+  I := StackItem.First;
+  J := StackItem.Last;
+
+  // insertion sort
+  if (SizeOf(T) <= SizeOf(Pivot)) then
+  if ((NativeUInt(J) - NativeUInt(I)) < INSERTION_SORT_LIMIT * SizeOf(T)) then
+  begin
+    PStop := StackItem.First;
+    goto insertion_init;
+    repeat
+      if (J = PStop) then Break;
+      Dec(J);
+
+      // compare pivot/J
+      Y := TArray.SortBinaryMarker<T>(J);
+      if (X > Y) then Continue;
+      if (X = Y) then
+      begin
+        if (GetTypeKind(T) = tkMethod) then
+        begin
+          if (NativeUInt(Pivot.Ptr) >= NativeUInt(Pointer(J)^)) then Continue;
+        end else
+        if (GetTypeKind(T) in [tkLString, tkWString, tkUString, tkDynArray]) then
+        begin
+          Buffer := Pointer(Pointer(J)^);
+          if (Pivot.Ptr = Buffer) then Continue;
+          case GetTypeKind(T) of
+            tkLString: if (InterfaceDefaults.Compare_LStr(nil, Pivot.Ptr, Buffer) >= 0) then Continue;
+            tkWString: if (InterfaceDefaults.Compare_WStr(nil, Pivot.Ptr, Buffer) >= 0) then Continue;
+            tkUString: if (InterfaceDefaults.Compare_UStr(nil, Pivot.Ptr, Buffer) >= 0) then Continue;
+           tkDynArray: if (InterfaceDefaults.Compare_Dyn(InterfaceDefaults.TDefaultComparer<T>.Instance, Pivot.Ptr, Buffer) >= 0) then Continue;
+          end;
+        end else
+        begin
+          if (SortBinaryComparer<T>(@Pivot, J) >= 0) then Continue;
+        end;
+      end;
+    insertion_init:
+      I := J;
+      // pivot := J^
+      if (SizeOf(T) = SizeOf(Pointer)) then
+      begin
+        Pivot.Ptr := Pointer(Pointer(J)^);
+      end else
+      begin
+        TArray.CopyMemory<T>(@Pivot, J);
+      end;
+      X := TArray.SortBinaryMarker<T>(@Pivot);
+    until (False);
+    // I^ := J^
+    if (SizeOf(T) = SizeOf(Pointer)) then
+    begin
+      PNativeUInt(I)^ := PNativeUInt(J)^;
+    end else
+    begin
+      TArray.CopyMemory<T>(I, J);
+    end;
+    // J := pivot
+    if (SizeOf(T) = SizeOf(Pointer)) then
+    begin
+      Pointer(Pointer(J)^) := Pivot.Ptr;
+    end else
+    begin
+      TArray.CopyMemory<T>(J, @Pivot);
+    end;
+
+    PStop := StackItem.Last;
+    repeat
+      Inc(J);
+      if (J = PStop) then Break;
+
+      // pivot := J[1]
+      if (SizeOf(T) = SizeOf(Pointer)) then
+      begin
+        Pivot.Ptr := Pointer(Pointer(J + 1)^);
+      end else
+      begin
+        TArray.CopyMemory<T>(@Pivot, J + 1);
+      end;
+      X := TArray.SortBinaryMarker<T>(@Pivot);
+
+      // compare J/pivot
+      Y := TArray.SortBinaryMarker<T>(J);
+      if (Y > X) then Continue;
+      if (Y = X) then
+      begin
+        if (GetTypeKind(T) = tkMethod) then
+        begin
+          if (NativeUInt(Pointer(J)^) >= NativeUInt(Pivot.Ptr)) then Continue;
+        end else
+        if (GetTypeKind(T) in [tkLString, tkWString, tkUString, tkDynArray]) then
+        begin
+          Buffer := Pointer(Pointer(J)^);
+          if (Buffer = Pivot.Ptr) then Continue;
+          case GetTypeKind(T) of
+            tkLString: if (InterfaceDefaults.Compare_LStr(nil, Buffer, Pivot.Ptr) >= 0) then Continue;
+            tkWString: if (InterfaceDefaults.Compare_WStr(nil, Buffer, Pivot.Ptr) >= 0) then Continue;
+            tkUString: if (InterfaceDefaults.Compare_UStr(nil, Buffer, Pivot.Ptr) >= 0) then Continue;
+           tkDynArray: if (InterfaceDefaults.Compare_Dyn(InterfaceDefaults.TDefaultComparer<T>.Instance, Buffer, Pivot.Ptr) >= 0) then Continue;
+          end;
+        end else
+        begin
+          if (SortBinaryComparer<T>(J, @Pivot) >= 0) then Continue;
+        end;
+      end;
+
+      I := J;
+      repeat
+        // I[1] := I^;
+        if (SizeOf(T) = SizeOf(Pointer)) then
+        begin
+          PNativeUInt(I + 1)^ := PNativeUInt(I)^;
+        end else
+        begin
+          TArray.CopyMemory<T>(I + 1, I);
+        end;
+        Dec(I);
+
+        // compare I/pivot
+        Y := TArray.SortBinaryMarker<T>(I);
+        if (Y > X) then Break;
+        if (Y = X) then
+        begin
+          if (GetTypeKind(T) = tkMethod) then
+          begin
+            if (NativeUInt(Pointer(I)^) >= NativeUInt(Pivot.Ptr)) then Break;
+          end else
+          if (GetTypeKind(T) in [tkLString, tkWString, tkUString, tkDynArray]) then
+          begin
+            Buffer := Pointer(Pointer(I)^);
+            if (Buffer = Pivot.Ptr) then Break;
+            case GetTypeKind(T) of
+              tkLString: if (InterfaceDefaults.Compare_LStr(nil, Buffer, Pivot.Ptr) >= 0) then Break;
+              tkWString: if (InterfaceDefaults.Compare_WStr(nil, Buffer, Pivot.Ptr) >= 0) then Break;
+              tkUString: if (InterfaceDefaults.Compare_UStr(nil, Buffer, Pivot.Ptr) >= 0) then Break;
+             tkDynArray: if (InterfaceDefaults.Compare_Dyn(InterfaceDefaults.TDefaultComparer<T>.Instance, Buffer, Pivot.Ptr) >= 0) then Break;
+            end;
+          end else
+          begin
+            if (SortBinaryComparer<T>(I, @Pivot) >= 0) then Break;
+          end;
+        end;
+      until (False);
+
+      // I[1] := pivot
+      if (SizeOf(T) = SizeOf(Pointer)) then
+      begin
+        Pointer(Pointer(I + 1)^) := Pivot.Ptr;
+      end else
+      begin
+        TArray.CopyMemory<T>(I + 1, @Pivot);
+      end;
+    until (False);
+
+    if (StackItem <> @STACK[0]) then goto proc_loop;
+    Exit;
+  end;
+
+  // pivot
+  if (SizeOf(T) <= SizeOf(Pivot)) then
+  begin
+    if (SizeOf(T) = SizeOf(Pointer)) then
+    begin
+      Pivot.Ptr := Pointer(SortItemPivot<T>(I, J)^);
+    end else
+    begin
+      TArray.CopyMemory<T>(@Pivot, SortItemPivot<T>(I, J));
+    end;
+    X := TArray.SortBinaryMarker<T>(@Pivot);
+  end else
+  begin
+    TArray.CopyMemory<T>(@PivotBig, SortItemPivot<T>(I, J));
+    X := TArray.SortBinaryMarker<T>(@PivotBig);
+  end;
+
+  // quick sort
+  Dec(J);
+  Dec(I);
+  swap_loop:
+  begin
+    Inc(J, 2);
+
+    repeat
+      Inc(I);
+
+      Y := TArray.SortBinaryMarker<T>(I);
+      if (X > Y) then Break;
+      if (X = Y) then
+      begin
+        if (SizeOf(T) >= SizeOf(Pivot)) then
+        begin
+          // compare pivot/I
+          if (GetTypeKind(T) = tkMethod) then
+          begin
+            if (NativeUInt(Pivot.Ptr) >= NativeUInt(Pointer(I)^)) then Break;
+          end else
+          if (GetTypeKind(T) in [tkLString, tkWString, tkUString, tkDynArray]) then
+          begin
+            Buffer := Pointer(Pointer(I)^);
+            if (Pivot.Ptr = Buffer) then Break;
+            case GetTypeKind(T) of
+              tkLString: if (InterfaceDefaults.Compare_LStr(nil, Pivot.Ptr, Buffer) >= 0) then Break;
+              tkWString: if (InterfaceDefaults.Compare_WStr(nil, Pivot.Ptr, Buffer) >= 0) then Break;
+              tkUString: if (InterfaceDefaults.Compare_UStr(nil, Pivot.Ptr, Buffer) >= 0) then Break;
+             tkDynArray: if (InterfaceDefaults.Compare_Dyn(InterfaceDefaults.TDefaultComparer<T>.Instance, Pivot.Ptr, Buffer) >= 0) then Break;
+            end;
+          end else
+          begin
+            if (SortBinaryComparer<T>(@Pivot, I) >= 0) then Break;
+          end;
+        end else
+        begin
+          if (SortBinaryComparer<T>(@PivotBig, I) >= 0) then Break;
+        end;
+      end;
+    until (False);
+
+    repeat
+      Dec(J);
+
+      Y := TArray.SortBinaryMarker<T>(J);
+      if (Y > X) then Break;
+      if (Y = X) then
+      begin
+        if (SizeOf(T) <= SizeOf(Pivot)) then
+        begin
+          // compare J/pivot
+          if (GetTypeKind(T) = tkMethod) then
+          begin
+            if (NativeUInt(Pointer(J)^) >= NativeUInt(Pivot.Ptr)) then Break;
+          end else
+          if (GetTypeKind(T) in [tkLString, tkWString, tkUString, tkDynArray]) then
+          begin
+            Buffer := Pointer(Pointer(J)^);
+            if (Buffer = Pivot.Ptr) then Break;
+            case GetTypeKind(T) of
+              tkLString: if (InterfaceDefaults.Compare_LStr(nil, Buffer, Pivot.Ptr) >= 0) then Break;
+              tkWString: if (InterfaceDefaults.Compare_WStr(nil, Buffer, Pivot.Ptr) >= 0) then Break;
+              tkUString: if (InterfaceDefaults.Compare_UStr(nil, Buffer, Pivot.Ptr) >= 0) then Break;
+             tkDynArray: if (InterfaceDefaults.Compare_Dyn(InterfaceDefaults.TDefaultComparer<T>.Instance, Buffer, Pivot.Ptr) >= 0) then Break;
+            end;
+          end else
+          begin
+            if (SortBinaryComparer<T>(J, @Pivot) >= 0) then Break;
+          end;
+        end else
+        begin
+          if (SortBinaryComparer<T>(J, @PivotBig) >= 0) then Break;
+        end;
+      end;
+    until (False);
+
+    if (I <= J) then
+    begin
+      // TArray.Exchange<T>(I, J);
+      case SizeOf(T) of
+        0: ;
+        1:
+        begin
+          Temp1 := PLMemory(I).LBytes[0];
+          PLMemory(I).LBytes[0] := PRMemory(J).RBytes[0];
+          PRMemory(J).RBytes[0] := Temp1;
+        end;
+        2:
+        begin
+          Temp2 := PLMemory(I).LWords[0];
+          PLMemory(I).LWords[0] := PRMemory(J).RWords[0];
+          PRMemory(J).RWords[0] := Temp2;
+        end;
+        3:
+        begin
+          Temp2 := PLMemory(I).LWords[0];
+          PLMemory(I).LWords[0] := PRMemory(J).RWords[0];
+          PRMemory(J).RWords[0] := Temp2;
+
+          Temp1 := PLMemory(I).LBytes[2];
+          PLMemory(I).LBytes[2] := PRMemory(J).RBytes[2];
+          PRMemory(J).RBytes[2] := Temp1;
+        end;
+        4..7:
+        begin
+          Temp4 := PLMemory(I).LCardinals[0];
+          PLMemory(I).LCardinals[0] := PRMemory(J).RCardinals[0];
+          PRMemory(J).RCardinals[0] := Temp4;
+
+          case SizeOf(T) of
+            5:
+            begin
+              Temp1 := PLMemory(I).LBytes[4];
+              PLMemory(I).LBytes[4] := PRMemory(J).RBytes[4];
+              PRMemory(J).RBytes[4] := Temp1;
+            end;
+            6:
+            begin
+              Temp2 := PLMemory(I).LWords[2];
+              PLMemory(I).LWords[2] := PRMemory(J).RWords[2];
+              PRMemory(J).RWords[2] := Temp2;
+            end;
+            7:
+            begin
+              Temp2 := PLMemory(I).LWords[2];
+              PLMemory(I).LWords[2] := PRMemory(J).RWords[2];
+              PRMemory(J).RWords[2] := Temp2;
+              Temp1 := PLMemory(I).LBytes[6];
+              PLMemory(I).LBytes[6] := PRMemory(J).RBytes[6];
+              PRMemory(J).RBytes[6] := Temp1;
+            end;
+          end;
+        end;
+        8..16:
+        begin
+          TempNative := PLMemory(I).LNatives[0];
+          PLMemory(I).LNatives[0] := PRMemory(J).RNatives[0];
+          PRMemory(J).RNatives[0] := TempNative;
+
+          if (SizeOf(T) >= SizeOf(NativeUInt) * 2) then
+          begin
+            TempNative := PLMemory(I).LNatives[1];
+            PLMemory(I).LNatives[1] := PRMemory(J).RNatives[1];
+            PRMemory(J).RNatives[1] := TempNative;
+          end;
+
+          if (SizeOf(T) >= SizeOf(NativeUInt) * 3) then
+          begin
+            TempNative := PLMemory(I).LNatives[2];
+            PLMemory(I).LNatives[2] := PRMemory(J).RNatives[2];
+            PRMemory(J).RNatives[2] := TempNative;
+          end;
+
+          if (SizeOf(T)  = SizeOf(NativeUInt) * 4) then
+          begin
+            TempNative := PLMemory(I).LNatives[3];
+            PLMemory(I).LNatives[3] := PRMemory(J).RNatives[3];
+            PRMemory(J).RNatives[3] := TempNative;
+          end;
+
+          {$ifdef LARGEINT}
+          case SizeOf(T) of
+            12, 13, 14, 15:
+            begin
+              Temp4 := PLMemory(I).LCardinals[2];
+              PLMemory(I).LCardinals[2] := PRMemory(J).RCardinals[2];
+              PRMemory(J).RCardinals[2] := Temp4;
+            end;
+          end;
+          {$endif}
+
+          case SizeOf(T) of
+            9:
+            begin
+              Temp1 := PLMemory(I).LBytes[8];
+              PLMemory(I).LBytes[8] := PRMemory(J).RBytes[8];
+              PRMemory(J).RBytes[8] := Temp1;
+            end;
+            10:
+            begin
+              Temp2 := PLMemory(I).LWords[4];
+              PLMemory(I).LWords[4] := PRMemory(J).RWords[4];
+              PRMemory(J).RWords[4] := Temp2;
+            end;
+            11:
+            begin
+              Temp2 := PLMemory(I).LWords[4];
+              PLMemory(I).LWords[4] := PRMemory(J).RWords[4];
+              PRMemory(J).RWords[4] := Temp2;
+              Temp1 := PLMemory(I).LBytes[10];
+              PLMemory(I).LBytes[10] := PRMemory(J).RBytes[10];
+              PRMemory(J).RBytes[10] := Temp1;
+            end;
+            13:
+            begin
+              Temp2 := PLMemory(I).LWords[5];
+              PLMemory(I).LWords[5] := PRMemory(J).RWords[5];
+              PRMemory(J).RWords[5] := Temp2;
+              Temp1 := PLMemory(I).LBytes[12];
+              PLMemory(I).LBytes[12] := PRMemory(J).RBytes[12];
+              PRMemory(J).RBytes[12] := Temp1;
+            end;
+            14:
+            begin
+              Temp2 := PLMemory(I).LWords[6];
+              PLMemory(I).LWords[6] := PRMemory(J).RWords[6];
+              PRMemory(J).RWords[6] := Temp2;
+            end;
+            15:
+            begin
+              Temp2 := PLMemory(I).LWords[6];
+              PLMemory(I).LWords[6] := PRMemory(J).RWords[6];
+              PRMemory(J).RWords[6] := Temp2;
+              Temp1 := PLMemory(I).LBytes[14];
+              PLMemory(I).LBytes[14] := PRMemory(J).RBytes[14];
+              PRMemory(J).RBytes[14] := Temp1;
+            end;
+          end;
+        end;
+      else
+        Index := 0;
+        repeat
+          TempNative := PLMemory(I).LNatives[Index];
+          PLMemory(I).LNatives[Index] := PRMemory(J).RNatives[Index];
+          PRMemory(J).RNatives[Index] := TempNative;
+          Inc(Index);
+        until (Index = SizeOf(T) div SizeOf(NativeUInt));
+
+        if (SizeOf(T) and (SizeOf(NativeUInt) - 1) <> 0) then
+        begin
+          {$ifdef LARGEINT}
+          if (SizeOf(T) and 4 <> 0) then
+          begin
+            Index := SizeOf(T) div SizeOf(Cardinal) - 1;
+            Temp4 := PLMemory(I).LCardinals[Index];
+            PLMemory(I).LCardinals[Index] := PRMemory(J).RCardinals[Index];
+            PRMemory(J).RCardinals[Index] := Temp4;
+          end;
+          {$endif}
+
+          if (SizeOf(T) and 2 <> 0) then
+          begin
+            Index := SizeOf(T) div SizeOf(Word) - 1;
+            Temp2 := PLMemory(I).LWords[Index];
+            PLMemory(I).LWords[Index] := PRMemory(J).RWords[Index];
+            PRMemory(J).RWords[Index] := Temp2;
+          end;
+
+          if (SizeOf(T) and 1 <> 0) then
+          begin
+            Index := SizeOf(T) div SizeOf(Byte) - 1;
+            Temp1 := PLMemory(I).LBytes[Index];
+            PLMemory(I).LBytes[Index] := PRMemory(J).RBytes[Index];
+            PRMemory(J).RBytes[Index] := Temp1;
+          end;
+        end;
+      end;
+
+      Dec(J, 2);
+      if (I <= J) then goto swap_loop;
+      Inc(I);
+      Inc(J);
+    end;
+  end;
+
+  // next iteration
+  StackItem := SortItemNext<T>(StackItem, I, J);
+  if (NativeInt(StackItem) >= 0) then goto proc_loop_current;
+  Dec(NativeInt(StackItem), HIGH_NATIVE_BIT);
+  if (StackItem <> @Stack[0]) then goto proc_loop;
+end;
+{$endif .SMARTGENERICS}
+
+class procedure TArray.SortDescendingUniversals<T>(var ValuesArray; const Count: NativeInt; var Helper: TSortHelper<T>);
+label
+  proc_loop, proc_loop_current, insertion_init, swap_loop;
+var
+  Index: NativeInt;
+  Temp1: Byte;
+  Temp2: Word;
+  Temp4: Cardinal;
+  TempNative: NativeUInt;
+
+  I, J, PStop: ^T;
+  StackItem: ^TSortStackItem<T>;
+  Stack: TSortStack<T>;
+begin
+  Stack[0].First := @ValuesArray;
+  Stack[0].Last := Stack[0].First + Count - 1;
+  StackItem := @Stack[1];
+
+proc_loop:
+  Dec(StackItem);
+proc_loop_current:
+  I := StackItem.First;
+  J := StackItem.Last;
+
+  // insertion sort
+  if ((NativeUInt(J) - NativeUInt(I)) < INSERTION_SORT_LIMIT * SizeOf(T)) then
+  begin
+    PStop := StackItem.First;
+    goto insertion_init;
+    repeat
+      if (J = PStop) then Break;
+      Dec(J);
+
+      if (Helper.Compare(Helper.Inst, Helper.Pivot, J^) <= 0) then Continue;
+    insertion_init:
+      I := J;
+      TArray.CopyMemory<T>(@Helper.Pivot, J);
+    until (False);
+    TArray.CopyMemory<T>(I, J);
+    TArray.CopyMemory<T>(J, @Helper.Pivot);
+
+    PStop := StackItem.Last;
+    repeat
+      Inc(J);
+      if (J = PStop) then Break;
+
+      TArray.CopyMemory<T>(@Helper.Pivot, J + 1);
+      if (Helper.Compare(Helper.Inst, J^, Helper.Pivot) <= 0) then Continue;
+
+      I := J;
+      repeat
+        TArray.CopyMemory<T>(I + 1, I);
+        Dec(I);
+        if (Helper.Compare(Helper.Inst, I^, Helper.Pivot) <= 0) then Break;
+      until (False);
+
+      TArray.CopyMemory<T>(I + 1, @Helper.Pivot);
+    until (False);
+
+    if (StackItem <> @STACK[0]) then goto proc_loop;
+    Exit;
+  end;
+
+  // pivot
+  TArray.CopyMemory<T>(@Helper.Pivot, SortItemPivot<T>(I, J));
+
+  // quick sort
+  Dec(J);
+  Dec(I);
+  swap_loop:
+  begin
+    Inc(J, 2);
+
+    repeat
+      Inc(I);
+      if (Helper.Compare(Helper.Inst, Helper.Pivot, I^) <= 0) then Break;
+    until (False);
+
+    repeat
+      Dec(J);
+      if (Helper.Compare(Helper.Inst, J^, Helper.Pivot) <= 0) then Break;
+    until (False);
+
+    if (I <= J) then
+    begin
+      // TArray.Exchange<T>(I, J);
+      case SizeOf(T) of
+        0: ;
+        1:
+        begin
+          Temp1 := PLMemory(I).LBytes[0];
+          PLMemory(I).LBytes[0] := PRMemory(J).RBytes[0];
+          PRMemory(J).RBytes[0] := Temp1;
+        end;
+        2:
+        begin
+          Temp2 := PLMemory(I).LWords[0];
+          PLMemory(I).LWords[0] := PRMemory(J).RWords[0];
+          PRMemory(J).RWords[0] := Temp2;
+        end;
+        3:
+        begin
+          Temp2 := PLMemory(I).LWords[0];
+          PLMemory(I).LWords[0] := PRMemory(J).RWords[0];
+          PRMemory(J).RWords[0] := Temp2;
+
+          Temp1 := PLMemory(I).LBytes[2];
+          PLMemory(I).LBytes[2] := PRMemory(J).RBytes[2];
+          PRMemory(J).RBytes[2] := Temp1;
+        end;
+        4..7:
+        begin
+          Temp4 := PLMemory(I).LCardinals[0];
+          PLMemory(I).LCardinals[0] := PRMemory(J).RCardinals[0];
+          PRMemory(J).RCardinals[0] := Temp4;
+
+          case SizeOf(T) of
+            5:
+            begin
+              Temp1 := PLMemory(I).LBytes[4];
+              PLMemory(I).LBytes[4] := PRMemory(J).RBytes[4];
+              PRMemory(J).RBytes[4] := Temp1;
+            end;
+            6:
+            begin
+              Temp2 := PLMemory(I).LWords[2];
+              PLMemory(I).LWords[2] := PRMemory(J).RWords[2];
+              PRMemory(J).RWords[2] := Temp2;
+            end;
+            7:
+            begin
+              Temp2 := PLMemory(I).LWords[2];
+              PLMemory(I).LWords[2] := PRMemory(J).RWords[2];
+              PRMemory(J).RWords[2] := Temp2;
+              Temp1 := PLMemory(I).LBytes[6];
+              PLMemory(I).LBytes[6] := PRMemory(J).RBytes[6];
+              PRMemory(J).RBytes[6] := Temp1;
+            end;
+          end;
+        end;
+        8..16:
+        begin
+          TempNative := PLMemory(I).LNatives[0];
+          PLMemory(I).LNatives[0] := PRMemory(J).RNatives[0];
+          PRMemory(J).RNatives[0] := TempNative;
+
+          if (SizeOf(T) >= SizeOf(NativeUInt) * 2) then
+          begin
+            TempNative := PLMemory(I).LNatives[1];
+            PLMemory(I).LNatives[1] := PRMemory(J).RNatives[1];
+            PRMemory(J).RNatives[1] := TempNative;
+          end;
+
+          if (SizeOf(T) >= SizeOf(NativeUInt) * 3) then
+          begin
+            TempNative := PLMemory(I).LNatives[2];
+            PLMemory(I).LNatives[2] := PRMemory(J).RNatives[2];
+            PRMemory(J).RNatives[2] := TempNative;
+          end;
+
+          if (SizeOf(T)  = SizeOf(NativeUInt) * 4) then
+          begin
+            TempNative := PLMemory(I).LNatives[3];
+            PLMemory(I).LNatives[3] := PRMemory(J).RNatives[3];
+            PRMemory(J).RNatives[3] := TempNative;
+          end;
+
+          {$ifdef LARGEINT}
+          case SizeOf(T) of
+            12, 13, 14, 15:
+            begin
+              Temp4 := PLMemory(I).LCardinals[2];
+              PLMemory(I).LCardinals[2] := PRMemory(J).RCardinals[2];
+              PRMemory(J).RCardinals[2] := Temp4;
+            end;
+          end;
+          {$endif}
+
+          case SizeOf(T) of
+            9:
+            begin
+              Temp1 := PLMemory(I).LBytes[8];
+              PLMemory(I).LBytes[8] := PRMemory(J).RBytes[8];
+              PRMemory(J).RBytes[8] := Temp1;
+            end;
+            10:
+            begin
+              Temp2 := PLMemory(I).LWords[4];
+              PLMemory(I).LWords[4] := PRMemory(J).RWords[4];
+              PRMemory(J).RWords[4] := Temp2;
+            end;
+            11:
+            begin
+              Temp2 := PLMemory(I).LWords[4];
+              PLMemory(I).LWords[4] := PRMemory(J).RWords[4];
+              PRMemory(J).RWords[4] := Temp2;
+              Temp1 := PLMemory(I).LBytes[10];
+              PLMemory(I).LBytes[10] := PRMemory(J).RBytes[10];
+              PRMemory(J).RBytes[10] := Temp1;
+            end;
+            13:
+            begin
+              Temp2 := PLMemory(I).LWords[5];
+              PLMemory(I).LWords[5] := PRMemory(J).RWords[5];
+              PRMemory(J).RWords[5] := Temp2;
+              Temp1 := PLMemory(I).LBytes[12];
+              PLMemory(I).LBytes[12] := PRMemory(J).RBytes[12];
+              PRMemory(J).RBytes[12] := Temp1;
+            end;
+            14:
+            begin
+              Temp2 := PLMemory(I).LWords[6];
+              PLMemory(I).LWords[6] := PRMemory(J).RWords[6];
+              PRMemory(J).RWords[6] := Temp2;
+            end;
+            15:
+            begin
+              Temp2 := PLMemory(I).LWords[6];
+              PLMemory(I).LWords[6] := PRMemory(J).RWords[6];
+              PRMemory(J).RWords[6] := Temp2;
+              Temp1 := PLMemory(I).LBytes[14];
+              PLMemory(I).LBytes[14] := PRMemory(J).RBytes[14];
+              PRMemory(J).RBytes[14] := Temp1;
+            end;
+          end;
+        end;
+      else
+        Index := 0;
+        repeat
+          TempNative := PLMemory(I).LNatives[Index];
+          PLMemory(I).LNatives[Index] := PRMemory(J).RNatives[Index];
+          PRMemory(J).RNatives[Index] := TempNative;
+          Inc(Index);
+        until (Index = SizeOf(T) div SizeOf(NativeUInt));
+
+        if (SizeOf(T) and (SizeOf(NativeUInt) - 1) <> 0) then
+        begin
+          {$ifdef LARGEINT}
+          if (SizeOf(T) and 4 <> 0) then
+          begin
+            Index := SizeOf(T) div SizeOf(Cardinal) - 1;
+            Temp4 := PLMemory(I).LCardinals[Index];
+            PLMemory(I).LCardinals[Index] := PRMemory(J).RCardinals[Index];
+            PRMemory(J).RCardinals[Index] := Temp4;
+          end;
+          {$endif}
+
+          if (SizeOf(T) and 2 <> 0) then
+          begin
+            Index := SizeOf(T) div SizeOf(Word) - 1;
+            Temp2 := PLMemory(I).LWords[Index];
+            PLMemory(I).LWords[Index] := PRMemory(J).RWords[Index];
+            PRMemory(J).RWords[Index] := Temp2;
+          end;
+
+          if (SizeOf(T) and 1 <> 0) then
+          begin
+            Index := SizeOf(T) div SizeOf(Byte) - 1;
+            Temp1 := PLMemory(I).LBytes[Index];
+            PLMemory(I).LBytes[Index] := PRMemory(J).RBytes[Index];
+            PRMemory(J).RBytes[Index] := Temp1;
+          end;
+        end;
+      end;
+
+      Dec(J, 2);
+      if (I <= J) then goto swap_loop;
+      Inc(I);
+      Inc(J);
+    end;
+  end;
+
+  // next iteration
+  StackItem := SortItemNext<T>(StackItem, I, J);
+  if (NativeInt(StackItem) >= 0) then goto proc_loop_current;
+  Dec(NativeInt(StackItem), HIGH_NATIVE_BIT);
+  if (StackItem <> @Stack[0]) then goto proc_loop;
+end;
+
+class procedure TArray.SortUniversals<T>(var ValuesArray; const Count: NativeInt; var Helper: TSortHelper<T>);
+label
+  proc_loop, proc_loop_current, insertion_init, swap_loop;
+var
+  Index: NativeInt;
+  Temp1: Byte;
+  Temp2: Word;
+  Temp4: Cardinal;
+  TempNative: NativeUInt;
+
+  I, J, PStop: ^T;
+  StackItem: ^TSortStackItem<T>;
+  Stack: TSortStack<T>;
+begin
+  Stack[0].First := @ValuesArray;
+  Stack[0].Last := Stack[0].First + Count - 1;
+  StackItem := @Stack[1];
+
+proc_loop:
+  Dec(StackItem);
+proc_loop_current:
+  I := StackItem.First;
+  J := StackItem.Last;
+
+  // insertion sort
+  if ((NativeUInt(J) - NativeUInt(I)) < INSERTION_SORT_LIMIT * SizeOf(T)) then
+  begin
+    PStop := StackItem.First;
+    goto insertion_init;
+    repeat
+      if (J = PStop) then Break;
+      Dec(J);
+
+      if (Helper.Compare(Helper.Inst, Helper.Pivot, J^) >= 0) then Continue;
+    insertion_init:
+      I := J;
+      TArray.CopyMemory<T>(@Helper.Pivot, J);
+    until (False);
+    TArray.CopyMemory<T>(I, J);
+    TArray.CopyMemory<T>(J, @Helper.Pivot);
+
+    PStop := StackItem.Last;
+    repeat
+      Inc(J);
+      if (J = PStop) then Break;
+
+      TArray.CopyMemory<T>(@Helper.Pivot, J + 1);
+      if (Helper.Compare(Helper.Inst, J^, Helper.Pivot) >= 0) then Continue;
+
+      I := J;
+      repeat
+        TArray.CopyMemory<T>(I + 1, I);
+        Dec(I);
+        if (Helper.Compare(Helper.Inst, I^, Helper.Pivot) >= 0) then Break;
+      until (False);
+
+      TArray.CopyMemory<T>(I + 1, @Helper.Pivot);
+    until (False);
+
+    if (StackItem <> @STACK[0]) then goto proc_loop;
+    Exit;
+  end;
+
+  // pivot
+  TArray.CopyMemory<T>(@Helper.Pivot, SortItemPivot<T>(I, J));
+
+  // quick sort
+  Dec(J);
+  Dec(I);
+  swap_loop:
+  begin
+    Inc(J, 2);
+
+    repeat
+      Inc(I);
+      if (Helper.Compare(Helper.Inst, Helper.Pivot, I^) >= 0) then Break;
+    until (False);
+
+    repeat
+      Dec(J);
+      if (Helper.Compare(Helper.Inst, J^, Helper.Pivot) >= 0) then Break;
+    until (False);
+
+    if (I <= J) then
+    begin
+      // TArray.Exchange<T>(I, J);
+      case SizeOf(T) of
+        0: ;
+        1:
+        begin
+          Temp1 := PLMemory(I).LBytes[0];
+          PLMemory(I).LBytes[0] := PRMemory(J).RBytes[0];
+          PRMemory(J).RBytes[0] := Temp1;
+        end;
+        2:
+        begin
+          Temp2 := PLMemory(I).LWords[0];
+          PLMemory(I).LWords[0] := PRMemory(J).RWords[0];
+          PRMemory(J).RWords[0] := Temp2;
+        end;
+        3:
+        begin
+          Temp2 := PLMemory(I).LWords[0];
+          PLMemory(I).LWords[0] := PRMemory(J).RWords[0];
+          PRMemory(J).RWords[0] := Temp2;
+
+          Temp1 := PLMemory(I).LBytes[2];
+          PLMemory(I).LBytes[2] := PRMemory(J).RBytes[2];
+          PRMemory(J).RBytes[2] := Temp1;
+        end;
+        4..7:
+        begin
+          Temp4 := PLMemory(I).LCardinals[0];
+          PLMemory(I).LCardinals[0] := PRMemory(J).RCardinals[0];
+          PRMemory(J).RCardinals[0] := Temp4;
+
+          case SizeOf(T) of
+            5:
+            begin
+              Temp1 := PLMemory(I).LBytes[4];
+              PLMemory(I).LBytes[4] := PRMemory(J).RBytes[4];
+              PRMemory(J).RBytes[4] := Temp1;
+            end;
+            6:
+            begin
+              Temp2 := PLMemory(I).LWords[2];
+              PLMemory(I).LWords[2] := PRMemory(J).RWords[2];
+              PRMemory(J).RWords[2] := Temp2;
+            end;
+            7:
+            begin
+              Temp2 := PLMemory(I).LWords[2];
+              PLMemory(I).LWords[2] := PRMemory(J).RWords[2];
+              PRMemory(J).RWords[2] := Temp2;
+              Temp1 := PLMemory(I).LBytes[6];
+              PLMemory(I).LBytes[6] := PRMemory(J).RBytes[6];
+              PRMemory(J).RBytes[6] := Temp1;
+            end;
+          end;
+        end;
+        8..16:
+        begin
+          TempNative := PLMemory(I).LNatives[0];
+          PLMemory(I).LNatives[0] := PRMemory(J).RNatives[0];
+          PRMemory(J).RNatives[0] := TempNative;
+
+          if (SizeOf(T) >= SizeOf(NativeUInt) * 2) then
+          begin
+            TempNative := PLMemory(I).LNatives[1];
+            PLMemory(I).LNatives[1] := PRMemory(J).RNatives[1];
+            PRMemory(J).RNatives[1] := TempNative;
+          end;
+
+          if (SizeOf(T) >= SizeOf(NativeUInt) * 3) then
+          begin
+            TempNative := PLMemory(I).LNatives[2];
+            PLMemory(I).LNatives[2] := PRMemory(J).RNatives[2];
+            PRMemory(J).RNatives[2] := TempNative;
+          end;
+
+          if (SizeOf(T)  = SizeOf(NativeUInt) * 4) then
+          begin
+            TempNative := PLMemory(I).LNatives[3];
+            PLMemory(I).LNatives[3] := PRMemory(J).RNatives[3];
+            PRMemory(J).RNatives[3] := TempNative;
+          end;
+
+          {$ifdef LARGEINT}
+          case SizeOf(T) of
+            12, 13, 14, 15:
+            begin
+              Temp4 := PLMemory(I).LCardinals[2];
+              PLMemory(I).LCardinals[2] := PRMemory(J).RCardinals[2];
+              PRMemory(J).RCardinals[2] := Temp4;
+            end;
+          end;
+          {$endif}
+
+          case SizeOf(T) of
+            9:
+            begin
+              Temp1 := PLMemory(I).LBytes[8];
+              PLMemory(I).LBytes[8] := PRMemory(J).RBytes[8];
+              PRMemory(J).RBytes[8] := Temp1;
+            end;
+            10:
+            begin
+              Temp2 := PLMemory(I).LWords[4];
+              PLMemory(I).LWords[4] := PRMemory(J).RWords[4];
+              PRMemory(J).RWords[4] := Temp2;
+            end;
+            11:
+            begin
+              Temp2 := PLMemory(I).LWords[4];
+              PLMemory(I).LWords[4] := PRMemory(J).RWords[4];
+              PRMemory(J).RWords[4] := Temp2;
+              Temp1 := PLMemory(I).LBytes[10];
+              PLMemory(I).LBytes[10] := PRMemory(J).RBytes[10];
+              PRMemory(J).RBytes[10] := Temp1;
+            end;
+            13:
+            begin
+              Temp2 := PLMemory(I).LWords[5];
+              PLMemory(I).LWords[5] := PRMemory(J).RWords[5];
+              PRMemory(J).RWords[5] := Temp2;
+              Temp1 := PLMemory(I).LBytes[12];
+              PLMemory(I).LBytes[12] := PRMemory(J).RBytes[12];
+              PRMemory(J).RBytes[12] := Temp1;
+            end;
+            14:
+            begin
+              Temp2 := PLMemory(I).LWords[6];
+              PLMemory(I).LWords[6] := PRMemory(J).RWords[6];
+              PRMemory(J).RWords[6] := Temp2;
+            end;
+            15:
+            begin
+              Temp2 := PLMemory(I).LWords[6];
+              PLMemory(I).LWords[6] := PRMemory(J).RWords[6];
+              PRMemory(J).RWords[6] := Temp2;
+              Temp1 := PLMemory(I).LBytes[14];
+              PLMemory(I).LBytes[14] := PRMemory(J).RBytes[14];
+              PRMemory(J).RBytes[14] := Temp1;
+            end;
+          end;
+        end;
+      else
+        Index := 0;
+        repeat
+          TempNative := PLMemory(I).LNatives[Index];
+          PLMemory(I).LNatives[Index] := PRMemory(J).RNatives[Index];
+          PRMemory(J).RNatives[Index] := TempNative;
+          Inc(Index);
+        until (Index = SizeOf(T) div SizeOf(NativeUInt));
+
+        if (SizeOf(T) and (SizeOf(NativeUInt) - 1) <> 0) then
+        begin
+          {$ifdef LARGEINT}
+          if (SizeOf(T) and 4 <> 0) then
+          begin
+            Index := SizeOf(T) div SizeOf(Cardinal) - 1;
+            Temp4 := PLMemory(I).LCardinals[Index];
+            PLMemory(I).LCardinals[Index] := PRMemory(J).RCardinals[Index];
+            PRMemory(J).RCardinals[Index] := Temp4;
+          end;
+          {$endif}
+
+          if (SizeOf(T) and 2 <> 0) then
+          begin
+            Index := SizeOf(T) div SizeOf(Word) - 1;
+            Temp2 := PLMemory(I).LWords[Index];
+            PLMemory(I).LWords[Index] := PRMemory(J).RWords[Index];
+            PRMemory(J).RWords[Index] := Temp2;
+          end;
+
+          if (SizeOf(T) and 1 <> 0) then
+          begin
+            Index := SizeOf(T) div SizeOf(Byte) - 1;
+            Temp1 := PLMemory(I).LBytes[Index];
+            PLMemory(I).LBytes[Index] := PRMemory(J).RBytes[Index];
+            PRMemory(J).RBytes[Index] := Temp1;
+          end;
+        end;
+      end;
+
+      Dec(J, 2);
+      if (I <= J) then goto swap_loop;
+      Inc(I);
+      Inc(J);
+    end;
+  end;
+
+  // next iteration
+  StackItem := SortItemNext<T>(StackItem, I, J);
+  if (NativeInt(StackItem) >= 0) then goto proc_loop_current;
+  Dec(NativeInt(StackItem), HIGH_NATIVE_BIT);
+  if (StackItem <> @Stack[0]) then goto proc_loop;
+end;
+
+class procedure TArray.Sort<T>(var Values: T; const Count: Integer);
+{$ifdef SMARTGENERICS}
+var
+  TypeData: PTypeData;
+  PivotBig: ^T;
+begin
+  if (Count <= 1) then Exit;
+
+  if (GetTypeKind(T) in [tkInteger, tkEnumeration, tkChar, tkWChar, tkInt64]) or
+    ((GetTypeKind(T) = tkFloat) and (SizeOf(T) = 8)) then
+  begin
+    TypeData := Pointer(TypeInfo(T));
+    Inc(NativeUInt(TypeData), NativeUInt(PByte(@PTypeInfo(TypeData).Name)^) + 2);
+  end;
+
+  case GetTypeKind(T) of
+    tkInteger, tkEnumeration, tkChar, tkWChar:
+    case TypeData.OrdType of
+      otSByte: SortSigneds<ShortInt>(Values, Count);
+      otUByte: SortUnsigneds<Byte>(Values, Count);
+      otSWord: SortSigneds<SmallInt>(Values, Count);
+      otUWord: SortUnsigneds<Word>(Values, Count);
+      otSLong: SortSigneds<Integer>(Values, Count);
+      otULong: SortUnsigneds<Cardinal>(Values, Count);
+    end;
+    tkInt64:
+    begin
+      if (TypeData.MaxInt64Value > TypeData.MinInt64Value) then
+      begin
+        SortSigneds<Int64>(Values, Count);
+      end else
+      begin
+        SortUnsigneds<UInt64>(Values, Count);
+      end;
+    end;
+    tkClass, tkInterface, tkClassRef, tkPointer, tkProcedure:
+    begin
+      {$ifdef LARGEINT}
+        SortUnsigneds<UInt64>(Values, Count);
+      {$else .SMALLINT}
+        SortUnsigneds<Cardinal>(Values, Count);
+      {$endif}
+    end;
+    tkFloat:
+    case SizeOf(T) of
+       4: SortFloats<Single>(Values, Count);
+      10: SortFloats<Extended>(Values, Count);
+    else
+      if (TypeData.FloatType = ftDouble) then
+      begin
+        SortFloats<Double>(Values, Count);
+      end else
+      begin
+        SortSigneds<Int64>(Values, Count);
+      end;
+    end;
+    tkMethod:
+    begin
+      SortBinaries<InterfaceDefaults.TMethodPtr>(Values, Count, InterfaceDefaults.TMethodPtr(nil^));
+    end;
+    tkVariant:
+    begin
+      TArray.Sort<Variant>(PVariant(@Values)^, Count, IComparer<Variant>(@InterfaceDefaults.TDefaultComparer<Variant>.Instance));
+    end;
+    tkString:
+    begin
+      SortBinaries<T>(Values, Count, T(nil^));
+    end;
+    tkLString:
+    begin
+      {$ifdef NEXTGEN}
+         SortBinaries<T>(Values, Count, T(nil^));
+      {$else}
+         SortBinaries<AnsiString>(Values, Count, AnsiString(nil^));
+      {$endif}
+    end;
+    {$ifdef MSWINDOWS}
+    tkWString:
+    begin
+      SortBinaries<WideString>(Values, Count, WideString(nil^));
+    end;
+    {$else}
+    tkWString,
+    {$endif}
+    tkUString:
+    begin
+      SortBinaries<UnicodeString>(Values, Count, UnicodeString(nil^));
+    end;
+    tkDynArray:
+    begin
+      SortBinaries<T>(Values, Count, T(nil^));
+    end;
+  else
+    // binary
+    case SizeOf(T) of
+      0: ;
+      1: SortUnsigneds<Byte>(Values, Count);
+      2..BUFFER_SIZE: SortBinaries<T>(Values, Count, T(nil^));
+    else
+      GetMem(PivotBig, SizeOf(T));
+      try
+        SortBinaries<T>(Values, Count, PivotBig^);
+      finally
+        FreeMem(PivotBig);
+      end;
+    end;
+  end;
+end;
+{$else}
+begin
+  TArray.Sort<T>(Values, Count, IComparer<T>(@InterfaceDefaults.TDefaultComparer<T>.Instance));
+end;
+{$endif}
+
+class procedure TArray.Sort<T>(var Values: T; const Count: Integer; const Comparer: IComparer<T>);
+var
+  HelperBuffer: array[0..BUFFER_SIZE - 1] of Byte;
+  Helper: ^TSortHelper<T>;
+begin
+  if (Count <= 1) then Exit;
+
+  if (SizeOf(TSortHelper<T>) <= SizeOf(HelperBuffer)) then
+  begin
+    Helper := Pointer(@HelperBuffer);
+    Helper.Init(Comparer);
+    TArray.SortUniversals<T>(Values, Count, Helper^);
+  end else
+  begin
+    GetMem(Helper, SizeOf(TSortHelper<T>));
+    try
+      Helper.Init(Comparer);
+      TArray.SortUniversals<T>(Values, Count, Helper^);
+    finally
+      FreeMem(Helper);
+    end;
+  end;
+end;
+
+class procedure TArray.Sort<T>(var Values: T; const Count: Integer; const Comparison: TComparison<T>);
+var
+  HelperBuffer: array[0..BUFFER_SIZE - 1] of Byte;
+  Helper: ^TSortHelper<T>;
+begin
+  if (Count <= 1) then Exit;
+
+  if (SizeOf(TSortHelper<T>) <= SizeOf(HelperBuffer)) then
+  begin
+    Helper := Pointer(@HelperBuffer);
+    Helper.Init(Comparison);
+    TArray.SortUniversals<T>(Values, Count, Helper^);
+  end else
+  begin
+    GetMem(Helper, SizeOf(TSortHelper<T>));
+    try
+      Helper.Init(Comparison);
+      TArray.SortUniversals<T>(Values, Count, Helper^);
+    finally
+      FreeMem(Helper);
+    end;
+  end;
 end;
 
 class procedure TArray.Sort<T>(var Values: array of T);
 begin
   if (High(Values) > 0) then
-    QuickSort<T>(Values, TComparer<T>.Default, Low(Values), High(Values));
+    Sort<T>(Values[0], Length(Values));
 end;
 
 class procedure TArray.Sort<T>(var Values: array of T; const Comparer: IComparer<T>);
 begin
   if (High(Values) > 0) then
-    QuickSort<T>(Values, Comparer, Low(Values), High(Values));
+   Sort<T>(Values[0], Length(Values), Comparer);
 end;
 
-class procedure TArray.Sort<T>(var Values: array of T; const Comparer: IComparer<T>;
-  Index, Count: Integer);
+class procedure TArray.Sort<T>(var Values: array of T; const Comparer: IComparer<T>; Index, Count: Integer);
 begin
   if (Index < Low(Values)) or ((Index > High(Values)) and (Count > 0))
     or (Index + Count - 1 > High(Values)) or (Count < 0)
@@ -7996,7 +12159,230 @@ begin
     raise EArgumentOutOfRangeException.CreateRes(Pointer(@SArgumentOutOfRange));
   if Count <= 1 then
     Exit;
-  QuickSort<T>(Values, Comparer, Index, Index + Count - 1);
+
+  Sort<T>(Values[Index], Count, Comparer);
+end;
+
+class procedure TArray.Sort<T>(var Values: array of T; const Comparison: TComparison<T>);
+begin
+  if (High(Values) > 0) then
+   Sort<T>(Values[0], Length(Values), Comparison);
+end;
+
+class procedure TArray.Sort<T>(var Values: array of T; const Comparison: TComparison<T>; Index, Count: Integer);
+begin
+  if (Index < Low(Values)) or ((Index > High(Values)) and (Count > 0))
+    or (Index + Count - 1 > High(Values)) or (Count < 0)
+    or (Index + Count < 0) then
+    raise EArgumentOutOfRangeException.CreateRes(Pointer(@SArgumentOutOfRange));
+  if Count <= 1 then
+    Exit;
+
+  Sort<T>(Values[Index], Count, Comparison);
+end;
+
+class procedure TArray.SortDescending<T>(var Values: T; const Count: Integer);
+{$ifdef SMARTGENERICS}
+var
+  TypeData: PTypeData;
+  PivotBig: ^T;
+begin
+  if (Count <= 1) then Exit;
+
+  if (GetTypeKind(T) in [tkInteger, tkEnumeration, tkChar, tkWChar, tkInt64]) or
+    ((GetTypeKind(T) = tkFloat) and (SizeOf(T) = 8)) then
+  begin
+    TypeData := Pointer(TypeInfo(T));
+    Inc(NativeUInt(TypeData), NativeUInt(PByte(@PTypeInfo(TypeData).Name)^) + 2);
+  end;
+
+  case GetTypeKind(T) of
+    tkInteger, tkEnumeration, tkChar, tkWChar:
+    case TypeData.OrdType of
+      otSByte: SortDescendingSigneds<ShortInt>(Values, Count);
+      otUByte: SortDescendingUnsigneds<Byte>(Values, Count);
+      otSWord: SortDescendingSigneds<SmallInt>(Values, Count);
+      otUWord: SortDescendingUnsigneds<Word>(Values, Count);
+      otSLong: SortDescendingSigneds<Integer>(Values, Count);
+      otULong: SortDescendingUnsigneds<Cardinal>(Values, Count);
+    end;
+    tkInt64:
+    begin
+      if (TypeData.MaxInt64Value > TypeData.MinInt64Value) then
+      begin
+        SortDescendingSigneds<Int64>(Values, Count);
+      end else
+      begin
+        SortDescendingUnsigneds<UInt64>(Values, Count);
+      end;
+    end;
+    tkClass, tkInterface, tkClassRef, tkPointer, tkProcedure:
+    begin
+      {$ifdef LARGEINT}
+        SortDescendingUnsigneds<UInt64>(Values, Count);
+      {$else .SMALLINT}
+        SortDescendingUnsigneds<Cardinal>(Values, Count);
+      {$endif}
+    end;
+    tkFloat:
+    case SizeOf(T) of
+       4: SortDescendingFloats<Single>(Values, Count);
+      10: SortDescendingFloats<Extended>(Values, Count);
+    else
+      if (TypeData.FloatType = ftDouble) then
+      begin
+        SortDescendingFloats<Double>(Values, Count);
+      end else
+      begin
+        SortDescendingSigneds<Int64>(Values, Count);
+      end;
+    end;
+    tkMethod:
+    begin
+      SortDescendingBinaries<InterfaceDefaults.TMethodPtr>(Values, Count, InterfaceDefaults.TMethodPtr(nil^));
+    end;
+    tkVariant:
+    begin
+      TArray.SortDescending<Variant>(PVariant(@Values)^, Count, IComparer<Variant>(@InterfaceDefaults.TDefaultComparer<Variant>.Instance));
+    end;
+    tkString:
+    begin
+      SortDescendingBinaries<T>(Values, Count, T(nil^));
+    end;
+    tkLString:
+    begin
+      {$ifdef NEXTGEN}
+         SortDescendingBinaries<T>(Values, Count, T(nil^));
+      {$else}
+         SortDescendingBinaries<AnsiString>(Values, Count, AnsiString(nil^));
+      {$endif}
+    end;
+    {$ifdef MSWINDOWS}
+    tkWString:
+    begin
+      SortDescendingBinaries<WideString>(Values, Count, WideString(nil^));
+    end;
+    {$else}
+    tkWString,
+    {$endif}
+    tkUString:
+    begin
+      SortDescendingBinaries<UnicodeString>(Values, Count, UnicodeString(nil^));
+    end;
+    tkDynArray:
+    begin
+      SortDescendingBinaries<T>(Values, Count, T(nil^));
+    end;
+  else
+    // binary
+    case SizeOf(T) of
+      0: ;
+      1: SortDescendingUnsigneds<Byte>(Values, Count);
+      2..BUFFER_SIZE: SortDescendingBinaries<T>(Values, Count, T(nil^));
+    else
+      GetMem(PivotBig, SizeOf(T));
+      try
+        SortDescendingBinaries<T>(Values, Count, PivotBig^);
+      finally
+        FreeMem(PivotBig);
+      end;
+    end;
+  end;
+end;
+{$else}
+begin
+  TArray.SortDescending<T>(Values, Count, IComparer<T>(@InterfaceDefaults.TDefaultComparer<T>.Instance));
+end;
+{$endif}
+
+class procedure TArray.SortDescending<T>(var Values: T; const Count: Integer; const Comparer: IComparer<T>);
+var
+  HelperBuffer: array[0..BUFFER_SIZE - 1] of Byte;
+  Helper: ^TSortHelper<T>;
+begin
+  if (Count <= 1) then Exit;
+
+  if (SizeOf(TSortHelper<T>) <= SizeOf(HelperBuffer)) then
+  begin
+    Helper := Pointer(@HelperBuffer);
+    Helper.Init(Comparer);
+    TArray.SortDescendingUniversals<T>(Values, Count, Helper^);
+  end else
+  begin
+    GetMem(Helper, SizeOf(TSortHelper<T>));
+    try
+      Helper.Init(Comparer);
+      TArray.SortDescendingUniversals<T>(Values, Count, Helper^);
+    finally
+      FreeMem(Helper);
+    end;
+  end;
+end;
+
+class procedure TArray.SortDescending<T>(var Values: T; const Count: Integer; const Comparison: TComparison<T>);
+var
+  HelperBuffer: array[0..BUFFER_SIZE - 1] of Byte;
+  Helper: ^TSortHelper<T>;
+begin
+  if (Count <= 1) then Exit;
+
+  if (SizeOf(TSortHelper<T>) <= SizeOf(HelperBuffer)) then
+  begin
+    Helper := Pointer(@HelperBuffer);
+    Helper.Init(Comparison);
+    TArray.SortDescendingUniversals<T>(Values, Count, Helper^);
+  end else
+  begin
+    GetMem(Helper, SizeOf(TSortHelper<T>));
+    try
+      Helper.Init(Comparison);
+      TArray.SortDescendingUniversals<T>(Values, Count, Helper^);
+    finally
+      FreeMem(Helper);
+    end;
+  end;
+end;
+
+class procedure TArray.SortDescending<T>(var Values: array of T);
+begin
+  if (High(Values) > 0) then
+    SortDescending<T>(Values[0], Length(Values));
+end;
+
+class procedure TArray.SortDescending<T>(var Values: array of T; const Comparer: IComparer<T>);
+begin
+  if (High(Values) > 0) then
+   SortDescending<T>(Values[0], Length(Values), Comparer);
+end;
+
+class procedure TArray.SortDescending<T>(var Values: array of T; const Comparer: IComparer<T>; Index, Count: Integer);
+begin
+  if (Index < Low(Values)) or ((Index > High(Values)) and (Count > 0))
+    or (Index + Count - 1 > High(Values)) or (Count < 0)
+    or (Index + Count < 0) then
+    raise EArgumentOutOfRangeException.CreateRes(Pointer(@SArgumentOutOfRange));
+  if Count <= 1 then
+    Exit;
+
+  SortDescending<T>(Values[Index], Count, Comparer);
+end;
+
+class procedure TArray.SortDescending<T>(var Values: array of T; const Comparison: TComparison<T>);
+begin
+  if (High(Values) > 0) then
+   SortDescending<T>(Values[0], Length(Values), Comparison);
+end;
+
+class procedure TArray.SortDescending<T>(var Values: array of T; const Comparison: TComparison<T>; Index, Count: Integer);
+begin
+  if (Index < Low(Values)) or ((Index > High(Values)) and (Count > 0))
+    or (Index + Count - 1 > High(Values)) or (Count < 0)
+    or (Index + Count < 0) then
+    raise EArgumentOutOfRangeException.CreateRes(Pointer(@SArgumentOutOfRange));
+  if Count <= 1 then
+    Exit;
+
+  SortDescending<T>(Values[Index], Count, Comparison);
 end;
 
 
@@ -9147,127 +13533,10 @@ begin
   Result := Self;
 end;
 
-procedure TList<T>.InternalExchange(Index1, Index2: Integer);
-var
-  Count: Cardinal;
-  X, Y: PItem;
-  Temp: T;
-begin
-  Count := FCount.Int;
-  if (Cardinal(Index1) < Count) and (Cardinal(Index2) < Count) then
-  begin
-    if (Index1 <> Index2) then
-    begin
-      X := Pointer(FItems);
-      Y := X + Index2;
-      Inc(X, Index1);
-
-      Temp := X^;
-      X^ := Y^;
-      Y^ := Temp;
-    end;
-  end else
-  begin
-    raise EArgumentOutOfRangeException.CreateRes(Pointer(@SArgumentOutOfRange));
-  end;
-end;
-
-procedure TList<T>.InternalExchange40(Index1, Index2: Integer);
-type
-  T1 = Byte;
-  T2 = Word;
-  T3 = array[1..3] of Byte;
-  T4 = Cardinal;
-  T5 = array[1..5] of Byte;
-  T6 = array[1..6] of Byte;
-  T7 = array[1..7] of Byte;
-  T8 = Int64;
-  T9 = array[1..9] of Byte;
-  T10 = array[1..10] of Byte;
-  T11 = array[1..11] of Byte;
-  T12 = array[1..12] of Byte;
-  T13 = array[1..13] of Byte;
-  T14 = array[1..14] of Byte;
-  T15 = array[1..15] of Byte;
-  T16 = array[1..16] of Byte;
-  T17 = array[1..17] of Byte;
-  T18 = array[1..18] of Byte;
-  T19 = array[1..19] of Byte;
-  T20 = array[1..20] of Byte;
-  T21 = array[1..21] of Byte;
-  T22 = array[1..22] of Byte;
-  T23 = array[1..23] of Byte;
-  T24 = array[1..24] of Byte;
-  T25 = array[1..25] of Byte;
-  T26 = array[1..26] of Byte;
-  T27 = array[1..27] of Byte;
-  T28 = array[1..28] of Byte;
-  T29 = array[1..29] of Byte;
-  T30 = array[1..30] of Byte;
-  T31 = array[1..31] of Byte;
-  T32 = array[1..32] of Byte;
-  T33 = array[1..33] of Byte;
-  T34 = array[1..34] of Byte;
-  T35 = array[1..35] of Byte;
-  T36 = array[1..36] of Byte;
-  T37 = array[1..37] of Byte;
-  T38 = array[1..38] of Byte;
-  T39 = array[1..39] of Byte;
-  T40 = array[1..40] of Byte;
-
-  TTemp40 = record
-  case Integer of
-     1: (V1: T1);
-     2: (V2: T2);
-     3: (V3: T3);
-     4: (V4: T4);
-     5: (V5: T5);
-     6: (V6: T6);
-     7: (V7: T7);
-     8: (V8: T8);
-     9: (V9: T9);
-    10: (V10: T10);
-    11: (V11: T11);
-    12: (V12: T12);
-    13: (V13: T13);
-    14: (V14: T14);
-    15: (V15: T15);
-    16: (V16: T16);
-    17: (V17: T17);
-    18: (V18: T18);
-    19: (V19: T19);
-    20: (V20: T20);
-    21: (V21: T21);
-    22: (V22: T22);
-    23: (V23: T23);
-    24: (V24: T24);
-    25: (V25: T25);
-    26: (V26: T26);
-    27: (V27: T27);
-    28: (V28: T28);
-    29: (V29: T29);
-    30: (V30: T30);
-    31: (V31: T31);
-    32: (V32: T32);
-    33: (V33: T33);
-    34: (V34: T34);
-    35: (V35: T35);
-    36: (V36: T36);
-    37: (V37: T37);
-    38: (V38: T38);
-    39: (V39: T39);
-    40: (V40: T40);
-  end;
-
+procedure TList<T>.Exchange(Index1, Index2: Integer);
 var
   Count: Cardinal;
   X, Y: Pointer;
-
-  Temp1: T1;
-  Temp2: T2;
-  Temp4: T4;
-  Temp8: T8;
-  Temp40: TTemp40;
 begin
   Count := FCount.Int;
   if (Cardinal(Index1) < Count) and (Cardinal(Index2) < Count) then
@@ -9275,266 +13544,14 @@ begin
     if (Index1 <> Index2) then
     begin
       X := Pointer(FItems);
-      Y := PItem(X) + Index2;
-      Inc(PItem(X), Index1);
+      Y := Pointer(TCustomList<T>.PItem(X) + Index2);
+      X := Pointer(TCustomList<T>.PItem(X) + Index1);
 
-      case SizeOf(T) of
-        1:
-        begin
-          Temp1 := T1(Pointer(X)^);
-          T1(Pointer(X)^) := T1(Pointer(Y)^);
-          T1(Pointer(Y)^) := Temp1;
-        end;
-        2:
-        begin
-          Temp2 := T2(Pointer(X)^);
-          T2(Pointer(X)^) := T2(Pointer(Y)^);
-          T2(Pointer(Y)^) := Temp2;
-        end;
-        3:
-        begin
-          Temp40.V3 := T3(Pointer(X)^);
-          T3(Pointer(X)^) := T3(Pointer(Y)^);
-          T3(Pointer(Y)^) := Temp40.V3;
-        end;
-        4:
-        begin
-          Temp4 := T4(Pointer(X)^);
-          T4(Pointer(X)^) := T4(Pointer(Y)^);
-          T4(Pointer(Y)^) := Temp4;
-        end;
-        5:
-        begin
-          Temp40.V5 := T5(Pointer(X)^);
-          T5(Pointer(X)^) := T5(Pointer(Y)^);
-          T5(Pointer(Y)^) := Temp40.V5;
-        end;
-        6:
-        begin
-          Temp40.V6 := T6(Pointer(X)^);
-          T6(Pointer(X)^) := T6(Pointer(Y)^);
-          T6(Pointer(Y)^) := Temp40.V6;
-        end;
-        7:
-        begin
-          Temp40.V7 := T7(Pointer(X)^);
-          T7(Pointer(X)^) := T7(Pointer(Y)^);
-          T7(Pointer(Y)^) := Temp40.V7;
-        end;
-        8:
-        begin
-          Temp8 := T8(Pointer(X)^);
-          T8(Pointer(X)^) := T8(Pointer(Y)^);
-          T8(Pointer(Y)^) := Temp8;
-        end;
-        9:
-        begin
-          Temp40.V9 := T9(Pointer(X)^);
-          T9(Pointer(X)^) := T9(Pointer(Y)^);
-          T9(Pointer(Y)^) := Temp40.V9;
-        end;
-        10:
-        begin
-          Temp40.V10 := T10(Pointer(X)^);
-          T10(Pointer(X)^) := T10(Pointer(Y)^);
-          T10(Pointer(Y)^) := Temp40.V10;
-        end;
-        11:
-        begin
-          Temp40.V11 := T11(Pointer(X)^);
-          T11(Pointer(X)^) := T11(Pointer(Y)^);
-          T11(Pointer(Y)^) := Temp40.V11;
-        end;
-        12:
-        begin
-          Temp40.V12 := T12(Pointer(X)^);
-          T12(Pointer(X)^) := T12(Pointer(Y)^);
-          T12(Pointer(Y)^) := Temp40.V12;
-        end;
-        13:
-        begin
-          Temp40.V13 := T13(Pointer(X)^);
-          T13(Pointer(X)^) := T13(Pointer(Y)^);
-          T13(Pointer(Y)^) := Temp40.V13;
-        end;
-        14:
-        begin
-          Temp40.V14 := T14(Pointer(X)^);
-          T14(Pointer(X)^) := T14(Pointer(Y)^);
-          T14(Pointer(Y)^) := Temp40.V14;
-        end;
-        15:
-        begin
-          Temp40.V15 := T15(Pointer(X)^);
-          T15(Pointer(X)^) := T15(Pointer(Y)^);
-          T15(Pointer(Y)^) := Temp40.V15;
-        end;
-        16:
-        begin
-          Temp40.V16 := T16(Pointer(X)^);
-          T16(Pointer(X)^) := T16(Pointer(Y)^);
-          T16(Pointer(Y)^) := Temp40.V16;
-        end;
-        17:
-        begin
-          Temp40.V17 := T17(Pointer(X)^);
-          T17(Pointer(X)^) := T17(Pointer(Y)^);
-          T17(Pointer(Y)^) := Temp40.V17;
-        end;
-        18:
-        begin
-          Temp40.V18 := T18(Pointer(X)^);
-          T18(Pointer(X)^) := T18(Pointer(Y)^);
-          T18(Pointer(Y)^) := Temp40.V18;
-        end;
-        19:
-        begin
-          Temp40.V19 := T19(Pointer(X)^);
-          T19(Pointer(X)^) := T19(Pointer(Y)^);
-          T19(Pointer(Y)^) := Temp40.V19;
-        end;
-        20:
-        begin
-          Temp40.V20 := T20(Pointer(X)^);
-          T20(Pointer(X)^) := T20(Pointer(Y)^);
-          T20(Pointer(Y)^) := Temp40.V20;
-        end;
-        21:
-        begin
-          Temp40.V21 := T21(Pointer(X)^);
-          T21(Pointer(X)^) := T21(Pointer(Y)^);
-          T21(Pointer(Y)^) := Temp40.V21;
-        end;
-        22:
-        begin
-          Temp40.V22 := T22(Pointer(X)^);
-          T22(Pointer(X)^) := T22(Pointer(Y)^);
-          T22(Pointer(Y)^) := Temp40.V22;
-        end;
-        23:
-        begin
-          Temp40.V23 := T23(Pointer(X)^);
-          T23(Pointer(X)^) := T23(Pointer(Y)^);
-          T23(Pointer(Y)^) := Temp40.V23;
-        end;
-        24:
-        begin
-          Temp40.V24 := T24(Pointer(X)^);
-          T24(Pointer(X)^) := T24(Pointer(Y)^);
-          T24(Pointer(Y)^) := Temp40.V24;
-        end;
-        25:
-        begin
-          Temp40.V25 := T25(Pointer(X)^);
-          T25(Pointer(X)^) := T25(Pointer(Y)^);
-          T25(Pointer(Y)^) := Temp40.V25;
-        end;
-        26:
-        begin
-          Temp40.V26 := T26(Pointer(X)^);
-          T26(Pointer(X)^) := T26(Pointer(Y)^);
-          T26(Pointer(Y)^) := Temp40.V26;
-        end;
-        27:
-        begin
-          Temp40.V27 := T27(Pointer(X)^);
-          T27(Pointer(X)^) := T27(Pointer(Y)^);
-          T27(Pointer(Y)^) := Temp40.V27;
-        end;
-        28:
-        begin
-          Temp40.V28 := T28(Pointer(X)^);
-          T28(Pointer(X)^) := T28(Pointer(Y)^);
-          T28(Pointer(Y)^) := Temp40.V28;
-        end;
-        29:
-        begin
-          Temp40.V29 := T29(Pointer(X)^);
-          T29(Pointer(X)^) := T29(Pointer(Y)^);
-          T29(Pointer(Y)^) := Temp40.V29;
-        end;
-        30:
-        begin
-          Temp40.V30 := T30(Pointer(X)^);
-          T30(Pointer(X)^) := T30(Pointer(Y)^);
-          T30(Pointer(Y)^) := Temp40.V30;
-        end;
-        31:
-        begin
-          Temp40.V31 := T31(Pointer(X)^);
-          T31(Pointer(X)^) := T31(Pointer(Y)^);
-          T31(Pointer(Y)^) := Temp40.V31;
-        end;
-        32:
-        begin
-          Temp40.V32 := T32(Pointer(X)^);
-          T32(Pointer(X)^) := T32(Pointer(Y)^);
-          T32(Pointer(Y)^) := Temp40.V32;
-        end;
-        33:
-        begin
-          Temp40.V33 := T33(Pointer(X)^);
-          T33(Pointer(X)^) := T33(Pointer(Y)^);
-          T33(Pointer(Y)^) := Temp40.V33;
-        end;
-        34:
-        begin
-          Temp40.V34 := T34(Pointer(X)^);
-          T34(Pointer(X)^) := T34(Pointer(Y)^);
-          T34(Pointer(Y)^) := Temp40.V34;
-        end;
-        35:
-        begin
-          Temp40.V35 := T35(Pointer(X)^);
-          T35(Pointer(X)^) := T35(Pointer(Y)^);
-          T35(Pointer(Y)^) := Temp40.V35;
-        end;
-        36:
-        begin
-          Temp40.V36 := T36(Pointer(X)^);
-          T36(Pointer(X)^) := T36(Pointer(Y)^);
-          T36(Pointer(Y)^) := Temp40.V36;
-        end;
-        37:
-        begin
-          Temp40.V37 := T37(Pointer(X)^);
-          T37(Pointer(X)^) := T37(Pointer(Y)^);
-          T37(Pointer(Y)^) := Temp40.V37;
-        end;
-        38:
-        begin
-          Temp40.V38 := T38(Pointer(X)^);
-          T38(Pointer(X)^) := T38(Pointer(Y)^);
-          T38(Pointer(Y)^) := Temp40.V38;
-        end;
-        39:
-        begin
-          Temp40.V39 := T39(Pointer(X)^);
-          T39(Pointer(X)^) := T39(Pointer(Y)^);
-          T39(Pointer(Y)^) := Temp40.V39;
-        end;
-        40:
-        begin
-          Temp40.V40 := T40(Pointer(X)^);
-          T40(Pointer(X)^) := T40(Pointer(Y)^);
-          T40(Pointer(Y)^) := Temp40.V40;
-        end;
-      end;
+      TArray.Exchange<T>(X, Y);
     end;
   end else
   begin
     raise EArgumentOutOfRangeException.CreateRes(Pointer(@SArgumentOutOfRange));
-  end;
-end;
-
-procedure TList<T>.Exchange(Index1, Index2: Integer);
-begin
-  if (SizeOf(T) > 40) then
-  begin
-    InternalExchange(Index1, Index2);
-  end else
-  begin
-    InternalExchange40(Index1, Index2);
   end;
 end;
 
@@ -9786,387 +13803,73 @@ begin
   end;
 end;
 
-procedure TList<T>.InternalReverse;
-var
-  Count: Cardinal;
-  X, Y: PItem;
-  Temp: T;
-begin
-  Count := FCount.Native;
-  if (Count > 1) then
-  begin
-    Dec(Count);
-    X := Pointer(FItems);
-    Y := X + Count;
-
-    while (NativeInt(X) < NativeInt(Y)) do
-    begin
-      Temp := X^;
-      X^ := Y^;
-      Y^ := Temp;
-
-      Inc(NativeUInt(X), SizeOf(T));
-      Dec(NativeUInt(Y), SizeOf(T));
-    end;
-  end;
-end;
-
-procedure TList<T>.InternalReverse40;
-type
-  T1 = Byte;
-  T2 = Word;
-  T3 = array[1..3] of Byte;
-  T4 = Cardinal;
-  T5 = array[1..5] of Byte;
-  T6 = array[1..6] of Byte;
-  T7 = array[1..7] of Byte;
-  T8 = Int64;
-  T9 = array[1..9] of Byte;
-  T10 = array[1..10] of Byte;
-  T11 = array[1..11] of Byte;
-  T12 = array[1..12] of Byte;
-  T13 = array[1..13] of Byte;
-  T14 = array[1..14] of Byte;
-  T15 = array[1..15] of Byte;
-  T16 = array[1..16] of Byte;
-  T17 = array[1..17] of Byte;
-  T18 = array[1..18] of Byte;
-  T19 = array[1..19] of Byte;
-  T20 = array[1..20] of Byte;
-  T21 = array[1..21] of Byte;
-  T22 = array[1..22] of Byte;
-  T23 = array[1..23] of Byte;
-  T24 = array[1..24] of Byte;
-  T25 = array[1..25] of Byte;
-  T26 = array[1..26] of Byte;
-  T27 = array[1..27] of Byte;
-  T28 = array[1..28] of Byte;
-  T29 = array[1..29] of Byte;
-  T30 = array[1..30] of Byte;
-  T31 = array[1..31] of Byte;
-  T32 = array[1..32] of Byte;
-  T33 = array[1..33] of Byte;
-  T34 = array[1..34] of Byte;
-  T35 = array[1..35] of Byte;
-  T36 = array[1..36] of Byte;
-  T37 = array[1..37] of Byte;
-  T38 = array[1..38] of Byte;
-  T39 = array[1..39] of Byte;
-  T40 = array[1..40] of Byte;
-
-  TTemp40 = record
-  case Integer of
-     1: (V1: T1);
-     2: (V2: T2);
-     3: (V3: T3);
-     4: (V4: T4);
-     5: (V5: T5);
-     6: (V6: T6);
-     7: (V7: T7);
-     8: (V8: T8);
-     9: (V9: T9);
-    10: (V10: T10);
-    11: (V11: T11);
-    12: (V12: T12);
-    13: (V13: T13);
-    14: (V14: T14);
-    15: (V15: T15);
-    16: (V16: T16);
-    17: (V17: T17);
-    18: (V18: T18);
-    19: (V19: T19);
-    20: (V20: T20);
-    21: (V21: T21);
-    22: (V22: T22);
-    23: (V23: T23);
-    24: (V24: T24);
-    25: (V25: T25);
-    26: (V26: T26);
-    27: (V27: T27);
-    28: (V28: T28);
-    29: (V29: T29);
-    30: (V30: T30);
-    31: (V31: T31);
-    32: (V32: T32);
-    33: (V33: T33);
-    34: (V34: T34);
-    35: (V35: T35);
-    36: (V36: T36);
-    37: (V37: T37);
-    38: (V38: T38);
-    39: (V39: T39);
-    40: (V40: T40);
-  end;
-
-  TNatives = array[0..16 div SizeOf(NativeUInt) - 1] of NativeUInt;
-  PNatives = ^TNatives;
-
+procedure TList<T>.Reverse;
 var
   Count: Cardinal;
   X, Y: Pointer;
-  _X, _Y: PNatives;
-
-  Temp1: T1;
-  Temp2: T2;
-  Temp4: T4;
+  Index: NativeInt;
+  Temp1: Byte;
+  Temp2: Word;
+  Temp4: Cardinal;
   TempNative: NativeUInt;
-  Temp40: TTemp40;
 begin
   Count := FCount.Native;
   if (Count > 1) then
   begin
     Dec(Count);
-    X := Pointer(FItems);
-    Y := Pointer(TCustomList<T>.PItem(X) + Count);
+    X := FItems;
+    Y := TCustomList<T>.PItem(X) + Count;
 
-    while (NativeInt(X) < NativeInt(Y)) do
-    begin
-      case SizeOf(T) of
-        1:
-        begin
-          Temp1 := T1(Pointer(X)^);
-          T1(Pointer(X)^) := T1(Pointer(Y)^);
-          T1(Pointer(Y)^) := Temp1;
-        end;
-        2:
-        begin
-          Temp2 := T2(Pointer(X)^);
-          T2(Pointer(X)^) := T2(Pointer(Y)^);
-          T2(Pointer(Y)^) := Temp2;
-        end;
-        3:
-        begin
-          Temp2 := T2(Pointer(X)^);
-          T2(Pointer(X)^) := T2(Pointer(Y)^);
-          T2(Pointer(Y)^) := Temp2;
+    repeat
+      if (SizeOf(T) <= 16) then
+      begin
+        TArray.Exchange<T>(X, Y);
+        Inc(NativeUInt(X), SizeOf(T));
+        Dec(NativeUInt(Y), SizeOf(T));
+      end else
+      begin
+        Index := 0;
+        repeat
+          Inc(Index);
+          TempNative := PNativeUInt(X)^;
+          PNativeUInt(X)^ := PNativeUInt(Y)^;
+          PNativeUInt(Y)^ := TempNative;
+          Inc(NativeUInt(X), SizeOf(NativeUInt));
+          Inc(NativeUInt(Y), SizeOf(NativeUInt));
+        until (Index = SizeOf(T) div SizeOf(NativeUInt));
 
-          Temp1 := T3(Pointer(X)^)[3];
-          T3(Pointer(X)^)[3] := T3(Pointer(Y)^)[3];
-          T3(Pointer(Y)^)[3] := Temp1;
-        end;
-        4:
+        {$ifdef LARGEINT}
+        if (SizeOf(T) and 4 <> 0) then
         begin
-          Temp4 := T4(Pointer(X)^);
-          T4(Pointer(X)^) := T4(Pointer(Y)^);
-          T4(Pointer(Y)^) := Temp4;
+          Temp4 := PCardinal(X)^;
+          PCardinal(X)^ := PCardinal(Y)^;
+          PCardinal(Y)^ := Temp4;
+          Inc(NativeUInt(X), SizeOf(Cardinal));
+          Inc(NativeUInt(Y), SizeOf(Cardinal));
         end;
-        5..7:
-        begin
-          Temp4 := T4(Pointer(X)^);
-          T4(Pointer(X)^) := T4(Pointer(Y)^);
-          T4(Pointer(Y)^) := Temp4;
+        {$endif}
 
-          Inc(NativeUInt(X), SizeOf(T) - SizeOf(Cardinal));
-          Inc(NativeUInt(Y), SizeOf(T) - SizeOf(Cardinal));
-          Temp4 := T4(Pointer(X)^);
-          T4(Pointer(X)^) := T4(Pointer(Y)^);
-          T4(Pointer(Y)^) := Temp4;
-          Dec(NativeUInt(X), SizeOf(T) - SizeOf(Cardinal));
-          Dec(NativeUInt(Y), SizeOf(T) - SizeOf(Cardinal));
-        end;
-        8..16:
+        if (SizeOf(T) and 2 <> 0) then
         begin
-          _X := X;
-          _Y := Y;
-          TempNative := _X[0];
-          _X[0] := _Y[0];
-          _Y[0] := TempNative;
+          Temp2 := PWord(X)^;
+          PWord(X)^ := PWord(Y)^;
+          PWord(Y)^ := Temp2;
+          Inc(NativeUInt(X), SizeOf(Word));
+          Inc(NativeUInt(Y), SizeOf(Word));
+        end;
 
-          if (SizeOf(T) >= SizeOf(NativeUInt) * 2) then
-          begin
-            TempNative := _X[1];
-            _X[1] := _Y[1];
-            _Y[1] := TempNative;
-          end;
+        if (SizeOf(T) and 1 <> 0) then
+        begin
+          Temp1 := PByte(X)^;
+          PByte(X)^ := PByte(Y)^;
+          PByte(Y)^ := Temp1;
+          Inc(NativeUInt(X), SizeOf(Byte));
+          Inc(NativeUInt(Y), SizeOf(Byte));
+        end;
 
-          if (SizeOf(T) >= SizeOf(NativeUInt) * 3) then
-          begin
-            TempNative := _X[2];
-            _X[2] := _Y[2];
-            _Y[2] := TempNative;
-          end;
-
-          if (SizeOf(T)  = SizeOf(NativeUInt) * 4) then
-          begin
-            TempNative := _X[3];
-            _X[3] := _Y[3];
-            _Y[3] := TempNative;
-          end;
-
-          if (SizeOf(T) and (SizeOf(NativeUInt) - 1) <> 0) then
-          begin
-            Inc(NativeUInt(_X), SizeOf(T) - SizeOf(NativeUInt));
-            Inc(NativeUInt(_Y), SizeOf(T) - SizeOf(NativeUInt));
-            TempNative := _X[0];
-            _X[0] := _Y[0];
-            _Y[0] := TempNative;
-            Dec(NativeUInt(_X), SizeOf(T) - SizeOf(NativeUInt));
-            Dec(NativeUInt(_Y), SizeOf(T) - SizeOf(NativeUInt));
-          end;
-
-          X := _X;
-          Y := _Y;
-        end;
-        17:
-        begin
-          Temp40.V17 := T17(Pointer(X)^);
-          T17(Pointer(X)^) := T17(Pointer(Y)^);
-          T17(Pointer(Y)^) := Temp40.V17;
-        end;
-        18:
-        begin
-          Temp40.V18 := T18(Pointer(X)^);
-          T18(Pointer(X)^) := T18(Pointer(Y)^);
-          T18(Pointer(Y)^) := Temp40.V18;
-        end;
-        19:
-        begin
-          Temp40.V19 := T19(Pointer(X)^);
-          T19(Pointer(X)^) := T19(Pointer(Y)^);
-          T19(Pointer(Y)^) := Temp40.V19;
-        end;
-        20:
-        begin
-          Temp40.V20 := T20(Pointer(X)^);
-          T20(Pointer(X)^) := T20(Pointer(Y)^);
-          T20(Pointer(Y)^) := Temp40.V20;
-        end;
-        21:
-        begin
-          Temp40.V21 := T21(Pointer(X)^);
-          T21(Pointer(X)^) := T21(Pointer(Y)^);
-          T21(Pointer(Y)^) := Temp40.V21;
-        end;
-        22:
-        begin
-          Temp40.V22 := T22(Pointer(X)^);
-          T22(Pointer(X)^) := T22(Pointer(Y)^);
-          T22(Pointer(Y)^) := Temp40.V22;
-        end;
-        23:
-        begin
-          Temp40.V23 := T23(Pointer(X)^);
-          T23(Pointer(X)^) := T23(Pointer(Y)^);
-          T23(Pointer(Y)^) := Temp40.V23;
-        end;
-        24:
-        begin
-          Temp40.V24 := T24(Pointer(X)^);
-          T24(Pointer(X)^) := T24(Pointer(Y)^);
-          T24(Pointer(Y)^) := Temp40.V24;
-        end;
-        25:
-        begin
-          Temp40.V25 := T25(Pointer(X)^);
-          T25(Pointer(X)^) := T25(Pointer(Y)^);
-          T25(Pointer(Y)^) := Temp40.V25;
-        end;
-        26:
-        begin
-          Temp40.V26 := T26(Pointer(X)^);
-          T26(Pointer(X)^) := T26(Pointer(Y)^);
-          T26(Pointer(Y)^) := Temp40.V26;
-        end;
-        27:
-        begin
-          Temp40.V27 := T27(Pointer(X)^);
-          T27(Pointer(X)^) := T27(Pointer(Y)^);
-          T27(Pointer(Y)^) := Temp40.V27;
-        end;
-        28:
-        begin
-          Temp40.V28 := T28(Pointer(X)^);
-          T28(Pointer(X)^) := T28(Pointer(Y)^);
-          T28(Pointer(Y)^) := Temp40.V28;
-        end;
-        29:
-        begin
-          Temp40.V29 := T29(Pointer(X)^);
-          T29(Pointer(X)^) := T29(Pointer(Y)^);
-          T29(Pointer(Y)^) := Temp40.V29;
-        end;
-        30:
-        begin
-          Temp40.V30 := T30(Pointer(X)^);
-          T30(Pointer(X)^) := T30(Pointer(Y)^);
-          T30(Pointer(Y)^) := Temp40.V30;
-        end;
-        31:
-        begin
-          Temp40.V31 := T31(Pointer(X)^);
-          T31(Pointer(X)^) := T31(Pointer(Y)^);
-          T31(Pointer(Y)^) := Temp40.V31;
-        end;
-        32:
-        begin
-          Temp40.V32 := T32(Pointer(X)^);
-          T32(Pointer(X)^) := T32(Pointer(Y)^);
-          T32(Pointer(Y)^) := Temp40.V32;
-        end;
-        33:
-        begin
-          Temp40.V33 := T33(Pointer(X)^);
-          T33(Pointer(X)^) := T33(Pointer(Y)^);
-          T33(Pointer(Y)^) := Temp40.V33;
-        end;
-        34:
-        begin
-          Temp40.V34 := T34(Pointer(X)^);
-          T34(Pointer(X)^) := T34(Pointer(Y)^);
-          T34(Pointer(Y)^) := Temp40.V34;
-        end;
-        35:
-        begin
-          Temp40.V35 := T35(Pointer(X)^);
-          T35(Pointer(X)^) := T35(Pointer(Y)^);
-          T35(Pointer(Y)^) := Temp40.V35;
-        end;
-        36:
-        begin
-          Temp40.V36 := T36(Pointer(X)^);
-          T36(Pointer(X)^) := T36(Pointer(Y)^);
-          T36(Pointer(Y)^) := Temp40.V36;
-        end;
-        37:
-        begin
-          Temp40.V37 := T37(Pointer(X)^);
-          T37(Pointer(X)^) := T37(Pointer(Y)^);
-          T37(Pointer(Y)^) := Temp40.V37;
-        end;
-        38:
-        begin
-          Temp40.V38 := T38(Pointer(X)^);
-          T38(Pointer(X)^) := T38(Pointer(Y)^);
-          T38(Pointer(Y)^) := Temp40.V38;
-        end;
-        39:
-        begin
-          Temp40.V39 := T39(Pointer(X)^);
-          T39(Pointer(X)^) := T39(Pointer(Y)^);
-          T39(Pointer(Y)^) := Temp40.V39;
-        end;
-        40:
-        begin
-          Temp40.V40 := T40(Pointer(X)^);
-          T40(Pointer(X)^) := T40(Pointer(Y)^);
-          T40(Pointer(Y)^) := Temp40.V40;
-        end;
+        Dec(NativeUInt(Y), 2 * SizeOf(T));
       end;
-
-      Inc(NativeUInt(X), SizeOf(T));
-      Dec(NativeUInt(Y), SizeOf(T));
-    end;
-  end;
-end;
-
-procedure TList<T>.Reverse;
-begin
-  if (SizeOf(T) > 40) then
-  begin
-    InternalReverse;
-  end else
-  begin
-    InternalReverse40;
+    until (NativeUInt(X) >= NativeUInt(Y));
   end;
 end;
 
@@ -10177,14 +13880,12 @@ begin
   Count := FCount.Native;
   if (Count > 1) then
   begin
-    Dec(Count);
-
     if (Assigned(FComparer)) then
     begin
-      TArray.QuickSort<T>(FItems^, FComparer, 0, Count);
+      TArray.Sort<T>(FItems[0], Count, FComparer);
     end else
     begin
-      TArray.QuickSort<T>(FItems^, IComparer<T>(@InterfaceDefaults.TDefaultComparer<T>.Instance), 0, Count);
+      TArray.Sort<T>(FItems[0], Count);
     end;
   end;
 end;
@@ -10196,8 +13897,57 @@ begin
   Count := FCount.Native;
   if (Count > 1) then
   begin
-    Dec(Count);
-    TArray.QuickSort<T>(FItems^, AComparer, 0, Count);
+    TArray.Sort<T>(FItems[0], Count, AComparer);
+  end;
+end;
+
+procedure TList<T>.Sort(const AComparison: TComparison<T>);
+var
+  Count: NativeInt;
+begin
+  Count := FCount.Native;
+  if (Count > 1) then
+  begin
+    TArray.Sort<T>(FItems[0], Count, AComparison);
+  end;
+end;
+
+procedure TList<T>.SortDescending;
+var
+  Count: NativeInt;
+begin
+  Count := FCount.Native;
+  if (Count > 1) then
+  begin
+    if (Assigned(FComparer)) then
+    begin
+      TArray.SortDescending<T>(FItems[0], Count, FComparer);
+    end else
+    begin
+      TArray.SortDescending<T>(FItems[0], Count);
+    end;
+  end;
+end;
+
+procedure TList<T>.SortDescending(const AComparer: IComparer<T>);
+var
+  Count: NativeInt;
+begin
+  Count := FCount.Native;
+  if (Count > 1) then
+  begin
+    TArray.SortDescending<T>(FItems[0], Count, AComparer);
+  end;
+end;
+
+procedure TList<T>.SortDescending(const AComparison: TComparison<T>);
+var
+  Count: NativeInt;
+begin
+  Count := FCount.Native;
+  if (Count > 1) then
+  begin
+    TArray.SortDescending<T>(FItems[0], Count, AComparison);
   end;
 end;
 
@@ -11289,7 +15039,7 @@ type
   end;
   P16 = ^T16;
 var
-  R, i: NativeInt;
+  R, Index: NativeInt;
   Item, TopItem, DestItem: P16;
   VByte: Byte;
   VWord: Word;
@@ -11363,12 +15113,12 @@ begin
     end else
     begin
       DestItem := Item;
-      R := NativeInt(SizeOf(T) div SizeOf(NativeUInt)); {x64: Hint2135 OFF}
-      for i := 1 to R do
-      begin
+      Index := 0;
+      repeat
+        Inc(Index);
         if (PNativeUInt(DestItem)^ <> 0) then goto next_find;
         Inc(NativeUInt(DestItem), SizeOf(NativeUInt));
-      end;
+      until (Index = SizeOf(T) div SizeOf(NativeUInt));
 
       if (SizeOf(T) and (SizeOf(NativeUInt) - 1) <> 0) then
       begin
@@ -11379,7 +15129,7 @@ begin
     Break;
   until (False);
 
-  // comare empty and move
+  // compare empty and move
   DestItem := Item;
   goto next_item;
   repeat
@@ -11519,14 +15269,15 @@ begin
       begin
         Flags := 0;
 
-        for i := 1 to SizeOf(T) div SizeOf(NativeUInt) do
-        begin
+        Index := 0;
+        repeat
+          Inc(Index);
           VNative := PNativeUInt(Item)^;
           PNativeUInt(DestItem)^ := VNative;
           Inc(NativeUInt(Item), SizeOf(NativeUInt));
           Inc(NativeUInt(DestItem), SizeOf(NativeUInt));
           Flags := Flags or VNative;
-        end;
+        until (Index = SizeOf(T) div SizeOf(NativeUInt));
 
         if (SizeOf(T) and (SizeOf(NativeUInt) - 1) <> 0) then
         begin
