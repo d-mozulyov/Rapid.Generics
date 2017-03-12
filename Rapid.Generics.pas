@@ -724,7 +724,8 @@ type
 
   TArray = class
   protected const
-    HIGH_NATIVE_BIT = NativeInt(1) shl {$ifdef LARGEINT}63{$else}31{$endif};
+    HIGH_NATIVE = {$ifdef LARGEINT}63{$else}31{$endif};
+    HIGH_NATIVE_BIT = NativeInt(1) shl HIGH_NATIVE;
     BUFFER_SIZE = 1024;
     RADIX_BUFFER_SIZE = 2048;
     INSERTION_SORT_LIMIT = 45;
@@ -813,7 +814,13 @@ type
       procedure Init; overload;
       procedure FillZero;
     end;
+
+    TSearchHelper = record
+      Count: NativeInt;
+      Comparer: Pointer;
+    end;
   protected
+    class procedure CheckArrays(Source, Destination: Pointer; SourceIndex, SourceLength, DestIndex, DestLength, Count: NativeInt); static;
     class function SortItemPivot<T>(const I, J: Pointer): Pointer; static; inline;
     class function SortItemNext<T>(const StackItem, I, J: Pointer): Pointer; static; inline;
 
@@ -822,7 +829,7 @@ type
     class function SortBinaryMarker<T>(const Binary: Pointer): NativeUInt; static; inline;
     class function SortBinaryComparer<T>(const Pivot, Binary: Pointer): Integer; static; inline;
 
-    class procedure RadixSort<T>(var ValuesArray; const Count, Flags: NativeInt); static;
+    class procedure RadixSort<T>(const Values: Pointer; const Count, Flags: NativeInt); static;
     class function RadixSortSigneds<T>(var StackItem: TSortStackItem<T>): Pointer; static;
     class function RadixSortDescendingSigneds<T>(var StackItem: TSortStackItem<T>): Pointer; static;
     class function RadixSortUnsigneds<T>(var StackItem: TSortStackItem<T>): Pointer; static;
@@ -830,20 +837,49 @@ type
     class function RadixSortFloats<T>(var StackItem: TSortStackItem<T>): Pointer; static;
     class function RadixSortDescendingFloats<T>(var StackItem: TSortStackItem<T>): Pointer; static;
 
-    class procedure SortSigneds<T>(var ValuesArray; const Count: NativeInt); static;
-    class procedure SortDescendingSigneds<T>(var ValuesArray; const Count: NativeInt); static;
-    class procedure SortUnsigneds<T>(var ValuesArray; const Count: NativeInt); static;
-    class procedure SortDescendingUnsigneds<T>(var ValuesArray; const Count: NativeInt); static;
-    class procedure SortFloats<T>(var ValuesArray; const Count: NativeInt); static;
-    class procedure SortDescendingFloats<T>(var ValuesArray; const Count: NativeInt); static;
-    class procedure SortBinaries<T>(var ValuesArray; const Count: NativeInt; var PivotBig: T); static;
-    class procedure SortDescendingBinaries<T>(var ValuesArray; const Count: NativeInt; var PivotBig: T); static;
+    class procedure SortSigneds<T>(const Values: Pointer; const Count: NativeInt); static;
+    class procedure SortDescendingSigneds<T>(const Values: Pointer; const Count: NativeInt); static;
+    class procedure SortUnsigneds<T>(const Values: Pointer; const Count: NativeInt); static;
+    class procedure SortDescendingUnsigneds<T>(const Values: Pointer; const Count: NativeInt); static;
+    class procedure SortFloats<T>(const Values: Pointer; const Count: NativeInt); static;
+    class procedure SortDescendingFloats<T>(const Values: Pointer; const Count: NativeInt); static;
+    class procedure SortBinaries<T>(const Values: Pointer; const Count: NativeInt; var PivotBig: T); static;
+    class procedure SortDescendingBinaries<T>(const Values: Pointer; const Count: NativeInt; var PivotBig: T); static;
     {$endif}
+    class procedure SortUniversals<T>(const Values: Pointer; const Count: NativeInt; var Helper: TSortHelper<T>); static;
+    class procedure SortDescendingUniversals<T>(const Values: Pointer; const Count: NativeInt; var Helper: TSortHelper<T>); static;
 
-    class procedure SortUniversals<T>(var ValuesArray; const Count: NativeInt; var Helper: TSortHelper<T>); static;
-    class procedure SortDescendingUniversals<T>(var ValuesArray; const Count: NativeInt; var Helper: TSortHelper<T>); static;
-    class procedure CheckArrays(Source, Destination: Pointer; SourceIndex, SourceLength, DestIndex, DestLength, Count: NativeInt); static;
+    {$ifdef SMARTGENERICS}
+    class function SearchSigneds<T>(Values: Pointer; Count: NativeInt; Item: Pointer): NativeInt; static;
+    class function SearchUnsigneds<T>(Values: Pointer; Count: NativeInt; Item: Pointer): NativeInt; static;
+    class function SearchFloats<T>(Values: Pointer; Count: NativeInt; Item: Pointer): NativeInt; static;
+    class function SearchBinaries<T>(Values: Pointer; Count: NativeInt; const Item: T): NativeInt; static;
+
+    class function SearchDescendingSigneds<T>(Values: Pointer; Count: NativeInt; Item: Pointer): NativeInt; static;
+    class function SearchDescendingUnsigneds<T>(Values: Pointer; Count: NativeInt; Item: Pointer): NativeInt; static;
+    class function SearchDescendingFloats<T>(Values: Pointer; Count: NativeInt; Item: Pointer): NativeInt; static;
+    class function SearchDescendingBinaries<T>(Values: Pointer; Count: NativeInt; const Item: T): NativeInt; static;
+    {$endif}
+    class function SearchUniversals<T>(Values: Pointer; const Helper: TSearchHelper; const Item: T): NativeInt; static;
+    class function SearchDescendingUniversals<T>(Values: Pointer; const Helper: TSearchHelper; const Item: T): NativeInt; static;
+
+    class function InternalSearch<T>(Values: Pointer; Index, Count: Integer; const Item: T;
+      out FoundIndex: Integer): Boolean; overload; static; inline;
+    class function InternalSearch<T>(Values: Pointer; Index, Count: Integer; const Item: T;
+      out FoundIndex: Integer; Comparer: Pointer): Boolean; overload; static; inline;
+    class function InternalSearchDescending<T>(Values: Pointer; Index, Count: Integer; const Item: T;
+      out FoundIndex: Integer): Boolean; overload; static; inline;
+    class function InternalSearchDescending<T>(Values: Pointer; Index, Count: Integer; const Item: T;
+      out FoundIndex: Integer; Comparer: Pointer): Boolean; overload; static; inline;
   public
+    class procedure Exchange<T>(const Left, Right: Pointer); static; inline;
+    class procedure CopyMemory<T>(const Destination, Source: Pointer); static; inline;
+    class procedure ZeroMemory<T>(const Values: Pointer); static; inline;
+    class procedure Reverse<T>(const Values: Pointer; const Count: NativeInt); overload; static;
+    class procedure Reverse<T>(var Values: array of T); overload; static;
+    class procedure Copy<T>(const Source: array of T; var Destination: array of T; SourceIndex, DestIndex, Count: NativeInt); overload; static;
+    class procedure Copy<T>(const Source: array of T; var Destination: array of T; Count: NativeInt); overload; static;
+
     class procedure Sort<T>(var Values: T; const Count: Integer); overload; static;
     class procedure Sort<T>(var Values: T; const Count: Integer; const Comparer: IComparer<T>); overload; static;
     class procedure Sort<T>(var Values: T; const Count: Integer; const Comparison: TComparison<T>); overload; static;
@@ -862,20 +898,33 @@ type
     class procedure SortDescending<T>(var Values: array of T; const Comparison: TComparison<T>); overload; static;
     class procedure SortDescending<T>(var Values: array of T; const Comparison: TComparison<T>; Index, Count: Integer); overload; static;
 
-    class function BinarySearch<T>(const Values: array of T; const Item: T;
-      out FoundIndex: Integer; const Comparer: IComparer<T>;
+    class function BinarySearch<T>(var Values: T; const Item: T; out FoundIndex: Integer; Count: Integer): Boolean; overload; static;
+    class function BinarySearch<T>(const Values: array of T; const Item: T; out FoundIndex: Integer): Boolean; overload; static;
+    class function BinarySearch<T>(const Values: array of T; const Item: T; out FoundIndex: Integer;
       Index, Count: Integer): Boolean; overload; static;
-    class function BinarySearch<T>(const Values: array of T; const Item: T;
-      out FoundIndex: Integer; const Comparer: IComparer<T>): Boolean; overload; static;
-    class function BinarySearch<T>(const Values: array of T; const Item: T;
-      out FoundIndex: Integer): Boolean; overload; static; static;
 
-    class procedure Copy<T>(const Source: array of T; var Destination: array of T; SourceIndex, DestIndex, Count: NativeInt); overload; static;
-    class procedure Copy<T>(const Source: array of T; var Destination: array of T; Count: NativeInt); overload; static;
+    class function BinarySearch<T>(var Values: T; const Item: T; out FoundIndex: Integer; Count: Integer; const Comparer: IComparer<T>): Boolean; overload; static;
+    class function BinarySearch<T>(const Values: array of T; const Item: T; out FoundIndex: Integer; const Comparer: IComparer<T>): Boolean; overload; static;
+    class function BinarySearch<T>(const Values: array of T; const Item: T; out FoundIndex: Integer; const Comparer: IComparer<T>;
+      Index, Count: Integer): Boolean; overload; static;
+    class function BinarySearch<T>(var Values: T; const Item: T; out FoundIndex: Integer; Count: Integer; const Comparison: TComparison<T>): Boolean; overload; static;
+    class function BinarySearch<T>(const Values: array of T; const Item: T; out FoundIndex: Integer; const Comparison: TComparison<T>): Boolean; overload; static;
+    class function BinarySearch<T>(const Values: array of T; const Item: T; out FoundIndex: Integer;
+      Index, Count: Integer; const Comparison: TComparison<T>): Boolean; overload; static;
 
-    class procedure Exchange<T>(const Left, Right: Pointer); static; inline;
-    class procedure CopyMemory<T>(const Destination, Source: Pointer); static; inline;
-    class procedure ZeroMemory<T>(const Destination: Pointer); static; inline;
+    class function BinarySearchDescending<T>(var Values: T; const Item: T; out FoundIndex: Integer; Count: Integer): Boolean; overload; static;
+    class function BinarySearchDescending<T>(const Values: array of T; const Item: T; out FoundIndex: Integer): Boolean; overload; static;
+    class function BinarySearchDescending<T>(const Values: array of T; const Item: T; out FoundIndex: Integer;
+      Index, Count: Integer): Boolean; overload; static;
+
+    class function BinarySearchDescending<T>(var Values: T; const Item: T; out FoundIndex: Integer; Count: Integer; const Comparer: IComparer<T>): Boolean; overload; static;
+    class function BinarySearchDescending<T>(const Values: array of T; const Item: T; out FoundIndex: Integer; const Comparer: IComparer<T>): Boolean; overload; static;
+    class function BinarySearchDescending<T>(const Values: array of T; const Item: T; out FoundIndex: Integer; const Comparer: IComparer<T>;
+      Index, Count: Integer): Boolean; overload; static;
+    class function BinarySearchDescending<T>(var Values: T; const Item: T; out FoundIndex: Integer; Count: Integer; const Comparison: TComparison<T>): Boolean; overload; static;
+    class function BinarySearchDescending<T>(const Values: array of T; const Item: T; out FoundIndex: Integer; const Comparison: TComparison<T>): Boolean; overload; static;
+    class function BinarySearchDescending<T>(const Values: array of T; const Item: T; out FoundIndex: Integer;
+      Index, Count: Integer; const Comparison: TComparison<T>): Boolean; overload; static;
   end;
 
 
@@ -2863,8 +2912,8 @@ end;
 class function InterfaceDefaults.Compare_FE(Inst: Pointer; Left, Right: Extended): Integer;
 {$if Defined(CPUX86)}
 asm
-  fld Left
   fld Right
+  fld Left
   fcompp
   fstsw ax
   xor ecx, ecx
@@ -7995,79 +8044,6 @@ end;
 
 { TArray }
 
-class function TArray.BinarySearch<T>(const Values: array of T; const Item: T;
-  out FoundIndex: Integer; const Comparer: IComparer<T>; Index,
-  Count: Integer): Boolean;
-var
-  L, H: Integer;
-  mid, cmp: Integer;
-begin
-  if (Index < Low(Values)) or ((Index > High(Values)) and (Count > 0))
-    or (Index + Count - 1 > High(Values)) or (Count < 0)
-    or (Index + Count < 0) then
-    raise EArgumentOutOfRangeException.CreateRes(Pointer(@SArgumentOutOfRange));
-  if Count = 0 then
-  begin
-    FoundIndex := Index;
-    Exit(False);
-  end;
-
-  Result := False;
-  L := Index;
-  H := Index + Count - 1;
-  while L <= H do
-  begin
-    mid := L + (H - L) shr 1;
-    cmp := Comparer.Compare(Values[mid], Item);
-    if cmp < 0 then
-      L := mid + 1
-    else
-    begin
-      H := mid - 1;
-      if cmp = 0 then
-        Result := True;
-    end;
-  end;
-  FoundIndex := L;
-end;
-
-class function TArray.BinarySearch<T>(const Values: array of T; const Item: T;
-  out FoundIndex: Integer; const Comparer: IComparer<T>): Boolean;
-begin
-  Result := BinarySearch<T>(Values, Item, FoundIndex, Comparer,
-    Low(Values), Length(Values));
-end;
-
-class function TArray.BinarySearch<T>(const Values: array of T; const Item: T;
-  out FoundIndex: Integer): Boolean;
-begin
-  Result := BinarySearch<T>(Values, Item, FoundIndex, TComparer<T>.Default,
-    Low(Values), Length(Values));
-end;
-
-class procedure TArray.Copy<T>(const Source: array of T; var Destination: array of T; SourceIndex, DestIndex, Count: NativeInt);
-begin
-  CheckArrays(Pointer(@Source[0]), Pointer(@Destination[0]), SourceIndex, Length(Source), DestIndex, Length(Destination), Count);
-  if IsManagedType(T) then
-    System.CopyArray(Pointer(@Destination[DestIndex]), Pointer(@Source[SourceIndex]), TypeInfo(T), Count)
-  else
-    System.Move(Pointer(@Source[SourceIndex])^, Pointer(@Destination[DestIndex])^, Count * SizeOf(T));
-end;
-
-class procedure TArray.CheckArrays(Source, Destination: Pointer; SourceIndex, SourceLength, DestIndex, DestLength, Count: NativeInt);
-begin
-  if (SourceIndex < 0) or (DestIndex < 0) or (SourceIndex >= SourceLength) or (DestIndex >= DestLength) or
-     (SourceIndex + Count > SourceLength) or (DestIndex + Count > DestLength) then
-    raise EArgumentOutOfRangeException.CreateRes(Pointer(@SArgumentOutOfRange));
-  if Source = Destination then
-    raise EArgumentException.CreateRes(Pointer(@sSameArrays));
-end;
-
-class procedure TArray.Copy<T>(const Source: array of T; var Destination: array of T; Count: NativeInt);
-begin
-  Copy<T>(Source, Destination, 0, 0, Count);
-end;
-
 class procedure TArray.Exchange<T>(const Left, Right: Pointer);
 var
   Index: NativeInt;
@@ -8340,13 +8316,13 @@ begin
   end;
 end;
 
-class procedure TArray.ZeroMemory<T>(const Destination: Pointer);
+class procedure TArray.ZeroMemory<T>(const Values: Pointer);
 var
   Null4: Cardinal;
   NullNative: NativeUInt;
   Index: NativeInt;
 begin
-  with TLMemory(Destination^) do
+  with TLMemory(Values^) do
   case SizeOf(T) of
     0: ;
     1: LBytes[0] := 0;
@@ -8427,6 +8403,81 @@ begin
   end;
 end;
 
+class procedure TArray.Reverse<T>(const Values: Pointer; const Count: NativeInt);
+type
+  P = ^T;
+var
+  X, Y: Pointer;
+  Index: NativeInt;
+  Temp1: Byte;
+  Temp2: Word;
+  Temp4: Cardinal;
+  TempNative: NativeUInt;
+begin
+  if (Count > 1) then
+  begin
+    X := Values;
+    Y := P(Values) + Count - 1;
+
+    repeat
+      if (SizeOf(T) <= 16) then
+      begin
+        TArray.Exchange<T>(X, Y);
+        Inc(NativeUInt(X), SizeOf(T));
+        Dec(NativeUInt(Y), SizeOf(T));
+      end else
+      begin
+        Index := 0;
+        repeat
+          Inc(Index);
+          TempNative := PNativeUInt(X)^;
+          PNativeUInt(X)^ := PNativeUInt(Y)^;
+          PNativeUInt(Y)^ := TempNative;
+          Inc(NativeUInt(X), SizeOf(NativeUInt));
+          Inc(NativeUInt(Y), SizeOf(NativeUInt));
+        until (Index = SizeOf(T) div SizeOf(NativeUInt));
+
+        {$ifdef LARGEINT}
+        if (SizeOf(T) and 4 <> 0) then
+        begin
+          Temp4 := PCardinal(X)^;
+          PCardinal(X)^ := PCardinal(Y)^;
+          PCardinal(Y)^ := Temp4;
+          Inc(NativeUInt(X), SizeOf(Cardinal));
+          Inc(NativeUInt(Y), SizeOf(Cardinal));
+        end;
+        {$endif}
+
+        if (SizeOf(T) and 2 <> 0) then
+        begin
+          Temp2 := PWord(X)^;
+          PWord(X)^ := PWord(Y)^;
+          PWord(Y)^ := Temp2;
+          Inc(NativeUInt(X), SizeOf(Word));
+          Inc(NativeUInt(Y), SizeOf(Word));
+        end;
+
+        if (SizeOf(T) and 1 <> 0) then
+        begin
+          Temp1 := PByte(X)^;
+          PByte(X)^ := PByte(Y)^;
+          PByte(Y)^ := Temp1;
+          Inc(NativeUInt(X), SizeOf(Byte));
+          Inc(NativeUInt(Y), SizeOf(Byte));
+        end;
+
+        Dec(NativeUInt(Y), 2 * SizeOf(T));
+      end;
+    until (NativeUInt(X) >= NativeUInt(Y));
+  end;
+end;
+
+class procedure TArray.Reverse<T>(var Values: array of T);
+begin
+  if (High(Values) > 0) then
+    TArray.Reverse<T>(@Values[0], Length(Values));
+end;
+
 procedure TArray.TSortHelper<T>.Init(const Comparer: IComparer<T>);
 begin
   Self.Inst := Pointer(Comparer);
@@ -8448,6 +8499,29 @@ end;
 procedure TArray.TSortHelper<T>.FillZero;
 begin
   FillChar(Self, SizeOf(T), #0);
+end;
+
+class procedure TArray.CheckArrays(Source, Destination: Pointer; SourceIndex, SourceLength, DestIndex, DestLength, Count: NativeInt);
+begin
+  if (SourceIndex < 0) or (DestIndex < 0) or (SourceIndex >= SourceLength) or (DestIndex >= DestLength) or
+     (SourceIndex + Count > SourceLength) or (DestIndex + Count > DestLength) then
+    raise EArgumentOutOfRangeException.CreateRes(Pointer(@SArgumentOutOfRange));
+  if Source = Destination then
+    raise EArgumentException.CreateRes(Pointer(@sSameArrays));
+end;
+
+class procedure TArray.Copy<T>(const Source: array of T; var Destination: array of T; SourceIndex, DestIndex, Count: NativeInt);
+begin
+  CheckArrays(Pointer(@Source[0]), Pointer(@Destination[0]), SourceIndex, Length(Source), DestIndex, Length(Destination), Count);
+  if IsManagedType(T) then
+    System.CopyArray(Pointer(@Destination[DestIndex]), Pointer(@Source[SourceIndex]), TypeInfo(T), Count)
+  else
+    System.Move(Pointer(@Source[SourceIndex])^, Pointer(@Destination[DestIndex])^, Count * SizeOf(T));
+end;
+
+class procedure TArray.Copy<T>(const Source: array of T; var Destination: array of T; Count: NativeInt);
+begin
+  Copy<T>(Source, Destination, 0, 0, Count);
 end;
 
 class function TArray.SortItemPivot<T>(const I, J: Pointer): Pointer;
@@ -8642,7 +8716,7 @@ begin
     Result := 0;
   end else
   {$ifdef LARGEINT}
-  if (SizeOf(T) = SizeOf(Int64) then
+  if (SizeOf(T) = SizeOf(Int64)) then
   begin
     Result := InterfaceDefaults.Compare_Bin8(nil, PInt64(Pivot)^, PInt64(Binary)^);
   end else
@@ -8652,7 +8726,7 @@ begin
   end;
 end;
 
-class procedure TArray.RadixSort<T>(var ValuesArray; const Count, Flags: NativeInt);
+class procedure TArray.RadixSort<T>(const Values: Pointer; const Count, Flags: NativeInt);
 label
   clean_radixes;
 type
@@ -8675,7 +8749,7 @@ var
   end;
 begin
   Buffers.SingleRadix := Count * SizeOf(T);
-  Buffers.Ptr[0] := @ValuesArray;
+  Buffers.Ptr[0] := Values;
   Buffers.Ptr[1] := @Buffers.Data;
   Buffers.Index := 0;
 
@@ -8813,26 +8887,54 @@ begin
 end;
 
 class function TArray.RadixSortSigneds<T>(var StackItem: TSortStackItem<T>): Pointer;
+const
+  Flags = $8000;
 begin
-  TArray.RadixSort<T>(StackItem.First^, SortItemCount<T>(StackItem.First, StackItem.Last), $8000);
+  case SizeOf(T) of
+    1: TArray.RadixSort<Byte>(StackItem.First, SortItemCount<T>(StackItem.First, StackItem.Last), Flags);
+    2: TArray.RadixSort<Word>(StackItem.First, SortItemCount<T>(StackItem.First, StackItem.Last), Flags);
+    4: TArray.RadixSort<Integer>(StackItem.First, SortItemCount<T>(StackItem.First, StackItem.Last), Flags);
+    8: TArray.RadixSort<Int64>(StackItem.First, SortItemCount<T>(StackItem.First, StackItem.Last), Flags);
+  end;
   Result := @StackItem;
 end;
 
 class function TArray.RadixSortDescendingSigneds<T>(var StackItem: TSortStackItem<T>): Pointer;
+const
+  Flags = not $8000;
 begin
-  TArray.RadixSort<T>(StackItem.First^, SortItemCount<T>(StackItem.First, StackItem.Last), not $8000);
+  case SizeOf(T) of
+    1: TArray.RadixSort<Byte>(StackItem.First, SortItemCount<T>(StackItem.First, StackItem.Last), Flags);
+    2: TArray.RadixSort<Word>(StackItem.First, SortItemCount<T>(StackItem.First, StackItem.Last), Flags);
+    4: TArray.RadixSort<Integer>(StackItem.First, SortItemCount<T>(StackItem.First, StackItem.Last), Flags);
+    8: TArray.RadixSort<Int64>(StackItem.First, SortItemCount<T>(StackItem.First, StackItem.Last), Flags);
+  end;
   Result := @StackItem;
 end;
 
 class function TArray.RadixSortUnsigneds<T>(var StackItem: TSortStackItem<T>): Pointer;
+const
+  Flags = $0000;
 begin
-  TArray.RadixSort<T>(StackItem.First^, SortItemCount<T>(StackItem.First, StackItem.Last), $0000);
+  case SizeOf(T) of
+    1: TArray.RadixSort<Byte>(StackItem.First, SortItemCount<T>(StackItem.First, StackItem.Last), Flags);
+    2: TArray.RadixSort<Word>(StackItem.First, SortItemCount<T>(StackItem.First, StackItem.Last), Flags);
+    4: TArray.RadixSort<Integer>(StackItem.First, SortItemCount<T>(StackItem.First, StackItem.Last), Flags);
+    8: TArray.RadixSort<Int64>(StackItem.First, SortItemCount<T>(StackItem.First, StackItem.Last), Flags);
+  end;
   Result := @StackItem;
 end;
 
 class function TArray.RadixSortDescendingUnsigneds<T>(var StackItem: TSortStackItem<T>): Pointer;
+const
+  Flags = not $0000;
 begin
-  TArray.RadixSort<T>(StackItem.First^, SortItemCount<T>(StackItem.First, StackItem.Last), not $0000);
+  case SizeOf(T) of
+    1: TArray.RadixSort<Byte>(StackItem.First, SortItemCount<T>(StackItem.First, StackItem.Last), Flags);
+    2: TArray.RadixSort<Word>(StackItem.First, SortItemCount<T>(StackItem.First, StackItem.Last), Flags);
+    4: TArray.RadixSort<Integer>(StackItem.First, SortItemCount<T>(StackItem.First, StackItem.Last), Flags);
+    8: TArray.RadixSort<Int64>(StackItem.First, SortItemCount<T>(StackItem.First, StackItem.Last), Flags);
+  end;
   Result := @StackItem;
 end;
 
@@ -8890,13 +8992,13 @@ sign_sorted:
   begin
     if (Count <= ((SizeOf(T) div 4) * 125 - (SizeOf(T) div 10) * 1050)) then
     begin
-      TArray.SortFloats<T>(StackItem.First^, Count);
+      TArray.SortFloats<T>(StackItem.First, Count);
     end else
     case SizeOf(T) of
-      4: TArray.RadixSort<Integer>(StackItem.First^, Count, not $0000);
-      8: TArray.RadixSort<Int64>(StackItem.First^, Count, not $0000);
+      4: TArray.RadixSort<Integer>(StackItem.First, Count, not $0000);
+      8: TArray.RadixSort<Int64>(StackItem.First, Count, not $0000);
     else
-      TArray.RadixSort<Extended>(StackItem.First^, Count, not $0000);
+      TArray.RadixSort<Extended>(StackItem.First, Count, not $0000);
     end;
   end;
 
@@ -8905,13 +9007,13 @@ sign_sorted:
   begin
     if (Count <= ((SizeOf(T) div 4) * 125 - (SizeOf(T) div 10) * 1050)) then
     begin
-      TArray.SortFloats<T>(I^, Count);
+      TArray.SortFloats<T>(I, Count);
     end else
     case SizeOf(T) of
-      4: TArray.RadixSort<Integer>(I^, Count, $0000);
-      8: TArray.RadixSort<Int64>(I^, Count, $0000);
+      4: TArray.RadixSort<Integer>(I, Count, $0000);
+      8: TArray.RadixSort<Int64>(I, Count, $0000);
     else
-      TArray.RadixSort<Extended>(I^, Count, $0000);
+      TArray.RadixSort<Extended>(I, Count, $0000);
     end;
   end;
 
@@ -8972,13 +9074,13 @@ sign_sorted:
   begin
     if (Count <= ((SizeOf(T) div 4) * 125 - (SizeOf(T) div 10) * 1050)) then
     begin
-      TArray.SortDescendingFloats<T>(StackItem.First^, Count);
+      TArray.SortDescendingFloats<T>(StackItem.First, Count);
     end else
     case SizeOf(T) of
-      4: TArray.RadixSort<Integer>(StackItem.First^, Count, not $0000);
-      8: TArray.RadixSort<Int64>(StackItem.First^, Count, not $0000);
+      4: TArray.RadixSort<Integer>(StackItem.First, Count, not $0000);
+      8: TArray.RadixSort<Int64>(StackItem.First, Count, not $0000);
     else
-      TArray.RadixSort<Extended>(StackItem.First^, Count, not $0000);
+      TArray.RadixSort<Extended>(StackItem.First, Count, not $0000);
     end;
   end;
 
@@ -8987,23 +9089,24 @@ sign_sorted:
   begin
     if (Count <= ((SizeOf(T) div 4) * 125 - (SizeOf(T) div 10) * 1050)) then
     begin
-      TArray.SortDescendingFloats<T>(I^, Count);
+      TArray.SortDescendingFloats<T>(I, Count);
     end else
     case SizeOf(T) of
-      4: TArray.RadixSort<Integer>(I^, Count, $0000);
-      8: TArray.RadixSort<Int64>(I^, Count, $0000);
+      4: TArray.RadixSort<Integer>(I, Count, $0000);
+      8: TArray.RadixSort<Int64>(I, Count, $0000);
     else
-      TArray.RadixSort<Extended>(I^, Count, $0000);
+      TArray.RadixSort<Extended>(I, Count, $0000);
     end;
   end;
 
   Result := @StackItem;
 end;
 
-class procedure TArray.SortSigneds<T>(var ValuesArray; const Count: NativeInt);
+class procedure TArray.SortSigneds<T>(const Values: Pointer; const Count: NativeInt);
 label
   proc_loop, proc_loop_current, insertion_init, swap_loop;
 type
+  P = ^T;
   P1 = ^ShortInt;
   P2 = ^SmallInt;
   P4 = ^Integer;
@@ -9024,8 +9127,8 @@ var
   StackItem: ^TSortStackItem<T>;
   Stack: TSortStack<T>;
 begin
-  Stack[0].First := @ValuesArray;
-  Stack[0].Last := Stack[0].First + Count - 1;
+  Stack[0].First := Values;
+  Stack[0].Last := P(Values) + Count - 1;
   StackItem := @Stack[1];
 
 proc_loop:
@@ -9270,10 +9373,11 @@ proc_loop_current:
   if (StackItem <> @Stack[0]) then goto proc_loop;
 end;
 
-class procedure TArray.SortDescendingSigneds<T>(var ValuesArray; const Count: NativeInt);
+class procedure TArray.SortDescendingSigneds<T>(const Values: Pointer; const Count: NativeInt);
 label
   proc_loop, proc_loop_current, insertion_init, swap_loop;
 type
+  P = ^T;
   P1 = ^ShortInt;
   P2 = ^SmallInt;
   P4 = ^Integer;
@@ -9294,8 +9398,8 @@ var
   StackItem: ^TSortStackItem<T>;
   Stack: TSortStack<T>;
 begin
-  Stack[0].First := @ValuesArray;
-  Stack[0].Last := Stack[0].First + Count - 1;
+  Stack[0].First := Values;
+  Stack[0].Last := P(Values) + Count - 1;
   StackItem := @Stack[1];
 
 proc_loop:
@@ -9540,10 +9644,11 @@ proc_loop_current:
   if (StackItem <> @Stack[0]) then goto proc_loop;
 end;
 
-class procedure TArray.SortUnsigneds<T>(var ValuesArray; const Count: NativeInt);
+class procedure TArray.SortUnsigneds<T>(const Values: Pointer; const Count: NativeInt);
 label
   proc_loop, proc_loop_current, insertion_init, swap_loop;
 type
+  P = ^T;
   P1 = ^Byte;
   P2 = ^Word;
   P4 = ^Cardinal;
@@ -9564,8 +9669,8 @@ var
   StackItem: ^TSortStackItem<T>;
   Stack: TSortStack<T>;
 begin
-  Stack[0].First := @ValuesArray;
-  Stack[0].Last := Stack[0].First + Count - 1;
+  Stack[0].First := Values;
+  Stack[0].Last := P(Values) + Count - 1;
   StackItem := @Stack[1];
 
 proc_loop:
@@ -9810,10 +9915,11 @@ proc_loop_current:
   if (StackItem <> @Stack[0]) then goto proc_loop;
 end;
 
-class procedure TArray.SortDescendingUnsigneds<T>(var ValuesArray; const Count: NativeInt);
+class procedure TArray.SortDescendingUnsigneds<T>(const Values: Pointer; const Count: NativeInt);
 label
   proc_loop, proc_loop_current, insertion_init, swap_loop;
 type
+  P = ^T;
   P1 = ^Byte;
   P2 = ^Word;
   P4 = ^Cardinal;
@@ -9834,8 +9940,8 @@ var
   StackItem: ^TSortStackItem<T>;
   Stack: TSortStack<T>;
 begin
-  Stack[0].First := @ValuesArray;
-  Stack[0].Last := Stack[0].First + Count - 1;
+  Stack[0].First := Values;
+  Stack[0].Last := P(Values) + Count - 1;
   StackItem := @Stack[1];
 
 proc_loop:
@@ -10080,10 +10186,11 @@ proc_loop_current:
   if (StackItem <> @Stack[0]) then goto proc_loop;
 end;
 
-class procedure TArray.SortFloats<T>(var ValuesArray; const Count: NativeInt);
+class procedure TArray.SortFloats<T>(const Values: Pointer; const Count: NativeInt);
 label
   proc_loop, proc_loop_current, insertion_init, swap_loop;
 type
+  P = ^T;
   P4 = ^Single;
   P8 = ^Double;
   PE = ^Extended;
@@ -10098,8 +10205,8 @@ var
   StackItem: ^TSortStackItem<T>;
   Stack: TSortStack<T>;
 begin
-  Stack[0].First := @ValuesArray;
-  Stack[0].Last := Stack[0].First + Count - 1;
+  Stack[0].First := Values;
+  Stack[0].Last := P(Values) + Count - 1;
   StackItem := @Stack[1];
 
 proc_loop:
@@ -10273,10 +10380,11 @@ proc_loop_current:
   if (StackItem <> @Stack[0]) then goto proc_loop;
 end;
 
-class procedure TArray.SortDescendingFloats<T>(var ValuesArray; const Count: NativeInt);
+class procedure TArray.SortDescendingFloats<T>(const Values: Pointer; const Count: NativeInt);
 label
   proc_loop, proc_loop_current, insertion_init, swap_loop;
 type
+  P = ^T;
   P4 = ^Single;
   P8 = ^Double;
   PE = ^Extended;
@@ -10291,8 +10399,8 @@ var
   StackItem: ^TSortStackItem<T>;
   Stack: TSortStack<T>;
 begin
-  Stack[0].First := @ValuesArray;
-  Stack[0].Last := Stack[0].First + Count - 1;
+  Stack[0].First := Values;
+  Stack[0].Last := P(Values) + Count - 1;
   StackItem := @Stack[1];
 
 proc_loop:
@@ -10466,9 +10574,11 @@ proc_loop_current:
   if (StackItem <> @Stack[0]) then goto proc_loop;
 end;
 
-class procedure TArray.SortBinaries<T>(var ValuesArray; const Count: NativeInt; var PivotBig: T);
+class procedure TArray.SortBinaries<T>(const Values: Pointer; const Count: NativeInt; var PivotBig: T);
 label
   proc_loop, proc_loop_current, insertion_init, swap_loop;
+type
+  P = ^T;
 var
   Index: NativeInt;
   Temp1: Byte;
@@ -10487,8 +10597,8 @@ var
   StackItem: ^TSortStackItem<T>;
   Stack: TSortStack<T>;
 begin
-  Stack[0].First := @ValuesArray;
-  Stack[0].Last := Stack[0].First + Count - 1;
+  Stack[0].First := Values;
+  Stack[0].Last := P(Values) + Count - 1;
   StackItem := @Stack[1];
 
 proc_loop:
@@ -10942,9 +11052,11 @@ proc_loop_current:
   if (StackItem <> @Stack[0]) then goto proc_loop;
 end;
 
-class procedure TArray.SortDescendingBinaries<T>(var ValuesArray; const Count: NativeInt; var PivotBig: T);
+class procedure TArray.SortDescendingBinaries<T>(const Values: Pointer; const Count: NativeInt; var PivotBig: T);
 label
   proc_loop, proc_loop_current, insertion_init, swap_loop;
+type
+  P = ^T;
 var
   Index: NativeInt;
   Temp1: Byte;
@@ -10963,8 +11075,8 @@ var
   StackItem: ^TSortStackItem<T>;
   Stack: TSortStack<T>;
 begin
-  Stack[0].First := @ValuesArray;
-  Stack[0].Last := Stack[0].First + Count - 1;
+  Stack[0].First := Values;
+  Stack[0].Last := P(Values) + Count - 1;
   StackItem := @Stack[1];
 
 proc_loop:
@@ -11419,9 +11531,11 @@ proc_loop_current:
 end;
 {$endif .SMARTGENERICS}
 
-class procedure TArray.SortDescendingUniversals<T>(var ValuesArray; const Count: NativeInt; var Helper: TSortHelper<T>);
+class procedure TArray.SortUniversals<T>(const Values: Pointer; const Count: NativeInt; var Helper: TSortHelper<T>);
 label
   proc_loop, proc_loop_current, insertion_init, swap_loop;
+type
+  P = ^T;
 var
   Index: NativeInt;
   Temp1: Byte;
@@ -11433,287 +11547,8 @@ var
   StackItem: ^TSortStackItem<T>;
   Stack: TSortStack<T>;
 begin
-  Stack[0].First := @ValuesArray;
-  Stack[0].Last := Stack[0].First + Count - 1;
-  StackItem := @Stack[1];
-
-proc_loop:
-  Dec(StackItem);
-proc_loop_current:
-  I := StackItem.First;
-  J := StackItem.Last;
-
-  // insertion sort
-  if ((NativeUInt(J) - NativeUInt(I)) < INSERTION_SORT_LIMIT * SizeOf(T)) then
-  begin
-    PStop := StackItem.First;
-    goto insertion_init;
-    repeat
-      if (J = PStop) then Break;
-      Dec(J);
-
-      if (Helper.Compare(Helper.Inst, Helper.Pivot, J^) <= 0) then Continue;
-    insertion_init:
-      I := J;
-      TArray.CopyMemory<T>(@Helper.Pivot, J);
-    until (False);
-    TArray.CopyMemory<T>(I, J);
-    TArray.CopyMemory<T>(J, @Helper.Pivot);
-
-    PStop := StackItem.Last;
-    repeat
-      Inc(J);
-      if (J = PStop) then Break;
-
-      TArray.CopyMemory<T>(@Helper.Pivot, J + 1);
-      if (Helper.Compare(Helper.Inst, J^, Helper.Pivot) <= 0) then Continue;
-
-      I := J;
-      repeat
-        TArray.CopyMemory<T>(I + 1, I);
-        Dec(I);
-        if (Helper.Compare(Helper.Inst, I^, Helper.Pivot) <= 0) then Break;
-      until (False);
-
-      TArray.CopyMemory<T>(I + 1, @Helper.Pivot);
-    until (False);
-
-    if (StackItem <> @STACK[0]) then goto proc_loop;
-    Exit;
-  end;
-
-  // pivot
-  TArray.CopyMemory<T>(@Helper.Pivot, SortItemPivot<T>(I, J));
-
-  // quick sort
-  Dec(J);
-  Dec(I);
-  swap_loop:
-  begin
-    Inc(J, 2);
-
-    repeat
-      Inc(I);
-      if (Helper.Compare(Helper.Inst, Helper.Pivot, I^) <= 0) then Break;
-    until (False);
-
-    repeat
-      Dec(J);
-      if (Helper.Compare(Helper.Inst, J^, Helper.Pivot) <= 0) then Break;
-    until (False);
-
-    if (I <= J) then
-    begin
-      // TArray.Exchange<T>(I, J);
-      case SizeOf(T) of
-        0: ;
-        1:
-        begin
-          Temp1 := PLMemory(I).LBytes[0];
-          PLMemory(I).LBytes[0] := PRMemory(J).RBytes[0];
-          PRMemory(J).RBytes[0] := Temp1;
-        end;
-        2:
-        begin
-          Temp2 := PLMemory(I).LWords[0];
-          PLMemory(I).LWords[0] := PRMemory(J).RWords[0];
-          PRMemory(J).RWords[0] := Temp2;
-        end;
-        3:
-        begin
-          Temp2 := PLMemory(I).LWords[0];
-          PLMemory(I).LWords[0] := PRMemory(J).RWords[0];
-          PRMemory(J).RWords[0] := Temp2;
-
-          Temp1 := PLMemory(I).LBytes[2];
-          PLMemory(I).LBytes[2] := PRMemory(J).RBytes[2];
-          PRMemory(J).RBytes[2] := Temp1;
-        end;
-        4..7:
-        begin
-          Temp4 := PLMemory(I).LCardinals[0];
-          PLMemory(I).LCardinals[0] := PRMemory(J).RCardinals[0];
-          PRMemory(J).RCardinals[0] := Temp4;
-
-          case SizeOf(T) of
-            5:
-            begin
-              Temp1 := PLMemory(I).LBytes[4];
-              PLMemory(I).LBytes[4] := PRMemory(J).RBytes[4];
-              PRMemory(J).RBytes[4] := Temp1;
-            end;
-            6:
-            begin
-              Temp2 := PLMemory(I).LWords[2];
-              PLMemory(I).LWords[2] := PRMemory(J).RWords[2];
-              PRMemory(J).RWords[2] := Temp2;
-            end;
-            7:
-            begin
-              Temp2 := PLMemory(I).LWords[2];
-              PLMemory(I).LWords[2] := PRMemory(J).RWords[2];
-              PRMemory(J).RWords[2] := Temp2;
-              Temp1 := PLMemory(I).LBytes[6];
-              PLMemory(I).LBytes[6] := PRMemory(J).RBytes[6];
-              PRMemory(J).RBytes[6] := Temp1;
-            end;
-          end;
-        end;
-        8..16:
-        begin
-          TempNative := PLMemory(I).LNatives[0];
-          PLMemory(I).LNatives[0] := PRMemory(J).RNatives[0];
-          PRMemory(J).RNatives[0] := TempNative;
-
-          if (SizeOf(T) >= SizeOf(NativeUInt) * 2) then
-          begin
-            TempNative := PLMemory(I).LNatives[1];
-            PLMemory(I).LNatives[1] := PRMemory(J).RNatives[1];
-            PRMemory(J).RNatives[1] := TempNative;
-          end;
-
-          if (SizeOf(T) >= SizeOf(NativeUInt) * 3) then
-          begin
-            TempNative := PLMemory(I).LNatives[2];
-            PLMemory(I).LNatives[2] := PRMemory(J).RNatives[2];
-            PRMemory(J).RNatives[2] := TempNative;
-          end;
-
-          if (SizeOf(T)  = SizeOf(NativeUInt) * 4) then
-          begin
-            TempNative := PLMemory(I).LNatives[3];
-            PLMemory(I).LNatives[3] := PRMemory(J).RNatives[3];
-            PRMemory(J).RNatives[3] := TempNative;
-          end;
-
-          {$ifdef LARGEINT}
-          case SizeOf(T) of
-            12, 13, 14, 15:
-            begin
-              Temp4 := PLMemory(I).LCardinals[2];
-              PLMemory(I).LCardinals[2] := PRMemory(J).RCardinals[2];
-              PRMemory(J).RCardinals[2] := Temp4;
-            end;
-          end;
-          {$endif}
-
-          case SizeOf(T) of
-            9:
-            begin
-              Temp1 := PLMemory(I).LBytes[8];
-              PLMemory(I).LBytes[8] := PRMemory(J).RBytes[8];
-              PRMemory(J).RBytes[8] := Temp1;
-            end;
-            10:
-            begin
-              Temp2 := PLMemory(I).LWords[4];
-              PLMemory(I).LWords[4] := PRMemory(J).RWords[4];
-              PRMemory(J).RWords[4] := Temp2;
-            end;
-            11:
-            begin
-              Temp2 := PLMemory(I).LWords[4];
-              PLMemory(I).LWords[4] := PRMemory(J).RWords[4];
-              PRMemory(J).RWords[4] := Temp2;
-              Temp1 := PLMemory(I).LBytes[10];
-              PLMemory(I).LBytes[10] := PRMemory(J).RBytes[10];
-              PRMemory(J).RBytes[10] := Temp1;
-            end;
-            13:
-            begin
-              Temp2 := PLMemory(I).LWords[5];
-              PLMemory(I).LWords[5] := PRMemory(J).RWords[5];
-              PRMemory(J).RWords[5] := Temp2;
-              Temp1 := PLMemory(I).LBytes[12];
-              PLMemory(I).LBytes[12] := PRMemory(J).RBytes[12];
-              PRMemory(J).RBytes[12] := Temp1;
-            end;
-            14:
-            begin
-              Temp2 := PLMemory(I).LWords[6];
-              PLMemory(I).LWords[6] := PRMemory(J).RWords[6];
-              PRMemory(J).RWords[6] := Temp2;
-            end;
-            15:
-            begin
-              Temp2 := PLMemory(I).LWords[6];
-              PLMemory(I).LWords[6] := PRMemory(J).RWords[6];
-              PRMemory(J).RWords[6] := Temp2;
-              Temp1 := PLMemory(I).LBytes[14];
-              PLMemory(I).LBytes[14] := PRMemory(J).RBytes[14];
-              PRMemory(J).RBytes[14] := Temp1;
-            end;
-          end;
-        end;
-      else
-        Index := 0;
-        repeat
-          TempNative := PLMemory(I).LNatives[Index];
-          PLMemory(I).LNatives[Index] := PRMemory(J).RNatives[Index];
-          PRMemory(J).RNatives[Index] := TempNative;
-          Inc(Index);
-        until (Index = SizeOf(T) div SizeOf(NativeUInt));
-
-        if (SizeOf(T) and (SizeOf(NativeUInt) - 1) <> 0) then
-        begin
-          {$ifdef LARGEINT}
-          if (SizeOf(T) and 4 <> 0) then
-          begin
-            Index := SizeOf(T) div SizeOf(Cardinal) - 1;
-            Temp4 := PLMemory(I).LCardinals[Index];
-            PLMemory(I).LCardinals[Index] := PRMemory(J).RCardinals[Index];
-            PRMemory(J).RCardinals[Index] := Temp4;
-          end;
-          {$endif}
-
-          if (SizeOf(T) and 2 <> 0) then
-          begin
-            Index := SizeOf(T) div SizeOf(Word) - 1;
-            Temp2 := PLMemory(I).LWords[Index];
-            PLMemory(I).LWords[Index] := PRMemory(J).RWords[Index];
-            PRMemory(J).RWords[Index] := Temp2;
-          end;
-
-          if (SizeOf(T) and 1 <> 0) then
-          begin
-            Index := SizeOf(T) div SizeOf(Byte) - 1;
-            Temp1 := PLMemory(I).LBytes[Index];
-            PLMemory(I).LBytes[Index] := PRMemory(J).RBytes[Index];
-            PRMemory(J).RBytes[Index] := Temp1;
-          end;
-        end;
-      end;
-
-      Dec(J, 2);
-      if (I <= J) then goto swap_loop;
-      Inc(I);
-      Inc(J);
-    end;
-  end;
-
-  // next iteration
-  StackItem := SortItemNext<T>(StackItem, I, J);
-  if (NativeInt(StackItem) >= 0) then goto proc_loop_current;
-  Dec(NativeInt(StackItem), HIGH_NATIVE_BIT);
-  if (StackItem <> @Stack[0]) then goto proc_loop;
-end;
-
-class procedure TArray.SortUniversals<T>(var ValuesArray; const Count: NativeInt; var Helper: TSortHelper<T>);
-label
-  proc_loop, proc_loop_current, insertion_init, swap_loop;
-var
-  Index: NativeInt;
-  Temp1: Byte;
-  Temp2: Word;
-  Temp4: Cardinal;
-  TempNative: NativeUInt;
-
-  I, J, PStop: ^T;
-  StackItem: ^TSortStackItem<T>;
-  Stack: TSortStack<T>;
-begin
-  Stack[0].First := @ValuesArray;
-  Stack[0].Last := Stack[0].First + Count - 1;
+  Stack[0].First := Values;
+  Stack[0].Last := P(Values) + Count - 1;
   StackItem := @Stack[1];
 
 proc_loop:
@@ -11977,6 +11812,287 @@ proc_loop_current:
   if (StackItem <> @Stack[0]) then goto proc_loop;
 end;
 
+class procedure TArray.SortDescendingUniversals<T>(const Values: Pointer; const Count: NativeInt; var Helper: TSortHelper<T>);
+label
+  proc_loop, proc_loop_current, insertion_init, swap_loop;
+type
+  P = ^T;
+var
+  Index: NativeInt;
+  Temp1: Byte;
+  Temp2: Word;
+  Temp4: Cardinal;
+  TempNative: NativeUInt;
+
+  I, J, PStop: ^T;
+  StackItem: ^TSortStackItem<T>;
+  Stack: TSortStack<T>;
+begin
+  Stack[0].First := Values;
+  Stack[0].Last := P(Values) + Count - 1;
+  StackItem := @Stack[1];
+
+proc_loop:
+  Dec(StackItem);
+proc_loop_current:
+  I := StackItem.First;
+  J := StackItem.Last;
+
+  // insertion sort
+  if ((NativeUInt(J) - NativeUInt(I)) < INSERTION_SORT_LIMIT * SizeOf(T)) then
+  begin
+    PStop := StackItem.First;
+    goto insertion_init;
+    repeat
+      if (J = PStop) then Break;
+      Dec(J);
+
+      if (Helper.Compare(Helper.Inst, Helper.Pivot, J^) <= 0) then Continue;
+    insertion_init:
+      I := J;
+      TArray.CopyMemory<T>(@Helper.Pivot, J);
+    until (False);
+    TArray.CopyMemory<T>(I, J);
+    TArray.CopyMemory<T>(J, @Helper.Pivot);
+
+    PStop := StackItem.Last;
+    repeat
+      Inc(J);
+      if (J = PStop) then Break;
+
+      TArray.CopyMemory<T>(@Helper.Pivot, J + 1);
+      if (Helper.Compare(Helper.Inst, J^, Helper.Pivot) <= 0) then Continue;
+
+      I := J;
+      repeat
+        TArray.CopyMemory<T>(I + 1, I);
+        Dec(I);
+        if (Helper.Compare(Helper.Inst, I^, Helper.Pivot) <= 0) then Break;
+      until (False);
+
+      TArray.CopyMemory<T>(I + 1, @Helper.Pivot);
+    until (False);
+
+    if (StackItem <> @STACK[0]) then goto proc_loop;
+    Exit;
+  end;
+
+  // pivot
+  TArray.CopyMemory<T>(@Helper.Pivot, SortItemPivot<T>(I, J));
+
+  // quick sort
+  Dec(J);
+  Dec(I);
+  swap_loop:
+  begin
+    Inc(J, 2);
+
+    repeat
+      Inc(I);
+      if (Helper.Compare(Helper.Inst, Helper.Pivot, I^) <= 0) then Break;
+    until (False);
+
+    repeat
+      Dec(J);
+      if (Helper.Compare(Helper.Inst, J^, Helper.Pivot) <= 0) then Break;
+    until (False);
+
+    if (I <= J) then
+    begin
+      // TArray.Exchange<T>(I, J);
+      case SizeOf(T) of
+        0: ;
+        1:
+        begin
+          Temp1 := PLMemory(I).LBytes[0];
+          PLMemory(I).LBytes[0] := PRMemory(J).RBytes[0];
+          PRMemory(J).RBytes[0] := Temp1;
+        end;
+        2:
+        begin
+          Temp2 := PLMemory(I).LWords[0];
+          PLMemory(I).LWords[0] := PRMemory(J).RWords[0];
+          PRMemory(J).RWords[0] := Temp2;
+        end;
+        3:
+        begin
+          Temp2 := PLMemory(I).LWords[0];
+          PLMemory(I).LWords[0] := PRMemory(J).RWords[0];
+          PRMemory(J).RWords[0] := Temp2;
+
+          Temp1 := PLMemory(I).LBytes[2];
+          PLMemory(I).LBytes[2] := PRMemory(J).RBytes[2];
+          PRMemory(J).RBytes[2] := Temp1;
+        end;
+        4..7:
+        begin
+          Temp4 := PLMemory(I).LCardinals[0];
+          PLMemory(I).LCardinals[0] := PRMemory(J).RCardinals[0];
+          PRMemory(J).RCardinals[0] := Temp4;
+
+          case SizeOf(T) of
+            5:
+            begin
+              Temp1 := PLMemory(I).LBytes[4];
+              PLMemory(I).LBytes[4] := PRMemory(J).RBytes[4];
+              PRMemory(J).RBytes[4] := Temp1;
+            end;
+            6:
+            begin
+              Temp2 := PLMemory(I).LWords[2];
+              PLMemory(I).LWords[2] := PRMemory(J).RWords[2];
+              PRMemory(J).RWords[2] := Temp2;
+            end;
+            7:
+            begin
+              Temp2 := PLMemory(I).LWords[2];
+              PLMemory(I).LWords[2] := PRMemory(J).RWords[2];
+              PRMemory(J).RWords[2] := Temp2;
+              Temp1 := PLMemory(I).LBytes[6];
+              PLMemory(I).LBytes[6] := PRMemory(J).RBytes[6];
+              PRMemory(J).RBytes[6] := Temp1;
+            end;
+          end;
+        end;
+        8..16:
+        begin
+          TempNative := PLMemory(I).LNatives[0];
+          PLMemory(I).LNatives[0] := PRMemory(J).RNatives[0];
+          PRMemory(J).RNatives[0] := TempNative;
+
+          if (SizeOf(T) >= SizeOf(NativeUInt) * 2) then
+          begin
+            TempNative := PLMemory(I).LNatives[1];
+            PLMemory(I).LNatives[1] := PRMemory(J).RNatives[1];
+            PRMemory(J).RNatives[1] := TempNative;
+          end;
+
+          if (SizeOf(T) >= SizeOf(NativeUInt) * 3) then
+          begin
+            TempNative := PLMemory(I).LNatives[2];
+            PLMemory(I).LNatives[2] := PRMemory(J).RNatives[2];
+            PRMemory(J).RNatives[2] := TempNative;
+          end;
+
+          if (SizeOf(T)  = SizeOf(NativeUInt) * 4) then
+          begin
+            TempNative := PLMemory(I).LNatives[3];
+            PLMemory(I).LNatives[3] := PRMemory(J).RNatives[3];
+            PRMemory(J).RNatives[3] := TempNative;
+          end;
+
+          {$ifdef LARGEINT}
+          case SizeOf(T) of
+            12, 13, 14, 15:
+            begin
+              Temp4 := PLMemory(I).LCardinals[2];
+              PLMemory(I).LCardinals[2] := PRMemory(J).RCardinals[2];
+              PRMemory(J).RCardinals[2] := Temp4;
+            end;
+          end;
+          {$endif}
+
+          case SizeOf(T) of
+            9:
+            begin
+              Temp1 := PLMemory(I).LBytes[8];
+              PLMemory(I).LBytes[8] := PRMemory(J).RBytes[8];
+              PRMemory(J).RBytes[8] := Temp1;
+            end;
+            10:
+            begin
+              Temp2 := PLMemory(I).LWords[4];
+              PLMemory(I).LWords[4] := PRMemory(J).RWords[4];
+              PRMemory(J).RWords[4] := Temp2;
+            end;
+            11:
+            begin
+              Temp2 := PLMemory(I).LWords[4];
+              PLMemory(I).LWords[4] := PRMemory(J).RWords[4];
+              PRMemory(J).RWords[4] := Temp2;
+              Temp1 := PLMemory(I).LBytes[10];
+              PLMemory(I).LBytes[10] := PRMemory(J).RBytes[10];
+              PRMemory(J).RBytes[10] := Temp1;
+            end;
+            13:
+            begin
+              Temp2 := PLMemory(I).LWords[5];
+              PLMemory(I).LWords[5] := PRMemory(J).RWords[5];
+              PRMemory(J).RWords[5] := Temp2;
+              Temp1 := PLMemory(I).LBytes[12];
+              PLMemory(I).LBytes[12] := PRMemory(J).RBytes[12];
+              PRMemory(J).RBytes[12] := Temp1;
+            end;
+            14:
+            begin
+              Temp2 := PLMemory(I).LWords[6];
+              PLMemory(I).LWords[6] := PRMemory(J).RWords[6];
+              PRMemory(J).RWords[6] := Temp2;
+            end;
+            15:
+            begin
+              Temp2 := PLMemory(I).LWords[6];
+              PLMemory(I).LWords[6] := PRMemory(J).RWords[6];
+              PRMemory(J).RWords[6] := Temp2;
+              Temp1 := PLMemory(I).LBytes[14];
+              PLMemory(I).LBytes[14] := PRMemory(J).RBytes[14];
+              PRMemory(J).RBytes[14] := Temp1;
+            end;
+          end;
+        end;
+      else
+        Index := 0;
+        repeat
+          TempNative := PLMemory(I).LNatives[Index];
+          PLMemory(I).LNatives[Index] := PRMemory(J).RNatives[Index];
+          PRMemory(J).RNatives[Index] := TempNative;
+          Inc(Index);
+        until (Index = SizeOf(T) div SizeOf(NativeUInt));
+
+        if (SizeOf(T) and (SizeOf(NativeUInt) - 1) <> 0) then
+        begin
+          {$ifdef LARGEINT}
+          if (SizeOf(T) and 4 <> 0) then
+          begin
+            Index := SizeOf(T) div SizeOf(Cardinal) - 1;
+            Temp4 := PLMemory(I).LCardinals[Index];
+            PLMemory(I).LCardinals[Index] := PRMemory(J).RCardinals[Index];
+            PRMemory(J).RCardinals[Index] := Temp4;
+          end;
+          {$endif}
+
+          if (SizeOf(T) and 2 <> 0) then
+          begin
+            Index := SizeOf(T) div SizeOf(Word) - 1;
+            Temp2 := PLMemory(I).LWords[Index];
+            PLMemory(I).LWords[Index] := PRMemory(J).RWords[Index];
+            PRMemory(J).RWords[Index] := Temp2;
+          end;
+
+          if (SizeOf(T) and 1 <> 0) then
+          begin
+            Index := SizeOf(T) div SizeOf(Byte) - 1;
+            Temp1 := PLMemory(I).LBytes[Index];
+            PLMemory(I).LBytes[Index] := PRMemory(J).RBytes[Index];
+            PRMemory(J).RBytes[Index] := Temp1;
+          end;
+        end;
+      end;
+
+      Dec(J, 2);
+      if (I <= J) then goto swap_loop;
+      Inc(I);
+      Inc(J);
+    end;
+  end;
+
+  // next iteration
+  StackItem := SortItemNext<T>(StackItem, I, J);
+  if (NativeInt(StackItem) >= 0) then goto proc_loop_current;
+  Dec(NativeInt(StackItem), HIGH_NATIVE_BIT);
+  if (StackItem <> @Stack[0]) then goto proc_loop;
+end;
+
 class procedure TArray.Sort<T>(var Values: T; const Count: Integer);
 {$ifdef SMARTGENERICS}
 var
@@ -11994,48 +12110,63 @@ begin
 
   case GetTypeKind(T) of
     tkInteger, tkEnumeration, tkChar, tkWChar:
-    case TypeData.OrdType of
-      otSByte: SortSigneds<ShortInt>(Values, Count);
-      otUByte: SortUnsigneds<Byte>(Values, Count);
-      otSWord: SortSigneds<SmallInt>(Values, Count);
-      otUWord: SortUnsigneds<Word>(Values, Count);
-      otSLong: SortSigneds<Integer>(Values, Count);
-      otULong: SortUnsigneds<Cardinal>(Values, Count);
+    case SizeOf(T) of
+      1:
+      begin
+        case TypeData.OrdType of
+          otSByte: SortSigneds<ShortInt>(@Values, Count);
+          otUByte: SortUnsigneds<Byte>(@Values, Count);
+        end;
+      end;
+      2:
+      begin
+        case TypeData.OrdType of
+          otSWord: SortSigneds<SmallInt>(@Values, Count);
+          otUWord: SortUnsigneds<Word>(@Values, Count);
+        end;
+      end;
+      4:
+      begin
+        case TypeData.OrdType of
+          otSLong: SortSigneds<Integer>(@Values, Count);
+          otULong: SortUnsigneds<Cardinal>(@Values, Count);
+        end;
+      end;
     end;
     tkInt64:
     begin
       if (TypeData.MaxInt64Value > TypeData.MinInt64Value) then
       begin
-        SortSigneds<Int64>(Values, Count);
+        SortSigneds<Int64>(@Values, Count);
       end else
       begin
-        SortUnsigneds<UInt64>(Values, Count);
+        SortUnsigneds<UInt64>(@Values, Count);
       end;
     end;
     tkClass, tkInterface, tkClassRef, tkPointer, tkProcedure:
     begin
       {$ifdef LARGEINT}
-        SortUnsigneds<UInt64>(Values, Count);
+        SortUnsigneds<UInt64>(@Values, Count);
       {$else .SMALLINT}
-        SortUnsigneds<Cardinal>(Values, Count);
+        SortUnsigneds<Cardinal>(@Values, Count);
       {$endif}
     end;
     tkFloat:
     case SizeOf(T) of
-       4: SortFloats<Single>(Values, Count);
-      10: SortFloats<Extended>(Values, Count);
+       4: SortFloats<Single>(@Values, Count);
+      10: SortFloats<Extended>(@Values, Count);
     else
       if (TypeData.FloatType = ftDouble) then
       begin
-        SortFloats<Double>(Values, Count);
+        SortFloats<Double>(@Values, Count);
       end else
       begin
-        SortSigneds<Int64>(Values, Count);
+        SortSigneds<Int64>(@Values, Count);
       end;
     end;
     tkMethod:
     begin
-      SortBinaries<InterfaceDefaults.TMethodPtr>(Values, Count, InterfaceDefaults.TMethodPtr(nil^));
+      SortBinaries<InterfaceDefaults.TMethodPtr>(@Values, Count, InterfaceDefaults.TMethodPtr(nil^));
     end;
     tkVariant:
     begin
@@ -12043,42 +12174,42 @@ begin
     end;
     tkString:
     begin
-      SortBinaries<T>(Values, Count, T(nil^));
+      SortBinaries<T>(@Values, Count, T(nil^));
     end;
     tkLString:
     begin
       {$ifdef NEXTGEN}
-         SortBinaries<T>(Values, Count, T(nil^));
+         SortBinaries<T>(@Values, Count, T(nil^));
       {$else}
-         SortBinaries<AnsiString>(Values, Count, AnsiString(nil^));
+         SortBinaries<AnsiString>(@Values, Count, AnsiString(nil^));
       {$endif}
     end;
     {$ifdef MSWINDOWS}
     tkWString:
     begin
-      SortBinaries<WideString>(Values, Count, WideString(nil^));
+      SortBinaries<WideString>(@Values, Count, WideString(nil^));
     end;
     {$else}
     tkWString,
     {$endif}
     tkUString:
     begin
-      SortBinaries<UnicodeString>(Values, Count, UnicodeString(nil^));
+      SortBinaries<UnicodeString>(@Values, Count, UnicodeString(nil^));
     end;
     tkDynArray:
     begin
-      SortBinaries<T>(Values, Count, T(nil^));
+      SortBinaries<T>(@Values, Count, T(nil^));
     end;
   else
     // binary
     case SizeOf(T) of
       0: ;
-      1: SortUnsigneds<Byte>(Values, Count);
-      2..BUFFER_SIZE: SortBinaries<T>(Values, Count, T(nil^));
+      1: SortUnsigneds<Byte>(@Values, Count);
+      2..BUFFER_SIZE: SortBinaries<T>(@Values, Count, T(nil^));
     else
       GetMem(PivotBig, SizeOf(T));
       try
-        SortBinaries<T>(Values, Count, PivotBig^);
+        SortBinaries<T>(@Values, Count, PivotBig^);
       finally
         FreeMem(PivotBig);
       end;
@@ -12087,7 +12218,7 @@ begin
 end;
 {$else}
 begin
-  TArray.Sort<T>(Values, Count, IComparer<T>(@InterfaceDefaults.TDefaultComparer<T>.Instance));
+  TArray.Sort<T>(@Values, Count, IComparer<T>(@InterfaceDefaults.TDefaultComparer<T>.Instance));
 end;
 {$endif}
 
@@ -12102,13 +12233,13 @@ begin
   begin
     Helper := Pointer(@HelperBuffer);
     Helper.Init(Comparer);
-    TArray.SortUniversals<T>(Values, Count, Helper^);
+    TArray.SortUniversals<T>(@Values, Count, Helper^);
   end else
   begin
     GetMem(Helper, SizeOf(TSortHelper<T>));
     try
       Helper.Init(Comparer);
-      TArray.SortUniversals<T>(Values, Count, Helper^);
+      TArray.SortUniversals<T>(@Values, Count, Helper^);
     finally
       FreeMem(Helper);
     end;
@@ -12126,13 +12257,13 @@ begin
   begin
     Helper := Pointer(@HelperBuffer);
     Helper.Init(Comparison);
-    TArray.SortUniversals<T>(Values, Count, Helper^);
+    TArray.SortUniversals<T>(@Values, Count, Helper^);
   end else
   begin
     GetMem(Helper, SizeOf(TSortHelper<T>));
     try
       Helper.Init(Comparison);
-      TArray.SortUniversals<T>(Values, Count, Helper^);
+      TArray.SortUniversals<T>(@Values, Count, Helper^);
     finally
       FreeMem(Helper);
     end;
@@ -12198,48 +12329,63 @@ begin
 
   case GetTypeKind(T) of
     tkInteger, tkEnumeration, tkChar, tkWChar:
-    case TypeData.OrdType of
-      otSByte: SortDescendingSigneds<ShortInt>(Values, Count);
-      otUByte: SortDescendingUnsigneds<Byte>(Values, Count);
-      otSWord: SortDescendingSigneds<SmallInt>(Values, Count);
-      otUWord: SortDescendingUnsigneds<Word>(Values, Count);
-      otSLong: SortDescendingSigneds<Integer>(Values, Count);
-      otULong: SortDescendingUnsigneds<Cardinal>(Values, Count);
+    case SizeOf(T) of
+      1:
+      begin
+        case TypeData.OrdType of
+          otSByte: SortDescendingSigneds<ShortInt>(@Values, Count);
+          otUByte: SortDescendingUnsigneds<Byte>(@Values, Count);
+        end;
+      end;
+      2:
+      begin
+        case TypeData.OrdType of
+          otSWord: SortDescendingSigneds<SmallInt>(@Values, Count);
+          otUWord: SortDescendingUnsigneds<Word>(@Values, Count);
+        end;
+      end;
+      4:
+      begin
+        case TypeData.OrdType of
+          otSLong: SortDescendingSigneds<Integer>(@Values, Count);
+          otULong: SortDescendingUnsigneds<Cardinal>(@Values, Count);
+        end;
+      end;
     end;
     tkInt64:
     begin
       if (TypeData.MaxInt64Value > TypeData.MinInt64Value) then
       begin
-        SortDescendingSigneds<Int64>(Values, Count);
+        SortDescendingSigneds<Int64>(@Values, Count);
       end else
       begin
-        SortDescendingUnsigneds<UInt64>(Values, Count);
+        SortDescendingUnsigneds<UInt64>(@Values, Count);
       end;
     end;
     tkClass, tkInterface, tkClassRef, tkPointer, tkProcedure:
     begin
       {$ifdef LARGEINT}
-        SortDescendingUnsigneds<UInt64>(Values, Count);
+        SortDescendingUnsigneds<UInt64>(@Values, Count);
       {$else .SMALLINT}
-        SortDescendingUnsigneds<Cardinal>(Values, Count);
+        SortDescendingUnsigneds<Cardinal>(@Values, Count);
       {$endif}
     end;
     tkFloat:
     case SizeOf(T) of
-       4: SortDescendingFloats<Single>(Values, Count);
-      10: SortDescendingFloats<Extended>(Values, Count);
+       4: SortDescendingFloats<Single>(@Values, Count);
+      10: SortDescendingFloats<Extended>(@Values, Count);
     else
       if (TypeData.FloatType = ftDouble) then
       begin
-        SortDescendingFloats<Double>(Values, Count);
+        SortDescendingFloats<Double>(@Values, Count);
       end else
       begin
-        SortDescendingSigneds<Int64>(Values, Count);
+        SortDescendingSigneds<Int64>(@Values, Count);
       end;
     end;
     tkMethod:
     begin
-      SortDescendingBinaries<InterfaceDefaults.TMethodPtr>(Values, Count, InterfaceDefaults.TMethodPtr(nil^));
+      SortDescendingBinaries<InterfaceDefaults.TMethodPtr>(@Values, Count, InterfaceDefaults.TMethodPtr(nil^));
     end;
     tkVariant:
     begin
@@ -12247,42 +12393,42 @@ begin
     end;
     tkString:
     begin
-      SortDescendingBinaries<T>(Values, Count, T(nil^));
+      SortDescendingBinaries<T>(@Values, Count, T(nil^));
     end;
     tkLString:
     begin
       {$ifdef NEXTGEN}
-         SortDescendingBinaries<T>(Values, Count, T(nil^));
+         SortDescendingBinaries<T>(@Values, Count, T(nil^));
       {$else}
-         SortDescendingBinaries<AnsiString>(Values, Count, AnsiString(nil^));
+         SortDescendingBinaries<AnsiString>(@Values, Count, AnsiString(nil^));
       {$endif}
     end;
     {$ifdef MSWINDOWS}
     tkWString:
     begin
-      SortDescendingBinaries<WideString>(Values, Count, WideString(nil^));
+      SortDescendingBinaries<WideString>(@Values, Count, WideString(nil^));
     end;
     {$else}
     tkWString,
     {$endif}
     tkUString:
     begin
-      SortDescendingBinaries<UnicodeString>(Values, Count, UnicodeString(nil^));
+      SortDescendingBinaries<UnicodeString>(@Values, Count, UnicodeString(nil^));
     end;
     tkDynArray:
     begin
-      SortDescendingBinaries<T>(Values, Count, T(nil^));
+      SortDescendingBinaries<T>(@Values, Count, T(nil^));
     end;
   else
     // binary
     case SizeOf(T) of
       0: ;
-      1: SortDescendingUnsigneds<Byte>(Values, Count);
-      2..BUFFER_SIZE: SortDescendingBinaries<T>(Values, Count, T(nil^));
+      1: SortDescendingUnsigneds<Byte>(@Values, Count);
+      2..BUFFER_SIZE: SortDescendingBinaries<T>(@Values, Count, T(nil^));
     else
       GetMem(PivotBig, SizeOf(T));
       try
-        SortDescendingBinaries<T>(Values, Count, PivotBig^);
+        SortDescendingBinaries<T>(@Values, Count, PivotBig^);
       finally
         FreeMem(PivotBig);
       end;
@@ -12291,7 +12437,7 @@ begin
 end;
 {$else}
 begin
-  TArray.SortDescending<T>(Values, Count, IComparer<T>(@InterfaceDefaults.TDefaultComparer<T>.Instance));
+  TArray.SortDescending<T>(@Values, Count, IComparer<T>(@InterfaceDefaults.TDefaultComparer<T>.Instance));
 end;
 {$endif}
 
@@ -12306,13 +12452,13 @@ begin
   begin
     Helper := Pointer(@HelperBuffer);
     Helper.Init(Comparer);
-    TArray.SortDescendingUniversals<T>(Values, Count, Helper^);
+    TArray.SortDescendingUniversals<T>(@Values, Count, Helper^);
   end else
   begin
     GetMem(Helper, SizeOf(TSortHelper<T>));
     try
       Helper.Init(Comparer);
-      TArray.SortDescendingUniversals<T>(Values, Count, Helper^);
+      TArray.SortDescendingUniversals<T>(@Values, Count, Helper^);
     finally
       FreeMem(Helper);
     end;
@@ -12330,13 +12476,13 @@ begin
   begin
     Helper := Pointer(@HelperBuffer);
     Helper.Init(Comparison);
-    TArray.SortDescendingUniversals<T>(Values, Count, Helper^);
+    TArray.SortDescendingUniversals<T>(@Values, Count, Helper^);
   end else
   begin
     GetMem(Helper, SizeOf(TSortHelper<T>));
     try
       Helper.Init(Comparison);
-      TArray.SortDescendingUniversals<T>(Values, Count, Helper^);
+      TArray.SortDescendingUniversals<T>(@Values, Count, Helper^);
     finally
       FreeMem(Helper);
     end;
@@ -12383,6 +12529,1462 @@ begin
     Exit;
 
   SortDescending<T>(Values[Index], Count, Comparison);
+end;
+
+{$ifdef SMARTGENERICS}
+class function TArray.SearchSigneds<T>(Values: Pointer; Count: NativeInt; Item: Pointer): NativeInt;
+label
+  middle_init, not_found;
+type
+  TArray1 = array[0..High(Integer) div 1 - 1] of ShortInt;
+  TArray2 = array[0..High(Integer) div 2 - 1] of SmallInt;
+  TArray4 = array[0..High(Integer) div 4 - 1] of Integer;
+  {$ifdef LARGEINT}
+    TArray8 = array[0..High(Integer) div 8 - 1] of Int64;
+  {$else .SMALLINT}
+    TArray8 = array[0..High(Integer) div 8 - 1] of TPoint;
+  {$endif}
+  PArray1 = ^TArray1;
+  PArray2 = ^TArray2;
+  PArray4 = ^TArray4;
+  PArray8 = ^TArray8;
+var
+  Item1: ShortInt;
+  Item2: SmallInt;
+  Item4: Integer;
+  {$ifdef LARGEINT}
+    Item8: Int64;
+  {$else .SMALLINT}
+    Item8Low: Cardinal;
+    Item8High, Buffer8High: Integer;
+  {$endif}
+  Left, Right, Middle: NativeInt;
+begin
+  case SizeOf(T) of
+    1: Byte(Item1) := PByte(Item)^;
+    2: Word(Item2) := PWord(Item)^;
+    4: Integer(Item4) := PInteger(Item)^;
+  else
+    {$ifdef LARGEINT}
+      Int64(Item8) := PInt64(Item)^;
+    {$else .SMALLINT}
+      Item8Low := PPoint(Item).X;
+      Item8High := PPoint(Item).Y;
+    {$endif}
+  end;
+
+  Middle := -1;
+  Right := Count + (-1);
+  repeat
+    Left := Middle + 1;
+    if (Middle >= Right) then Break;
+
+  middle_init:
+    Middle := Right;
+    Dec(Middle, Left);
+    Middle := Left + (Middle shr 1);
+
+    case SizeOf(T) of
+      1: if (PArray1(Values)[Middle] < Item1) then Continue;
+      2: if (PArray2(Values)[Middle] < Item2) then Continue;
+      4: if (PArray4(Values)[Middle] < Item4) then Continue;
+    else
+      {$ifdef LARGEINT}
+        if (PArray8(Values)[Middle] < Item8) then Continue;
+      {$else .SMALLINT}
+        Inc(NativeUInt(Values), SizeOf(Integer));
+        Buffer8High := PArray8(Values)[Middle].X;
+        Dec(NativeUInt(Values), SizeOf(Integer));
+        if (Buffer8High < Item8High) then Continue;
+        if (Buffer8High = Item8High) then
+        begin
+          if (Cardinal(PArray8(Values)[Middle].X) < Item8Low) then Continue;
+        end;
+      {$endif}
+    end;
+
+    Right := Middle + (-1);
+    if (not (Left > Right)) then goto middle_init;
+    Break;
+  until (False);
+
+  if (Left < Count) then
+  begin
+    case SizeOf(T) of
+      1: if (PArray1(Values)[Left] <> Item1) then goto not_found;
+      2: if (PArray2(Values)[Left] <> Item2) then goto not_found;
+      4: if (PArray4(Values)[Left] <> Item4) then goto not_found;
+    else
+      {$ifdef LARGEINT}
+        if (PArray8(Values)[Left] <> Item8) then goto not_found;
+      {$else .SMALLINT}
+        Inc(NativeUInt(Values), SizeOf(Integer));
+        Dec(Item8High, PArray8(Values)[Left].X);
+        Dec(NativeUInt(Values), SizeOf(Integer));
+        Buffer8High := PArray8(Values)[Left].X;
+        Dec(Buffer8High, Item8Low);
+        if (Buffer8High or Item8High <> 0) then goto not_found;
+      {$endif}
+    end;
+  end else
+  begin
+  not_found:
+    Left := not Left;
+  end;
+
+  Result := Left;
+end;
+
+class function TArray.SearchDescendingSigneds<T>(Values: Pointer; Count: NativeInt; Item: Pointer): NativeInt;
+label
+  middle_init, not_found;
+type
+  TArray1 = array[0..High(Integer) div 1 - 1] of ShortInt;
+  TArray2 = array[0..High(Integer) div 2 - 1] of SmallInt;
+  TArray4 = array[0..High(Integer) div 4 - 1] of Integer;
+  {$ifdef LARGEINT}
+    TArray8 = array[0..High(Integer) div 8 - 1] of Int64;
+  {$else .SMALLINT}
+    TArray8 = array[0..High(Integer) div 8 - 1] of TPoint;
+  {$endif}
+  PArray1 = ^TArray1;
+  PArray2 = ^TArray2;
+  PArray4 = ^TArray4;
+  PArray8 = ^TArray8;
+var
+  Item1: ShortInt;
+  Item2: SmallInt;
+  Item4: Integer;
+  {$ifdef LARGEINT}
+    Item8: Int64;
+  {$else .SMALLINT}
+    Item8Low: Cardinal;
+    Item8High, Buffer8High: Integer;
+  {$endif}
+  Left, Right, Middle: NativeInt;
+begin
+  case SizeOf(T) of
+    1: Byte(Item1) := PByte(Item)^;
+    2: Word(Item2) := PWord(Item)^;
+    4: Integer(Item4) := PInteger(Item)^;
+  else
+    {$ifdef LARGEINT}
+      Int64(Item8) := PInt64(Item)^;
+    {$else .SMALLINT}
+      Item8Low := PPoint(Item).X;
+      Item8High := PPoint(Item).Y;
+    {$endif}
+  end;
+
+  Middle := -1;
+  Right := Count + (-1);
+  repeat
+    Left := Middle + 1;
+    if (Middle >= Right) then Break;
+
+  middle_init:
+    Middle := Right;
+    Dec(Middle, Left);
+    Middle := Left + (Middle shr 1);
+
+    case SizeOf(T) of
+      1: if (PArray1(Values)[Middle] > Item1) then Continue;
+      2: if (PArray2(Values)[Middle] > Item2) then Continue;
+      4: if (PArray4(Values)[Middle] > Item4) then Continue;
+    else
+      {$ifdef LARGEINT}
+        if (PArray8(Values)[Middle] > Item8) then Continue;
+      {$else .SMALLINT}
+        Inc(NativeUInt(Values), SizeOf(Integer));
+        Buffer8High := PArray8(Values)[Middle].X;
+        Dec(NativeUInt(Values), SizeOf(Integer));
+        if (Buffer8High > Item8High) then Continue;
+        if (Buffer8High = Item8High) then
+        begin
+          if (Cardinal(PArray8(Values)[Middle].X) > Item8Low) then Continue;
+        end;
+      {$endif}
+    end;
+
+    Right := Middle + (-1);
+    if (not (Left > Right)) then goto middle_init;
+    Break;
+  until (False);
+
+  if (Left < Count) then
+  begin
+    case SizeOf(T) of
+      1: if (PArray1(Values)[Left] <> Item1) then goto not_found;
+      2: if (PArray2(Values)[Left] <> Item2) then goto not_found;
+      4: if (PArray4(Values)[Left] <> Item4) then goto not_found;
+    else
+      {$ifdef LARGEINT}
+        if (PArray8(Values)[Left] <> Item8) then goto not_found;
+      {$else .SMALLINT}
+        Inc(NativeUInt(Values), SizeOf(Integer));
+        Dec(Item8High, PArray8(Values)[Left].X);
+        Dec(NativeUInt(Values), SizeOf(Integer));
+        Buffer8High := PArray8(Values)[Left].X;
+        Dec(Buffer8High, Item8Low);
+        if (Buffer8High or Item8High <> 0) then goto not_found;
+      {$endif}
+    end;
+  end else
+  begin
+  not_found:
+    Left := not Left;
+  end;
+
+  Result := Left;
+end;
+
+class function TArray.SearchUnsigneds<T>(Values: Pointer; Count: NativeInt; Item: Pointer): NativeInt;
+label
+  middle_init, not_found;
+type
+  TArray1 = array[0..High(Integer) div 1 - 1] of Byte;
+  TArray2 = array[0..High(Integer) div 2 - 1] of Word;
+  TArray4 = array[0..High(Integer) div 4 - 1] of Cardinal;
+  {$ifdef LARGEINT}
+    TArray8 = array[0..High(Integer) div 8 - 1] of UInt64;
+  {$else .SMALLINT}
+    TArray8 = array[0..High(Integer) div 8 - 1] of TPoint;
+  {$endif}
+  PArray1 = ^TArray1;
+  PArray2 = ^TArray2;
+  PArray4 = ^TArray4;
+  PArray8 = ^TArray8;
+var
+  Item1: Byte;
+  Item2: Word;
+  Item4: Cardinal;
+  {$ifdef LARGEINT}
+    Item8: UInt64;
+  {$else .SMALLINT}
+    Item8Low: Cardinal;
+    Item8High, Buffer8High: Cardinal;
+  {$endif}
+  Left, Right, Middle: NativeInt;
+begin
+  case SizeOf(T) of
+    1: Byte(Item1) := PByte(Item)^;
+    2: Word(Item2) := PWord(Item)^;
+    4: Integer(Item4) := PInteger(Item)^;
+  else
+    {$ifdef LARGEINT}
+      Int64(Item8) := PInt64(Item)^;
+    {$else .SMALLINT}
+      Item8Low := PPoint(Item).X;
+      Item8High := PPoint(Item).Y;
+    {$endif}
+  end;
+
+  Middle := -1;
+  Right := Count + (-1);
+  repeat
+    Left := Middle + 1;
+    if (Middle >= Right) then Break;
+
+  middle_init:
+    Middle := Right;
+    Dec(Middle, Left);
+    Middle := Left + (Middle shr 1);
+
+    case SizeOf(T) of
+      1: if (PArray1(Values)[Middle] < Item1) then Continue;
+      2: if (PArray2(Values)[Middle] < Item2) then Continue;
+      4: if (PArray4(Values)[Middle] < Item4) then Continue;
+    else
+      {$ifdef LARGEINT}
+        if (PArray8(Values)[Middle] < Item8) then Continue;
+      {$else .SMALLINT}
+        Inc(NativeUInt(Values), SizeOf(Integer));
+        Buffer8High := PArray8(Values)[Middle].X;
+        Dec(NativeUInt(Values), SizeOf(Integer));
+        if (Buffer8High < Item8High) then Continue;
+        if (Buffer8High = Item8High) then
+        begin
+          if (Cardinal(PArray8(Values)[Middle].X) < Item8Low) then Continue;
+        end;
+      {$endif}
+    end;
+
+    Right := Middle + (-1);
+    if (not (Left > Right)) then goto middle_init;
+    Break;
+  until (False);
+
+  if (Left < Count) then
+  begin
+    case SizeOf(T) of
+      1: if (PArray1(Values)[Left] <> Item1) then goto not_found;
+      2: if (PArray2(Values)[Left] <> Item2) then goto not_found;
+      4: if (PArray4(Values)[Left] <> Item4) then goto not_found;
+    else
+      {$ifdef LARGEINT}
+        if (PArray8(Values)[Left] <> Item8) then goto not_found;
+      {$else .SMALLINT}
+        Inc(NativeUInt(Values), SizeOf(Integer));
+        Dec(Item8High, PArray8(Values)[Left].X);
+        Dec(NativeUInt(Values), SizeOf(Integer));
+        Buffer8High := PArray8(Values)[Left].X;
+        Dec(Buffer8High, Item8Low);
+        if (Buffer8High or Item8High <> 0) then goto not_found;
+      {$endif}
+    end;
+  end else
+  begin
+  not_found:
+    Left := not Left;
+  end;
+
+  Result := Left;
+end;
+
+class function TArray.SearchDescendingUnsigneds<T>(Values: Pointer; Count: NativeInt; Item: Pointer): NativeInt;
+label
+  middle_init, not_found;
+type
+  TArray1 = array[0..High(Integer) div 1 - 1] of Byte;
+  TArray2 = array[0..High(Integer) div 2 - 1] of Word;
+  TArray4 = array[0..High(Integer) div 4 - 1] of Cardinal;
+  {$ifdef LARGEINT}
+    TArray8 = array[0..High(Integer) div 8 - 1] of UInt64;
+  {$else .SMALLINT}
+    TArray8 = array[0..High(Integer) div 8 - 1] of TPoint;
+  {$endif}
+  PArray1 = ^TArray1;
+  PArray2 = ^TArray2;
+  PArray4 = ^TArray4;
+  PArray8 = ^TArray8;
+var
+  Item1: Byte;
+  Item2: Word;
+  Item4: Cardinal;
+  {$ifdef LARGEINT}
+    Item8: UInt64;
+  {$else .SMALLINT}
+    Item8Low: Cardinal;
+    Item8High, Buffer8High: Cardinal;
+  {$endif}
+  Left, Right, Middle: NativeInt;
+begin
+  case SizeOf(T) of
+    1: Byte(Item1) := PByte(Item)^;
+    2: Word(Item2) := PWord(Item)^;
+    4: Integer(Item4) := PInteger(Item)^;
+  else
+    {$ifdef LARGEINT}
+      Int64(Item8) := PInt64(Item)^;
+    {$else .SMALLINT}
+      Item8Low := PPoint(Item).X;
+      Item8High := PPoint(Item).Y;
+    {$endif}
+  end;
+
+  Middle := -1;
+  Right := Count + (-1);
+  repeat
+    Left := Middle + 1;
+    if (Middle >= Right) then Break;
+
+  middle_init:
+    Middle := Right;
+    Dec(Middle, Left);
+    Middle := Left + (Middle shr 1);
+
+    case SizeOf(T) of
+      1: if (PArray1(Values)[Middle] > Item1) then Continue;
+      2: if (PArray2(Values)[Middle] > Item2) then Continue;
+      4: if (PArray4(Values)[Middle] > Item4) then Continue;
+    else
+      {$ifdef LARGEINT}
+        if (PArray8(Values)[Middle] > Item8) then Continue;
+      {$else .SMALLINT}
+        Inc(NativeUInt(Values), SizeOf(Integer));
+        Buffer8High := PArray8(Values)[Middle].X;
+        Dec(NativeUInt(Values), SizeOf(Integer));
+        if (Buffer8High > Item8High) then Continue;
+        if (Buffer8High = Item8High) then
+        begin
+          if (Cardinal(PArray8(Values)[Middle].X) > Item8Low) then Continue;
+        end;
+      {$endif}
+    end;
+
+    Right := Middle + (-1);
+    if (not (Left > Right)) then goto middle_init;
+    Break;
+  until (False);
+
+  if (Left < Count) then
+  begin
+    case SizeOf(T) of
+      1: if (PArray1(Values)[Left] <> Item1) then goto not_found;
+      2: if (PArray2(Values)[Left] <> Item2) then goto not_found;
+      4: if (PArray4(Values)[Left] <> Item4) then goto not_found;
+    else
+      {$ifdef LARGEINT}
+        if (PArray8(Values)[Left] <> Item8) then goto not_found;
+      {$else .SMALLINT}
+        Inc(NativeUInt(Values), SizeOf(Integer));
+        Dec(Item8High, PArray8(Values)[Left].X);
+        Dec(NativeUInt(Values), SizeOf(Integer));
+        Buffer8High := PArray8(Values)[Left].X;
+        Dec(Buffer8High, Item8Low);
+        if (Buffer8High or Item8High <> 0) then goto not_found;
+      {$endif}
+    end;
+  end else
+  begin
+  not_found:
+    Left := not Left;
+  end;
+
+  Result := Left;
+end;
+
+class function TArray.SearchFloats<T>(Values: Pointer; Count: NativeInt; Item: Pointer): NativeInt;
+label
+  middle_init, not_found;
+type
+  TArray4 = array[0..High(Integer) div 4 - 1] of Single;
+  TArray8 = array[0..High(Integer) div 8 - 1] of Double;
+  TArrayE = array[0..High(Integer) div 10 - 1] of Extended;
+  PArray4 = ^TArray4;
+  PArray8 = ^TArray8;
+  PArrayE = ^TArrayE;
+var
+  Item4: {$ifdef CPUX86}Extended{$else}Single{$endif};
+  Item8: {$ifdef CPUX86}Extended{$else}Double{$endif};
+  ItemE: Extended;
+  Left, Right, Middle: NativeInt;
+begin
+  case SizeOf(T) of
+    4: Item4 := PSingle(Item)^;
+    8: Item8 := PDouble(Item)^;
+  else
+    ItemE := PExtended(Item)^;
+  end;
+
+  Middle := -1;
+  Right := Count + (-1);
+  repeat
+    Inc(Middle);
+    Left := Middle;
+    if (Middle > Right) then Break;
+
+  middle_init:
+    Middle := Right;
+    Dec(Middle, Left);
+    Middle := Left + (Middle shr 1);
+
+    case SizeOf(T) of
+      4: if (PArray4(Values)[Middle] < Item4) then Continue;
+      8: if (PArray8(Values)[Middle] < Item8) then Continue;
+    else
+      if (PArrayE(Values)[Middle] < ItemE) then Continue;
+    end;
+
+    Right := Middle + (-1);
+    if (not (Left > Right)) then goto middle_init;
+    Break;
+  until (False);
+
+  if (Left < Count) then
+  begin
+    case SizeOf(T) of
+      4: if (PArray4(Values)[Left] <> Item4) then goto not_found;
+      8: if (PArray8(Values)[Left] <> Item8) then goto not_found;
+    else
+      if (PArrayE(Values)[Left] <> ItemE) then goto not_found;
+    end;
+  end else
+  if (Left >= Count) then
+  begin
+  not_found:
+    Left := not Left;
+  end;
+
+  Result := Left;
+end;
+
+class function TArray.SearchDescendingFloats<T>(Values: Pointer; Count: NativeInt; Item: Pointer): NativeInt;
+label
+  middle_init, not_found;
+type
+  TArray4 = array[0..High(Integer) div 4 - 1] of Single;
+  TArray8 = array[0..High(Integer) div 8 - 1] of Double;
+  TArrayE = array[0..High(Integer) div 10 - 1] of Extended;
+  PArray4 = ^TArray4;
+  PArray8 = ^TArray8;
+  PArrayE = ^TArrayE;
+var
+  Item4: {$ifdef CPUX86}Extended{$else}Single{$endif};
+  Item8: {$ifdef CPUX86}Extended{$else}Double{$endif};
+  ItemE: Extended;
+  Left, Right, Middle: NativeInt;
+begin
+  case SizeOf(T) of
+    4: Item4 := PSingle(Item)^;
+    8: Item8 := PDouble(Item)^;
+  else
+    ItemE := PExtended(Item)^;
+  end;
+
+  Middle := -1;
+  Right := Count + (-1);
+  repeat
+    Inc(Middle);
+    Left := Middle;
+    if (Middle > Right) then Break;
+
+  middle_init:
+    Middle := Right;
+    Dec(Middle, Left);
+    Middle := Left + (Middle shr 1);
+
+    case SizeOf(T) of
+      4: if (PArray4(Values)[Middle] > Item4) then Continue;
+      8: if (PArray8(Values)[Middle] > Item8) then Continue;
+    else
+      if (PArrayE(Values)[Middle] > ItemE) then Continue;
+    end;
+
+    Right := Middle + (-1);
+    if (not (Left > Right)) then goto middle_init;
+    Break;
+  until (False);
+
+  if (Left < Count) then
+  begin
+    case SizeOf(T) of
+      4: if (PArray4(Values)[Left] <> Item4) then goto not_found;
+      8: if (PArray8(Values)[Left] <> Item8) then goto not_found;
+    else
+      if (PArrayE(Values)[Left] <> ItemE) then goto not_found;
+    end;
+  end else
+  if (Left >= Count) then
+  begin
+  not_found:
+    Left := not Left;
+  end;
+
+  Result := Left;
+end;
+
+class function TArray.SearchBinaries<T>(Values: Pointer; Count: NativeInt; const Item: T): NativeInt;
+label
+  middle_init, not_found;
+type
+  P = ^T;
+var
+  Left, Right, Middle: NativeInt;
+  X, Y: NativeUInt;
+  BufferMiddle, BufferLeft: Pointer;
+  Cmp: Integer;
+  Stored: record
+    X: NativeUInt;
+    ItemPtr: Pointer;
+  end;
+begin
+  Middle := -1;
+  Right := Count + (-1);
+  X := TArray.SortBinaryMarker<T>(@Item);
+  Stored.X := X;
+  if (GetTypeKind(T) in [tkMethod, tkLString, tkWString, tkUString, tkDynArray]) then
+  begin
+    Stored.ItemPtr := PPointer(@Item)^;
+  end;
+  repeat
+    Left := Middle + 1;
+    if (Middle >= Right) then Break;
+
+  middle_init:
+    Middle := Right;
+    Dec(Middle, Left);
+    Middle := Left + (Middle shr 1);
+
+    case GetTypeKind(T) of
+      tkMethod:
+      begin
+        Y := Middle;
+        Y := Y shl {$ifdef LARGEINT}4{$else .SMALLINT}3{$endif};
+        Inc(Y, NativeUInt(Values));
+        Y := NativeUInt(PMethod(Y).Data);
+      end;
+      tkLString, tkWString, tkUString, tkDynArray:
+      begin
+        Y := PNativeUInt(P(Values) + Middle)^;
+        if (Y <> 0) then
+        case GetTypeKind(T) of
+          tkLString:
+          begin
+            Y := PWord(Y)^;
+            Y := Swap(Y);
+          end;
+          {$ifdef MSWINDOWS}
+          tkWString:
+          begin
+            Dec(Y, SizeOf(Integer));
+            if (PInteger(Y)^ = 0) then
+            begin
+              Y := 0;
+            end else
+            begin
+              Inc(Y, SizeOf(Integer));
+              Y := PCardinal(Y)^;
+              Y := Cardinal((Y shl 16) + (Y shr 16));
+            end;
+          end;
+          {$else}
+          tkWString,
+          {$endif}
+          tkUString:
+          begin
+            Y := PCardinal(Y)^;
+            Y := Cardinal((Y shl 16) + (Y shr 16));
+          end;
+          tkDynArray:
+          begin
+            Y := PByte(Y)^;
+          end;
+        end;
+      end;
+    else
+      Y := TArray.SortBinaryMarker<T>(P(Values) + Middle);
+    end;
+
+    if (Y < X) then Continue;
+    if (Y = X) then
+    begin
+      if (GetTypeKind(T) = tkMethod) then
+      begin
+        Y := Middle;
+        Y := Y shl {$ifdef LARGEINT}4{$else .SMALLINT}3{$endif};
+        Inc(Y, NativeInt(Values));
+        Y := NativeUInt(PMethod(Y).Data);
+        if (Y < NativeUInt(Stored.ItemPtr)) then Continue;
+      end else
+      if (GetTypeKind(T) in [tkLString, tkWString, tkUString, tkDynArray]) then
+      begin
+        BufferMiddle := PPointer(P(Values) + Middle)^;
+        if (BufferMiddle <> Stored.ItemPtr) then
+        begin
+          case GetTypeKind(T) of
+            tkLString: Cmp := InterfaceDefaults.Compare_LStr(nil, BufferMiddle, Stored.ItemPtr);
+            tkWString: Cmp := InterfaceDefaults.Compare_WStr(nil, BufferMiddle, Stored.ItemPtr);
+            tkUString: Cmp := InterfaceDefaults.Compare_UStr(nil, BufferMiddle, Stored.ItemPtr);
+           tkDynArray: Cmp := InterfaceDefaults.Compare_Dyn(InterfaceDefaults.TDefaultComparer<T>.Instance, BufferMiddle, Stored.ItemPtr);
+          end;
+          X := Stored.X;
+          if (Cmp < 0) then Continue;
+        end;
+      end else
+      begin
+        Cmp := SortBinaryComparer<T>(P(Values) + Middle, @Item);
+        X := Stored.X;
+        if (Cmp < 0) then Continue;
+      end;
+    end;
+
+    Right := Middle + (-1);
+    if (not (Left > Right)) then goto middle_init;
+    Break;
+  until (False);
+
+  if (Left < Count) then
+  begin
+    BufferLeft := P(Values) + Left;
+    Y := TArray.SortBinaryMarker<T>(BufferLeft);
+    if (Y <> X) then goto not_found;
+    if (GetTypeKind(T) = tkMethod) then
+    begin
+      if (PNativeUInt(BufferLeft)^ <> NativeUInt(Stored.ItemPtr)) then goto not_found;
+    end else
+    if (GetTypeKind(T) in [tkLString, tkWString, tkUString, tkDynArray]) then
+    begin
+      BufferLeft := PPointer(BufferLeft)^;
+      if (BufferLeft <> Stored.ItemPtr) then
+      begin
+        case GetTypeKind(T) of
+          tkLString: Cmp := InterfaceDefaults.Compare_LStr(nil, BufferLeft, Stored.ItemPtr);
+          tkWString: Cmp := InterfaceDefaults.Compare_WStr(nil, BufferLeft, Stored.ItemPtr);
+          tkUString: Cmp := InterfaceDefaults.Compare_UStr(nil, BufferLeft, Stored.ItemPtr);
+         tkDynArray: Cmp := InterfaceDefaults.Compare_Dyn(InterfaceDefaults.TDefaultComparer<T>.Instance, BufferLeft, Stored.ItemPtr);
+        end;
+        if (Cmp <> 0) then goto not_found;
+      end;
+    end else
+    begin
+      Cmp := SortBinaryComparer<T>(BufferLeft, @Item);
+      if (Cmp <> 0) then goto not_found;
+    end;
+  end else
+  begin
+  not_found:
+    Left := not Left;
+  end;
+
+  Result := Left;
+end;
+
+class function TArray.SearchDescendingBinaries<T>(Values: Pointer; Count: NativeInt; const Item: T): NativeInt;
+label
+  middle_init, not_found;
+type
+  P = ^T;
+var
+  Left, Right, Middle: NativeInt;
+  X, Y: NativeUInt;
+  BufferMiddle, BufferLeft: Pointer;
+  Cmp: Integer;
+  Stored: record
+    X: NativeUInt;
+    ItemPtr: Pointer;
+  end;
+begin
+  Middle := -1;
+  Right := Count + (-1);
+  X := TArray.SortBinaryMarker<T>(@Item);
+  Stored.X := X;
+  if (GetTypeKind(T) in [tkMethod, tkLString, tkWString, tkUString, tkDynArray]) then
+  begin
+    Stored.ItemPtr := PPointer(@Item)^;
+  end;
+  repeat
+    Left := Middle + 1;
+    if (Middle >= Right) then Break;
+
+  middle_init:
+    Middle := Right;
+    Dec(Middle, Left);
+    Middle := Left + (Middle shr 1);
+
+    case GetTypeKind(T) of
+      tkMethod:
+      begin
+        Y := Middle;
+        Y := Y shl {$ifdef LARGEINT}4{$else .SMALLINT}3{$endif};
+        Inc(Y, NativeUInt(Values));
+        Y := NativeUInt(PMethod(Y).Data);
+      end;
+      tkLString, tkWString, tkUString, tkDynArray:
+      begin
+        Y := PNativeUInt(P(Values) + Middle)^;
+        if (Y <> 0) then
+        case GetTypeKind(T) of
+          tkLString:
+          begin
+            Y := PWord(Y)^;
+            Y := Swap(Y);
+          end;
+          {$ifdef MSWINDOWS}
+          tkWString:
+          begin
+            Dec(Y, SizeOf(Integer));
+            if (PInteger(Y)^ = 0) then
+            begin
+              Y := 0;
+            end else
+            begin
+              Inc(Y, SizeOf(Integer));
+              Y := PCardinal(Y)^;
+              Y := Cardinal((Y shl 16) + (Y shr 16));
+            end;
+          end;
+          {$else}
+          tkWString,
+          {$endif}
+          tkUString:
+          begin
+            Y := PCardinal(Y)^;
+            Y := Cardinal((Y shl 16) + (Y shr 16));
+          end;
+          tkDynArray:
+          begin
+            Y := PByte(Y)^;
+          end;
+        end;
+      end;
+    else
+      Y := TArray.SortBinaryMarker<T>(P(Values) + Middle);
+    end;
+
+    if (Y > X) then Continue;
+    if (Y = X) then
+    begin
+      if (GetTypeKind(T) = tkMethod) then
+      begin
+        Y := Middle;
+        Y := Y shl {$ifdef LARGEINT}4{$else .SMALLINT}3{$endif};
+        Inc(Y, NativeInt(Values));
+        Y := NativeUInt(PMethod(Y).Data);
+        if (Y > NativeUInt(Stored.ItemPtr)) then Continue;
+      end else
+      if (GetTypeKind(T) in [tkLString, tkWString, tkUString, tkDynArray]) then
+      begin
+        BufferMiddle := PPointer(P(Values) + Middle)^;
+        if (BufferMiddle <> Stored.ItemPtr) then
+        begin
+          case GetTypeKind(T) of
+            tkLString: Cmp := InterfaceDefaults.Compare_LStr(nil, BufferMiddle, Stored.ItemPtr);
+            tkWString: Cmp := InterfaceDefaults.Compare_WStr(nil, BufferMiddle, Stored.ItemPtr);
+            tkUString: Cmp := InterfaceDefaults.Compare_UStr(nil, BufferMiddle, Stored.ItemPtr);
+           tkDynArray: Cmp := InterfaceDefaults.Compare_Dyn(InterfaceDefaults.TDefaultComparer<T>.Instance, BufferMiddle, Stored.ItemPtr);
+          end;
+          X := Stored.X;
+          if (Cmp > 0) then Continue;
+        end;
+      end else
+      begin
+        Cmp := SortBinaryComparer<T>(P(Values) + Middle, @Item);
+        X := Stored.X;
+        if (Cmp > 0) then Continue;
+      end;
+    end;
+
+    Right := Middle + (-1);
+    if (not (Left > Right)) then goto middle_init;
+    Break;
+  until (False);
+
+  if (Left < Count) then
+  begin
+    BufferLeft := P(Values) + Left;
+    Y := TArray.SortBinaryMarker<T>(BufferLeft);
+    if (Y <> X) then goto not_found;
+    if (GetTypeKind(T) = tkMethod) then
+    begin
+      if (PNativeUInt(BufferLeft)^ <> NativeUInt(Stored.ItemPtr)) then goto not_found;
+    end else
+    if (GetTypeKind(T) in [tkLString, tkWString, tkUString, tkDynArray]) then
+    begin
+      BufferLeft := PPointer(BufferLeft)^;
+      if (BufferLeft <> Stored.ItemPtr) then
+      begin
+        case GetTypeKind(T) of
+          tkLString: Cmp := InterfaceDefaults.Compare_LStr(nil, BufferLeft, Stored.ItemPtr);
+          tkWString: Cmp := InterfaceDefaults.Compare_WStr(nil, BufferLeft, Stored.ItemPtr);
+          tkUString: Cmp := InterfaceDefaults.Compare_UStr(nil, BufferLeft, Stored.ItemPtr);
+         tkDynArray: Cmp := InterfaceDefaults.Compare_Dyn(InterfaceDefaults.TDefaultComparer<T>.Instance, BufferLeft, Stored.ItemPtr);
+        end;
+        if (Cmp <> 0) then goto not_found;
+      end;
+    end else
+    begin
+      Cmp := SortBinaryComparer<T>(BufferLeft, @Item);
+      if (Cmp <> 0) then goto not_found;
+    end;
+  end else
+  begin
+  not_found:
+    Left := not Left;
+  end;
+
+  Result := Left;
+end;
+{$endif .SMARTGENERICS}
+
+class function TArray.SearchUniversals<T>(Values: Pointer; const Helper: TSearchHelper; const Item: T): NativeInt;
+label
+  middle_init, not_found;
+type
+  TArrayT = array[0..0] of T;
+  PArrayT = ^TArrayT;
+var
+  Left, Right, Middle: NativeInt;
+  Stored: record
+    Inst: Pointer;
+    Compare: function(const Inst: Pointer; const Left, Right: T): NativeInt;
+    Count: NativeInt;
+  end;
+begin
+  Stored.Inst := Helper.Comparer;
+  Stored.Compare := PPointer(PNativeUInt(Stored.Inst)^ + 3 * SizeOf(Pointer))^;
+  Stored.Count := Helper.Count;
+
+  Middle := -1;
+  Right := Stored.Count + (-1);
+  repeat
+    Left := Middle + 1;
+    if (Middle >= Right) then Break;
+
+  middle_init:
+    Middle := Right;
+    Dec(Middle, Left);
+    Middle := Left + (Middle shr 1);
+
+    if (Stored.Compare(Stored.Inst, PArrayT(Values)[Middle], Item) < 0) then Continue;
+
+    Right := Middle + (-1);
+    if (not (Left > Right)) then goto middle_init;
+    Break;
+  until (False);
+
+  if (Left < Stored.Count) then
+  begin
+    if (Stored.Compare(Stored.Inst, PArrayT(Values)[Left], Item) <> 0) then goto not_found;
+  end else
+  begin
+  not_found:
+    Left := not Left;
+  end;
+
+  Result := Left;
+end;
+
+class function TArray.SearchDescendingUniversals<T>(Values: Pointer; const Helper: TSearchHelper; const Item: T): NativeInt;
+label
+  middle_init, not_found;
+type
+  TArrayT = array[0..0] of T;
+  PArrayT = ^TArrayT;
+var
+  Left, Right, Middle: NativeInt;
+  Stored: record
+    Inst: Pointer;
+    Compare: function(const Inst: Pointer; const Left, Right: T): NativeInt;
+    Count: NativeInt;
+  end;
+begin
+  Stored.Inst := Helper.Comparer;
+  Stored.Compare := PPointer(PNativeUInt(Stored.Inst)^ + 3 * SizeOf(Pointer))^;
+  Stored.Count := Helper.Count;
+
+  Middle := -1;
+  Right := Stored.Count + (-1);
+  repeat
+    Left := Middle + 1;
+    if (Middle >= Right) then Break;
+
+  middle_init:
+    Middle := Right;
+    Dec(Middle, Left);
+    Middle := Left + (Middle shr 1);
+
+    if (Stored.Compare(Stored.Inst, PArrayT(Values)[Middle], Item) > 0) then Continue;
+
+    Right := Middle + (-1);
+    if (not (Left > Right)) then goto middle_init;
+    Break;
+  until (False);
+
+  if (Left < Stored.Count) then
+  begin
+    if (Stored.Compare(Stored.Inst, PArrayT(Values)[Left], Item) <> 0) then goto not_found;
+  end else
+  begin
+  not_found:
+    Left := not Left;
+  end;
+
+  Result := Left;
+end;
+
+class function TArray.InternalSearch<T>(Values: Pointer; Index, Count: Integer; const Item: T;
+  out FoundIndex: Integer): Boolean;
+type
+  P = ^T;
+var
+  I: Integer;
+  Helper: TSearchHelper;
+  {$ifdef SMARTGENERICS}
+  TypeData: PTypeData;
+  {$endif}
+begin
+  if (Count <= 0) then
+  begin
+    if (Count = 0) then
+    begin
+      FoundIndex := Index;
+      Result := True;
+      Exit;
+    end else
+    begin
+      raise EArgumentOutOfRangeException.CreateRes(Pointer(@SArgumentOutOfRange));
+    end;
+  end;
+
+  {$ifdef SMARTGENERICS}
+    if (GetTypeKind(T) in [tkInteger, tkEnumeration, tkChar, tkWChar, tkInt64]) or
+      ((GetTypeKind(T) = tkFloat) and (SizeOf(T) = 8)) then
+    begin
+      TypeData := Pointer(TypeInfo(T));
+      Inc(NativeUInt(TypeData), NativeUInt(PByte(@PTypeInfo(TypeData).Name)^) + 2);
+    end;
+
+    case GetTypeKind(T) of
+      tkInteger, tkEnumeration, tkChar, tkWChar:
+      case SizeOf(T) of
+        1:
+        begin
+          case TypeData.OrdType of
+            otSByte: I := SearchSigneds<ShortInt>(P(Values) + Index, Count, @Item);
+            otUByte: I := SearchUnsigneds<Byte>(P(Values) + Index, Count, @Item);
+          end;
+        end;
+        2:
+        begin
+          case TypeData.OrdType of
+            otSWord: I := SearchSigneds<SmallInt>(P(Values) + Index, Count, @Item);
+            otUWord: I := SearchUnsigneds<Word>(P(Values) + Index, Count, @Item);
+          end;
+        end;
+        4:
+        begin
+          case TypeData.OrdType of
+            otSLong: I := SearchSigneds<Integer>(P(Values) + Index, Count, @Item);
+            otULong: I := SearchUnsigneds<Cardinal>(P(Values) + Index, Count, @Item);
+          end;
+        end;
+      end;
+      tkInt64:
+      begin
+        if (TypeData.MaxInt64Value > TypeData.MinInt64Value) then
+        begin
+          I := SearchSigneds<Int64>(P(Values) + Index, Count, @Item);
+        end else
+        begin
+          I := SearchUnsigneds<UInt64>(P(Values) + Index, Count, @Item);
+        end;
+      end;
+      tkClass, tkInterface, tkClassRef, tkPointer, tkProcedure:
+      begin
+        {$ifdef LARGEINT}
+          I := SearchUnsigneds<UInt64>(P(Values) + Index, Count, @Item);
+        {$else .SMALLINT}
+          I := SearchUnsigneds<Cardinal>(P(Values) + Index, Count, @Item);
+        {$endif}
+      end;
+      tkFloat:
+      case SizeOf(T) of
+         4: I := SearchFloats<Single>(P(Values) + Index, Count, @Item);
+        10: I := SearchFloats<Extended>(P(Values) + Index, Count, @Item);
+      else
+        if (TypeData.FloatType = ftDouble) then
+        begin
+          I := SearchFloats<Double>(P(Values) + Index, Count, @Item);
+        end else
+        begin
+          I := SearchSigneds<Int64>(P(Values) + Index, Count, @Item);
+        end;
+      end;
+      tkMethod:
+      begin
+        I := SearchBinaries<InterfaceDefaults.TMethodPtr>(P(Values) + Index, Count,
+          InterfaceDefaults.TMethodPtr(Pointer(@Item)^));
+      end;
+      tkVariant:
+      begin
+        Helper.Count := Count;
+        Helper.Comparer := @InterfaceDefaults.TDefaultComparer<Variant>.Instance;
+        I := SearchUniversals<T>(P(Values) + Index, Helper, Item);
+      end;
+      tkString:
+      begin
+        I := SearchBinaries<T>(P(Values) + Index, Count, Item);
+      end;
+      tkLString:
+      begin
+        {$ifdef NEXTGEN}
+           I := SearchBinaries<T>(P(Values) + Index, Count, Item);
+        {$else}
+           I := SearchBinaries<AnsiString>(P(Values) + Index, Count, AnsiString(Pointer(@Item)^));
+        {$endif}
+      end;
+      {$ifdef MSWINDOWS}
+      tkWString:
+      begin
+        I := SearchBinaries<WideString>(P(Values) + Index, Count, WideString(Pointer(@Item)^));
+      end;
+      {$else}
+      tkWString,
+      {$endif}
+      tkUString:
+      begin
+        I := SearchBinaries<UnicodeString>(P(Values) + Index, Count, UnicodeString(Pointer(@Item)^));
+      end;
+      tkDynArray:
+      begin
+        I := SearchBinaries<T>(P(Values) + Index, Count, Item);
+      end;
+    else
+      // binary
+      I := SearchBinaries<T>(P(Values) + Index, Count, Item);
+    end;
+  {$else}
+    Helper.Count := Count;
+    Helper.Comparer := @InterfaceDefaults.TDefaultComparer<T>.Instance;
+    I := SearchUniversals<T>(P(Values) + Index, Helper, Item);
+  {$endif}
+
+  if (I < 0) then
+  begin
+    FoundIndex := Index + (not I);
+    Result := False;
+  end else
+  begin
+    FoundIndex := Index + I;
+    Result := True;
+  end;
+end;
+
+class function TArray.InternalSearch<T>(Values: Pointer; Index, Count: Integer; const Item: T;
+  out FoundIndex: Integer; Comparer: Pointer): Boolean;
+type
+  P = ^T;
+var
+  I: Integer;
+  Helper: TSearchHelper;
+begin
+  if (Count <= 0) then
+  begin
+    if (Count = 0) then
+    begin
+      FoundIndex := Index;
+      Result := True;
+      Exit;
+    end else
+    begin
+      raise EArgumentOutOfRangeException.CreateRes(Pointer(@SArgumentOutOfRange));
+    end;
+  end;
+
+  Helper.Count := Count;
+  Helper.Comparer := Comparer;
+  I := TArray.SearchUniversals<T>(P(Values) + Index, Helper, Item);
+  if (I < 0) then
+  begin
+    FoundIndex := Index + (not I);
+    Result := False;
+  end else
+  begin
+    FoundIndex := Index + I;
+    Result := True;
+  end;
+end;
+
+class function TArray.BinarySearch<T>(var Values: T; const Item: T;
+  out FoundIndex: Integer; Count: Integer): Boolean;
+begin
+  Result := TArray.InternalSearch<T>(@Values, 0, Count, Item, FoundIndex);
+end;
+
+class function TArray.BinarySearch<T>(const Values: array of T; const Item: T;
+  out FoundIndex: Integer): Boolean;
+begin
+  Result := TArray.InternalSearch<T>(@Values[0], 0, Length(Values), Item, FoundIndex);
+end;
+
+class function TArray.BinarySearch<T>(const Values: array of T; const Item: T;
+  out FoundIndex: Integer; Index, Count: Integer): Boolean;
+begin
+  if (Index < Low(Values)) or ((Index > High(Values)) and (Count > 0))
+    or (Index + Count - 1 > High(Values)) {or (Count < 0)}
+    or (Index + Count < 0) then
+    raise EArgumentOutOfRangeException.CreateRes(Pointer(@SArgumentOutOfRange));
+
+  Result := TArray.InternalSearch<T>(@Values[0], Index, Count, Item, FoundIndex);
+end;
+
+class function TArray.BinarySearch<T>(var Values: T; const Item: T;
+  out FoundIndex: Integer; Count: Integer; const Comparer: IComparer<T>): Boolean;
+begin
+  Result := TArray.InternalSearch<T>(@Values, 0, Count, Item, FoundIndex, Pointer(Comparer));
+end;
+
+class function TArray.BinarySearch<T>(const Values: array of T; const Item: T;
+  out FoundIndex: Integer; const Comparer: IComparer<T>): Boolean;
+begin
+  Result := TArray.InternalSearch<T>(@Values[0], 0, Length(Values), Item, FoundIndex, Pointer(Comparer));
+end;
+
+class function TArray.BinarySearch<T>(const Values: array of T; const Item: T;
+  out FoundIndex: Integer; const Comparer: IComparer<T>; Index, Count: Integer): Boolean;
+begin
+  if (Index < Low(Values)) or ((Index > High(Values)) and (Count > 0))
+    or (Index + Count - 1 > High(Values)) {or (Count < 0)}
+    or (Index + Count < 0) then
+    raise EArgumentOutOfRangeException.CreateRes(Pointer(@SArgumentOutOfRange));
+
+  Result := TArray.InternalSearch<T>(@Values[0], Index, Count, Item, FoundIndex, Pointer(Comparer));
+end;
+
+class function TArray.BinarySearch<T>(var Values: T; const Item: T;
+  out FoundIndex: Integer; Count: Integer; const Comparison: TComparison<T>): Boolean;
+begin
+  Result := TArray.InternalSearch<T>(@Values, 0, Count, Item, FoundIndex, PPointer(@Comparison)^);
+end;
+
+class function TArray.BinarySearch<T>(const Values: array of T; const Item: T;
+  out FoundIndex: Integer; const Comparison: TComparison<T>): Boolean;
+begin
+  Result := TArray.InternalSearch<T>(@Values[0], 0, Length(Values), Item, FoundIndex, PPointer(@Comparison)^);
+end;
+
+class function TArray.BinarySearch<T>(const Values: array of T; const Item: T;
+  out FoundIndex: Integer; Index, Count: Integer; const Comparison: TComparison<T>): Boolean;
+begin
+  if (Index < Low(Values)) or ((Index > High(Values)) and (Count > 0))
+    or (Index + Count - 1 > High(Values)) {or (Count < 0)}
+    or (Index + Count < 0) then
+    raise EArgumentOutOfRangeException.CreateRes(Pointer(@SArgumentOutOfRange));
+
+  Result := TArray.InternalSearch<T>(@Values[0], Index, Count, Item, FoundIndex, PPointer(@Comparison)^);
+end;
+
+class function TArray.InternalSearchDescending<T>(Values: Pointer; Index, Count: Integer; const Item: T;
+  out FoundIndex: Integer): Boolean;
+type
+  P = ^T;
+var
+  I: Integer;
+  Helper: TSearchHelper;
+  {$ifdef SMARTGENERICS}
+  TypeData: PTypeData;
+  {$endif}
+begin
+  if (Count <= 0) then
+  begin
+    if (Count = 0) then
+    begin
+      FoundIndex := Index;
+      Result := True;
+      Exit;
+    end else
+    begin
+      raise EArgumentOutOfRangeException.CreateRes(Pointer(@SArgumentOutOfRange));
+    end;
+  end;
+
+  {$ifdef SMARTGENERICS}
+    if (GetTypeKind(T) in [tkInteger, tkEnumeration, tkChar, tkWChar, tkInt64]) or
+      ((GetTypeKind(T) = tkFloat) and (SizeOf(T) = 8)) then
+    begin
+      TypeData := Pointer(TypeInfo(T));
+      Inc(NativeUInt(TypeData), NativeUInt(PByte(@PTypeInfo(TypeData).Name)^) + 2);
+    end;
+
+    case GetTypeKind(T) of
+      tkInteger, tkEnumeration, tkChar, tkWChar:
+      case SizeOf(T) of
+        1:
+        begin
+          case TypeData.OrdType of
+            otSByte: I := SearchDescendingSigneds<ShortInt>(P(Values) + Index, Count, @Item);
+            otUByte: I := SearchDescendingUnsigneds<Byte>(P(Values) + Index, Count, @Item);
+          end;
+        end;
+        2:
+        begin
+          case TypeData.OrdType of
+            otSWord: I := SearchDescendingSigneds<SmallInt>(P(Values) + Index, Count, @Item);
+            otUWord: I := SearchDescendingUnsigneds<Word>(P(Values) + Index, Count, @Item);
+          end;
+        end;
+        4:
+        begin
+          case TypeData.OrdType of
+            otSLong: I := SearchDescendingSigneds<Integer>(P(Values) + Index, Count, @Item);
+            otULong: I := SearchDescendingUnsigneds<Cardinal>(P(Values) + Index, Count, @Item);
+          end;
+        end;
+      end;
+      tkInt64:
+      begin
+        if (TypeData.MaxInt64Value > TypeData.MinInt64Value) then
+        begin
+          I := SearchDescendingSigneds<Int64>(P(Values) + Index, Count, @Item);
+        end else
+        begin
+          I := SearchDescendingUnsigneds<UInt64>(P(Values) + Index, Count, @Item);
+        end;
+      end;
+      tkClass, tkInterface, tkClassRef, tkPointer, tkProcedure:
+      begin
+        {$ifdef LARGEINT}
+          I := SearchDescendingUnsigneds<UInt64>(P(Values) + Index, Count, @Item);
+        {$else .SMALLINT}
+          I := SearchDescendingUnsigneds<Cardinal>(P(Values) + Index, Count, @Item);
+        {$endif}
+      end;
+      tkFloat:
+      case SizeOf(T) of
+         4: I := SearchDescendingFloats<Single>(P(Values) + Index, Count, @Item);
+        10: I := SearchDescendingFloats<Extended>(P(Values) + Index, Count, @Item);
+      else
+        if (TypeData.FloatType = ftDouble) then
+        begin
+          I := SearchDescendingFloats<Double>(P(Values) + Index, Count, @Item);
+        end else
+        begin
+          I := SearchDescendingSigneds<Int64>(P(Values) + Index, Count, @Item);
+        end;
+      end;
+      tkMethod:
+      begin
+        I := SearchDescendingBinaries<InterfaceDefaults.TMethodPtr>(P(Values) + Index, Count,
+          InterfaceDefaults.TMethodPtr(Pointer(@Item)^));
+      end;
+      tkVariant:
+      begin
+        Helper.Count := Count;
+        Helper.Comparer := @InterfaceDefaults.TDefaultComparer<Variant>.Instance;
+        I := SearchDescendingUniversals<T>(P(Values) + Index, Helper, Item);
+      end;
+      tkString:
+      begin
+        I := SearchDescendingBinaries<T>(P(Values) + Index, Count, Item);
+      end;
+      tkLString:
+      begin
+        {$ifdef NEXTGEN}
+           I := SearchDescendingBinaries<T>(P(Values) + Index, Count, Item);
+        {$else}
+           I := SearchDescendingBinaries<AnsiString>(P(Values) + Index, Count, AnsiString(Pointer(@Item)^));
+        {$endif}
+      end;
+      {$ifdef MSWINDOWS}
+      tkWString:
+      begin
+        I := SearchDescendingBinaries<WideString>(P(Values) + Index, Count, WideString(Pointer(@Item)^));
+      end;
+      {$else}
+      tkWString,
+      {$endif}
+      tkUString:
+      begin
+        I := SearchDescendingBinaries<UnicodeString>(P(Values) + Index, Count, UnicodeString(Pointer(@Item)^));
+      end;
+      tkDynArray:
+      begin
+        I := SearchDescendingBinaries<T>(P(Values) + Index, Count, Item);
+      end;
+    else
+      // binary
+      I := SearchDescendingBinaries<T>(P(Values) + Index, Count, Item);
+    end;
+  {$else}
+    Helper.Count := Count;
+    Helper.Comparer := @InterfaceDefaults.TDefaultComparer<T>.Instance;
+    I := SearchDescendingUniversals<T>(P(Values) + Index, Helper, Item);
+  {$endif}
+
+  if (I < 0) then
+  begin
+    FoundIndex := Index + (not I);
+    Result := False;
+  end else
+  begin
+    FoundIndex := Index + I;
+    Result := True;
+  end;
+end;
+
+class function TArray.InternalSearchDescending<T>(Values: Pointer; Index, Count: Integer; const Item: T;
+  out FoundIndex: Integer; Comparer: Pointer): Boolean;
+type
+  P = ^T;
+var
+  I: Integer;
+  Helper: TSearchHelper;
+begin
+  if (Count <= 0) then
+  begin
+    if (Count = 0) then
+    begin
+      FoundIndex := Index;
+      Result := True;
+      Exit;
+    end else
+    begin
+      raise EArgumentOutOfRangeException.CreateRes(Pointer(@SArgumentOutOfRange));
+    end;
+  end;
+
+  Helper.Count := Count;
+  Helper.Comparer := Comparer;
+  I := TArray.SearchDescendingUniversals<T>(P(Values) + Index, Helper, Item);
+  if (I < 0) then
+  begin
+    FoundIndex := Index + (not I);
+    Result := False;
+  end else
+  begin
+    FoundIndex := Index + I;
+    Result := True;
+  end;
+end;
+
+class function TArray.BinarySearchDescending<T>(var Values: T; const Item: T;
+  out FoundIndex: Integer; Count: Integer): Boolean;
+begin
+  Result := TArray.InternalSearchDescending<T>(@Values, 0, Count, Item, FoundIndex);
+end;
+
+class function TArray.BinarySearchDescending<T>(const Values: array of T; const Item: T;
+  out FoundIndex: Integer): Boolean;
+begin
+  Result := TArray.InternalSearchDescending<T>(@Values[0], 0, Length(Values), Item, FoundIndex);
+end;
+
+class function TArray.BinarySearchDescending<T>(const Values: array of T; const Item: T;
+  out FoundIndex: Integer; Index, Count: Integer): Boolean;
+begin
+  if (Index < Low(Values)) or ((Index > High(Values)) and (Count > 0))
+    or (Index + Count - 1 > High(Values)) {or (Count < 0)}
+    or (Index + Count < 0) then
+    raise EArgumentOutOfRangeException.CreateRes(Pointer(@SArgumentOutOfRange));
+
+  Result := TArray.InternalSearchDescending<T>(@Values[0], Index, Count, Item, FoundIndex);
+end;
+
+class function TArray.BinarySearchDescending<T>(var Values: T; const Item: T;
+  out FoundIndex: Integer; Count: Integer; const Comparer: IComparer<T>): Boolean;
+begin
+  Result := TArray.InternalSearchDescending<T>(@Values, 0, Count, Item, FoundIndex, Pointer(Comparer));
+end;
+
+class function TArray.BinarySearchDescending<T>(const Values: array of T; const Item: T;
+  out FoundIndex: Integer; const Comparer: IComparer<T>): Boolean;
+begin
+  Result := TArray.InternalSearchDescending<T>(@Values[0], 0, Length(Values), Item, FoundIndex, Pointer(Comparer));
+end;
+
+class function TArray.BinarySearchDescending<T>(const Values: array of T; const Item: T;
+  out FoundIndex: Integer; const Comparer: IComparer<T>; Index, Count: Integer): Boolean;
+begin
+  if (Index < Low(Values)) or ((Index > High(Values)) and (Count > 0))
+    or (Index + Count - 1 > High(Values)) {or (Count < 0)}
+    or (Index + Count < 0) then
+    raise EArgumentOutOfRangeException.CreateRes(Pointer(@SArgumentOutOfRange));
+
+  Result := TArray.InternalSearchDescending<T>(@Values[0], Index, Count, Item, FoundIndex, Pointer(Comparer));
+end;
+
+class function TArray.BinarySearchDescending<T>(var Values: T; const Item: T;
+  out FoundIndex: Integer; Count: Integer; const Comparison: TComparison<T>): Boolean;
+begin
+  Result := TArray.InternalSearchDescending<T>(@Values, 0, Count, Item, FoundIndex, PPointer(@Comparison)^);
+end;
+
+class function TArray.BinarySearchDescending<T>(const Values: array of T; const Item: T;
+  out FoundIndex: Integer; const Comparison: TComparison<T>): Boolean;
+begin
+  Result := TArray.InternalSearchDescending<T>(@Values[0], 0, Length(Values), Item, FoundIndex, PPointer(@Comparison)^);
+end;
+
+class function TArray.BinarySearchDescending<T>(const Values: array of T; const Item: T;
+  out FoundIndex: Integer; Index, Count: Integer; const Comparison: TComparison<T>): Boolean;
+begin
+  if (Index < Low(Values)) or ((Index > High(Values)) and (Count > 0))
+    or (Index + Count - 1 > High(Values)) {or (Count < 0)}
+    or (Index + Count < 0) then
+    raise EArgumentOutOfRangeException.CreateRes(Pointer(@SArgumentOutOfRange));
+
+  Result := TArray.InternalSearchDescending<T>(@Values[0], Index, Count, Item, FoundIndex, PPointer(@Comparison)^);
 end;
 
 
