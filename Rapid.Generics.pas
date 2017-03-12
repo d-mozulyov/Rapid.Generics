@@ -3486,28 +3486,98 @@ write_string:
 end;
 
 class function InterfaceDefaults.Compare_OStr(Inst: Pointer; Left, Right: PByte): Integer;
+label
+  make_result, make_result_swaped;
 var
-  X, Y: NativeUInt;
-  Temp: IComparerInst;
+  X, Y, Count: NativeUInt;
+  Modify: Integer;
 begin
   X := Left^;
   Y := Right^;
   if (Left <> Right) and (X <> 0) and (Y <> 0) then
   begin
-    if (Left[1] <> Right[1]) then
+    if (Left[1] = Right[1]) then
     begin
-      if (X <= Y) then
+      if (X < Y) then
       begin
-        Y := (-NativeInt(Y - X)) shr {$ifdef SMALLINT}31{$else}63{$endif};
+        Modify := -1;
+        Count := X;
       end else
       begin
-        X := Y;
-        Y := NativeUInt(-1);
+        Modify := NativeInt(Y - X) shr {$ifdef SMALLINT}31{$else}63{$endif};
+        Count := Y;
+      end;
+      Inc(Left);
+      Inc(Right);
+
+      repeat
+        if (Count < SizeOf(NativeUInt)) then Break;
+        X := PNativeUInt(Left)^;
+        Dec(Count, SizeOf(NativeUInt));
+        Y := PNativeUInt(Right)^;
+        Inc(Left, SizeOf(NativeUInt));
+        Inc(Right, SizeOf(NativeUInt));
+
+        if (X <> Y) then
+        begin
+          {$ifdef LARGEINT}
+            if (Integer(X) = Integer(Y)) then
+            begin
+              X := X shr 32;
+              Y := Y shr 32;
+            end else
+            begin
+              X := Cardinal(X);
+              Y := Cardinal(Y);
+            end;
+          {$endif}
+
+          goto make_result;
+        end;
+      until (False);
+
+      {$ifdef LARGEINT}
+      if (Count and 4 <> 0) then
+      begin
+        X := PCardinal(Left)^;
+        Y := PCardinal(Right)^;
+        Inc(Left, SizeOf(Cardinal));
+        Inc(Right, SizeOf(Cardinal));
+
+        if (X <> Y) then goto make_result;
+      end;
+      {$endif}
+
+      case Count of
+        1: begin
+             X := PByte(Left)^;
+             Y := PByte(Right)^;
+             if (X <> Y) then goto make_result_swaped;
+           end;
+        2: begin
+             X := Swap(PWord(Left)^);
+             Y := Swap(PWord(Right)^);
+             if (X <> Y) then goto make_result_swaped;
+           end;
+        3: begin
+             X := Swap(PWord(Left)^);
+             Y := Swap(PWord(Right)^);
+             Inc(Left, SizeOf(Word));
+             Inc(Right, SizeOf(Word));
+             X := (X shl 8) or PByte(Left)^;
+             Y := (Y shl 8) or PByte(Right)^;
+             if (X <> Y) then goto make_result_swaped;
+           end;
       end;
 
-      Temp.Size := X + 1;
-      X := NativeInt(InterfaceDefaults.Compare_Bin(Temp, Left, Right));
-      Result := NativeInt(X * 2 - Y);
+      Result := Modify;
+      Exit;
+    make_result:
+      X := (Swap(X) shl 16) + Swap(X shr 16);
+      Y := (Swap(Y) shl 16) + Swap(Y shr 16);
+
+    make_result_swaped:
+      Result := Shortint(Byte(X >= Y) - Byte(X <= Y));
       Exit;
     end else
     begin
@@ -3725,18 +3795,18 @@ end;
 
 class function InterfaceDefaults.Compare_LStr(Inst: Pointer; Left, Right: PByte): Integer;
 label
-  done;
+  make_result, make_result_swaped;
 var
-  X, Y: NativeUInt;
-  Temp: IComparerInst;
+  X, Y,Count: NativeUInt;
+  Modify: Integer;
 begin
   X := NativeUInt(Left);
   Y := NativeUInt(Right);
-  if (Left = nil) or (Right = nil) or (Left = Right) then goto done;
+  if (Left = nil) or (Right = nil) or (Left = Right) then goto make_result_swaped;
 
   X := Left^;
   Y := Right^;
-  if (X <> Y) then goto done;
+  if (X <> Y) then goto make_result_swaped;
 
   Dec(Left, SizeOf(Integer));
   Dec(Right, SizeOf(Integer));
@@ -3744,20 +3814,68 @@ begin
   Y := PInteger(Right)^;
   Inc(Left, SizeOf(Integer));
   Inc(Right, SizeOf(Integer));
-  if (X <= Y) then
+  if (X < Y) then
   begin
-    Y := (-NativeInt(Y - X)) shr {$ifdef SMALLINT}31{$else}63{$endif};
+    Modify := -1;
+    Count := X + 1;
   end else
   begin
-    X := Y;
-    Y := NativeUInt(-1);
+    Modify := NativeInt(Y - X) shr {$ifdef SMALLINT}31{$else}63{$endif};
+    Count := Y + 1;
   end;
 
-  Temp.Size := X;
-  X := NativeInt(InterfaceDefaults.Compare_Bin(Temp, Left, Right));
-  Result := NativeInt(X * 2 - Y);
+  repeat
+    if (Count < SizeOf(NativeUInt)) then Break;
+    X := PNativeUInt(Left)^;
+    Dec(Count, SizeOf(NativeUInt));
+    Y := PNativeUInt(Right)^;
+    Inc(Left, SizeOf(NativeUInt));
+    Inc(Right, SizeOf(NativeUInt));
+
+    if (X <> Y) then
+    begin
+      {$ifdef LARGEINT}
+        if (Integer(X) = Integer(Y)) then
+        begin
+          X := X shr 32;
+          Y := Y shr 32;
+        end else
+        begin
+          X := Cardinal(X);
+          Y := Cardinal(Y);
+        end;
+      {$endif}
+
+      goto make_result;
+    end;
+  until (False);
+
+  {$ifdef LARGEINT}
+  if (Count and 4 <> 0) then
+  begin
+    X := PCardinal(Left)^;
+    Y := PCardinal(Right)^;
+    Inc(Left, SizeOf(Cardinal));
+    Inc(Right, SizeOf(Cardinal));
+
+    if (X <> Y) then goto make_result;
+  end;
+  {$endif}
+
+  if (Count and 2 <> 0) then
+  begin
+    X := Swap(PWord(Left)^);
+    Y := Swap(PWord(Right)^);
+    if (X <> Y) then goto make_result_swaped;
+  end;
+
+  Result := Modify;
   Exit;
-done:
+make_result:
+  X := (Swap(X) shl 16) + Swap(X shr 16);
+  Y := (Swap(Y) shl 16) + Swap(Y shr 16);
+
+make_result_swaped:
   Result := Shortint(Byte(X >= Y) - Byte(X <= Y));
 end;
 
@@ -3969,18 +4087,18 @@ end;
 
 class function InterfaceDefaults.Compare_UStr(Inst: Pointer; Left, Right: PByte): Integer;
 label
-  make_result, done;
+  make_result, make_result_swaped;
 var
   X, Y, Count: NativeUInt;
   Modify: Integer;
 begin
   X := NativeUInt(Left);
   Y := NativeUInt(Right);
-  if (Left = nil) or (Right = nil) or (Left = Right) then goto done;
+  if (Left = nil) or (Right = nil) or (Left = Right) then goto make_result_swaped;
 
-  X := Left^;
-  Y := Right^;
-  if (X <> Y) then goto done;
+  X := PWord(Left)^;
+  Y := PWord(Right)^;
+  if (X <> Y) then goto make_result_swaped;
 
   Dec(Left, SizeOf(Integer));
   Dec(Right, SizeOf(Integer));
@@ -3988,14 +4106,14 @@ begin
   Y := PInteger(Right)^;
   Inc(Left, SizeOf(Integer));
   Inc(Right, SizeOf(Integer));
-  if (X <= Y) then
+  if (X < Y) then
   begin
-    Modify := (-NativeInt(Y - X)) shr {$ifdef SMALLINT}31{$else}63{$endif};
+    Modify := -1;
     Count := X * 2 + 2;
   end else
   begin
+    Modify := NativeInt(Y - X) shr {$ifdef SMALLINT}31{$else}63{$endif};
     Count := Y * 2 + 2;
-    Modify := -1;
   end;
 
   repeat
@@ -4038,7 +4156,7 @@ begin
 make_result:
   X := {$ifdef LARGEINT}Cardinal{$endif}(X shl 16) + (X shr 16);
   Y := {$ifdef LARGEINT}Cardinal{$endif}(Y shl 16) + (Y shr 16);
-done:
+make_result_swaped:
   Result := Shortint(Byte(X >= Y) - Byte(X <= Y));
 end;
 
@@ -4222,20 +4340,20 @@ end;
 class function InterfaceDefaults.Compare_WStr(Inst: Pointer; Left, Right: PByte): Integer;
 label
   {$ifdef MSWINDOWS}left_nil, right_nil,{$endif}
-  make_result, done;
+  make_result, make_result_swaped;
 var
   X, Y, Count: NativeUInt;
   Modify: Integer;
 begin
   X := NativeUInt(Left);
   Y := NativeUInt(Right);
-  if (Left = Right) then goto done;
+  if (Left = Right) then goto make_result_swaped;
   if (Left = nil) then goto left_nil;
   if (Right = nil) then goto right_nil;
 
-  X := Left^;
-  Y := Right^;
-  if (X <> Y) then goto done;
+  X := PWord(Left)^;
+  Y := PWord(Right)^;
+  if (X <> Y) then goto make_result_swaped;
 
   Dec(Left, SizeOf(Integer));
   Dec(Right, SizeOf(Integer));
@@ -4243,14 +4361,14 @@ begin
   Y := PInteger(Right)^;
   Inc(Left, SizeOf(Integer));
   Inc(Right, SizeOf(Integer));
-  if (X <= Y) then
+  if (X < Y) then
   begin
-    Modify := (-NativeInt(Y - X)) shr {$ifdef SMALLINT}31{$else}63{$endif};
+    Modify := -1;
     Count := X {$ifNdef MSWINDOWS}* 2{$endif} + 2;
   end else
   begin
+    Modify := NativeInt(Y - X) shr {$ifdef SMALLINT}31{$else}63{$endif};
     Count := Y {$ifNdef MSWINDOWS}* 2{$endif} + 2;
-    Modify := -1;
   end;
 
   repeat
@@ -4293,7 +4411,7 @@ begin
 make_result:
   X := {$ifdef LARGEINT}Cardinal{$endif}(X shl 16) + (X shr 16);
   Y := {$ifdef LARGEINT}Cardinal{$endif}(Y shl 16) + (Y shr 16);
-done:
+make_result_swaped:
   Result := Shortint(Byte(X >= Y) - Byte(X <= Y));
 {$ifdef MSWINDOWS}
   Exit;
@@ -4543,19 +4661,19 @@ end;
 
 class function InterfaceDefaults.Compare_Dyn(const Inst: IComparerInst; Left, Right: PByte): Integer;
 label
-  done;
+  make_result, make_result_swaped;
 var
-  X, Y: NativeUInt;
-  Temp: IComparerInst;
+  X, Y,Count: NativeUInt;
+  Modify: Integer;
 begin
-  Temp.Size := Inst.Size;
+  Count := Inst.Size;
   X := NativeUInt(Left);
   Y := NativeUInt(Right);
-  if (Left = nil) or (Right = nil) or (Left = Right) then goto done;
+  if (Left = nil) or (Right = nil) or (Left = Right) then goto make_result_swaped;
 
   X := Left^;
   Y := Right^;
-  if (X <> Y) then goto done;
+  if (X <> Y) then goto make_result_swaped;
 
   Dec(Left, SizeOf(NativeUInt));
   Dec(Right, SizeOf(NativeUInt));
@@ -4563,20 +4681,83 @@ begin
   Y := PNativeUInt(Right)^;
   Inc(Left, SizeOf(NativeUInt));
   Inc(Right, SizeOf(NativeUInt));
-  if (X <= Y) then
+  if (X < Y) then
   begin
-    Y := (-NativeInt(Y - X)) shr {$ifdef SMALLINT}31{$else}63{$endif};
+    Modify := -1;
+    NativeInt(Count) := NativeInt(Count) * NativeInt(X);
   end else
   begin
-    X := Y;
-    Y := NativeUInt(-1);
+    Modify := NativeInt(Y - X) shr {$ifdef SMALLINT}31{$else}63{$endif};
+    NativeInt(Count) := NativeInt(Count) * NativeInt(Y);
   end;
 
-  Temp.Size := Temp.Size * NativeInt(X);
-  X := NativeInt(InterfaceDefaults.Compare_Bin(Temp, Left, Right));
-  Result := NativeInt(X * 2 - Y);
+  repeat
+    if (Count < SizeOf(NativeUInt)) then Break;
+    X := PNativeUInt(Left)^;
+    Dec(Count, SizeOf(NativeUInt));
+    Y := PNativeUInt(Right)^;
+    Inc(Left, SizeOf(NativeUInt));
+    Inc(Right, SizeOf(NativeUInt));
+
+    if (X <> Y) then
+    begin
+      {$ifdef LARGEINT}
+        if (Integer(X) = Integer(Y)) then
+        begin
+          X := X shr 32;
+          Y := Y shr 32;
+        end else
+        begin
+          X := Cardinal(X);
+          Y := Cardinal(Y);
+        end;
+      {$endif}
+
+      goto make_result;
+    end;
+  until (False);
+
+  {$ifdef LARGEINT}
+  if (Count and 4 <> 0) then
+  begin
+    X := PCardinal(Left)^;
+    Y := PCardinal(Right)^;
+    Inc(Left, SizeOf(Cardinal));
+    Inc(Right, SizeOf(Cardinal));
+
+    if (X <> Y) then goto make_result;
+  end;
+  {$endif}
+
+  case Count of
+    1: begin
+         X := PByte(Left)^;
+         Y := PByte(Right)^;
+         if (X <> Y) then goto make_result_swaped;
+       end;
+    2: begin
+         X := Swap(PWord(Left)^);
+         Y := Swap(PWord(Right)^);
+         if (X <> Y) then goto make_result_swaped;
+       end;
+    3: begin
+         X := Swap(PWord(Left)^);
+         Y := Swap(PWord(Right)^);
+         Inc(Left, SizeOf(Word));
+         Inc(Right, SizeOf(Word));
+         X := (X shl 8) or PByte(Left)^;
+         Y := (Y shl 8) or PByte(Right)^;
+         if (X <> Y) then goto make_result_swaped;
+       end;
+  end;
+
+  Result := Modify;
   Exit;
-done:
+make_result:
+  X := (Swap(X) shl 16) + Swap(X shr 16);
+  Y := (Swap(Y) shl 16) + Swap(Y shr 16);
+
+make_result_swaped:
   Result := Shortint(Byte(X >= Y) - Byte(X <= Y));
 end;
 
