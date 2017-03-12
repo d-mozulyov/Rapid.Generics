@@ -148,6 +148,112 @@ type
       Count: Cardinal;
       Fields: array [0..0] of TFieldInfo;
     end;
+    TData16 = packed record
+    case Integer of
+      0: (Native: NativeInt);
+      1: (Method: TMethod);
+      2: (VarData: TVarData);
+      3: (Bytes: array[0..15] of Byte);
+      4: (Words: array[0..7] of Word);
+      5: (Integers: array[0..3] of Integer);
+      6: (Int64s: array[0..1] of Int64);
+      7: (Natives: array[0..{$ifdef LARGEINT}1{$else .SMALLINT}3{$endif}] of NativeUInt);
+    end;
+    TData16<TOffset> = packed record
+      Offset: TOffset;
+    case Integer of
+      0: (Native: NativeInt);
+      1: (Method: TMethod);
+      2: (VarData: TVarData);
+      3: (Bytes: array[0..15] of Byte);
+      4: (Words: array[0..7] of Word);
+      5: (Integers: array[0..3] of Integer);
+      6: (Int64s: array[0..1] of Int64);
+      7: (Natives: array[0..{$ifdef LARGEINT}1{$else .SMALLINT}3{$endif}] of NativeUInt);
+    end;
+    T1 = Byte;
+    T2 = Word;
+    T3 = array[1..3] of Byte;
+    T4 = Cardinal;
+    T5 = array[1..5] of Byte;
+    T6 = array[1..6] of Byte;
+    T7 = array[1..7] of Byte;
+    T8 = Int64;
+    T9 = array[1..9] of Byte;
+    T10 = array[1..10] of Byte;
+    T11 = array[1..11] of Byte;
+    T12 = array[1..12] of Byte;
+    T13 = array[1..13] of Byte;
+    T14 = array[1..14] of Byte;
+    T15 = array[1..15] of Byte;
+    T16 = array[1..16] of Byte;
+    T17 = array[1..17] of Byte;
+    T18 = array[1..18] of Byte;
+    T19 = array[1..19] of Byte;
+    T20 = array[1..20] of Byte;
+    T21 = array[1..21] of Byte;
+    T22 = array[1..22] of Byte;
+    T23 = array[1..23] of Byte;
+    T24 = array[1..24] of Byte;
+    T25 = array[1..25] of Byte;
+    T26 = array[1..26] of Byte;
+    T27 = array[1..27] of Byte;
+    T28 = array[1..28] of Byte;
+    T29 = array[1..29] of Byte;
+    T30 = array[1..30] of Byte;
+    T31 = array[1..31] of Byte;
+    T32 = array[1..32] of Byte;
+    T33 = array[1..33] of Byte;
+    T34 = array[1..34] of Byte;
+    T35 = array[1..35] of Byte;
+    T36 = array[1..36] of Byte;
+    T37 = array[1..37] of Byte;
+    T38 = array[1..38] of Byte;
+    T39 = array[1..39] of Byte;
+    T40 = array[1..40] of Byte;
+    TTemp40 = record
+    case Integer of
+       1: (V1: T1);
+       2: (V2: T2);
+       3: (V3: T3);
+       4: (V4: T4);
+       5: (V5: T5);
+       6: (V6: T6);
+       7: (V7: T7);
+       8: (V8: T8);
+       9: (V9: T9);
+      10: (V10: T10);
+      11: (V11: T11);
+      12: (V12: T12);
+      13: (V13: T13);
+      14: (V14: T14);
+      15: (V15: T15);
+      16: (V16: T16);
+      17: (V17: T17);
+      18: (V18: T18);
+      19: (V19: T19);
+      20: (V20: T20);
+      21: (V21: T21);
+      22: (V22: T22);
+      23: (V23: T23);
+      24: (V24: T24);
+      25: (V25: T25);
+      26: (V26: T26);
+      27: (V27: T27);
+      28: (V28: T28);
+      29: (V29: T29);
+      30: (V30: T30);
+      31: (V31: T31);
+      32: (V32: T32);
+      33: (V33: T33);
+      34: (V34: T34);
+      35: (V35: T35);
+      36: (V36: T36);
+      37: (V37: T37);
+      38: (V38: T38);
+      39: (V39: T39);
+      40: (V40: T40);
+    end;
   private
     FTypeInfo: PTypeInfo;
     FSize: NativeInt;
@@ -648,6 +754,11 @@ type
     TItem = TCustomDictionary<TKey,TValue>.TItem;
     PItem = TCustomDictionary<TKey,TValue>.PItem;
     PItemList = TCustomDictionary<TKey,TValue>.PItemList;
+  private type
+    TInternalFindStored = record
+      HashCode: Integer;
+      Parent: ^PItem;
+    end;
   protected
     FComparer: IEqualityComparer<TKey>;
     FComparerEquals: function(const Left, Right: TKey): Boolean of object;
@@ -689,6 +800,33 @@ type
     TItem = TCustomDictionary<TKey,TValue>.TItem;
     PItem = TCustomDictionary<TKey,TValue>.PItem;
     PItemList = TCustomDictionary<TKey,TValue>.PItemList;
+  private type
+    TInternalFindStored = record
+      HashCode: Integer;
+      Parent: ^PItem;
+      {$ifdef SMARTGENERICS}
+      Self: TRapidDictionary<TKey,TValue>;
+      case Integer of
+        0: (SingleRec: packed record
+              Exponent: Integer;
+              case Integer of
+                0: (Mantissa: Single);
+                1: (HighInt: Integer);
+            end);
+        1: (DoubleRec: packed record
+              Exponent: Integer;
+              case Integer of
+                0: (Mantissa: Double);
+                1: (LowInt: Integer; HighInt: Integer);
+            end);
+        2: (ExtendedRec: packed record
+              Exponent: Integer;
+              case Integer of
+                0: (Mantissa: Extended);
+                1: (LowInt: Integer; Middle: Word; HighInt: Integer);
+            end);
+      {$endif}
+    end;
   protected
     {$ifNdef SMARTGENERICS}
     FDefaultComparer: IEqualityComparer<TKey>;
@@ -815,6 +953,16 @@ type
       procedure FillZero;
     end;
 
+    TFloat = packed record
+    case Integer of
+      0: (VSingle: Single);
+      1: (VDouble: Double);
+      2: (VExtended: Extended);
+      3: (SSingle: Integer);
+      4: (B1: array[1..SizeOf(Double) - SizeOf(Integer)] of Byte; SDouble: Integer);
+      5: (B2: array[1..SizeOf(Extended) - SizeOf(Integer)] of Byte; SExtended: Integer);
+    end;
+
     TSearchHelper = record
       Count: NativeInt;
       Comparer: Pointer;
@@ -887,7 +1035,7 @@ type
     class procedure Sort<T>(var Values: array of T; const Comparer: IComparer<T>); overload; static;
     class procedure Sort<T>(var Values: array of T; const Comparer: IComparer<T>; Index, Count: Integer); overload; static;
     class procedure Sort<T>(var Values: array of T; const Comparison: TComparison<T>); overload; static;
-    class procedure Sort<T>(var Values: array of T; const Comparison: TComparison<T>; Index, Count: Integer); overload; static;
+    class procedure Sort<T>(var Values: array of T; Index, Count: Integer; const Comparison: TComparison<T>); overload; static;
 
     class procedure SortDescending<T>(var Values: T; const Count: Integer); overload; static;
     class procedure SortDescending<T>(var Values: T; const Count: Integer; const Comparer: IComparer<T>); overload; static;
@@ -896,7 +1044,7 @@ type
     class procedure SortDescending<T>(var Values: array of T; const Comparer: IComparer<T>); overload; static;
     class procedure SortDescending<T>(var Values: array of T; const Comparer: IComparer<T>; Index, Count: Integer); overload; static;
     class procedure SortDescending<T>(var Values: array of T; const Comparison: TComparison<T>); overload; static;
-    class procedure SortDescending<T>(var Values: array of T; const Comparison: TComparison<T>; Index, Count: Integer); overload; static;
+    class procedure SortDescending<T>(var Values: array of T; Index, Count: Integer; const Comparison: TComparison<T>); overload; static;
 
     class function BinarySearch<T>(var Values: T; const Item: T; out FoundIndex: Integer; Count: Integer): Boolean; overload; static;
     class function BinarySearch<T>(const Values: array of T; const Item: T; out FoundIndex: Integer): Boolean; overload; static;
@@ -993,6 +1141,24 @@ type
   System.Generics.Collections equivalent }
 
   TList<T> = class(TCustomList<T>)
+  private type
+    TCompare = function(Inst: Pointer; const Left, Right: T): Integer;
+    TEquals = function(Inst: Pointer; const Left, Right: T): Boolean;
+    TInternalStored = packed record
+      Self: Pointer;
+      InternalNotify: TMethod;
+      Count: NativeInt;
+      Item: PItem;
+      ACount: Integer;
+    end;
+    TComparerInst = packed record
+      Vtable: Pointer;
+      Method: TMethod;
+      QueryInterface,
+      AddRef,
+      Release,
+      Call: Pointer;
+    end;
   protected
     FComparer: IComparer<T>;
 
@@ -1004,12 +1170,11 @@ type
     procedure SetCount(Value: Integer);
     procedure InternalMove(CurIndex, NewIndex: Integer);
     procedure InternalMove40(CurIndex, NewIndex: Integer);
-    function InternalBinarySearch(const Item: T; const Comparer: IComparer<T>): NativeInt;
     function InternalIndexOf(const Value: T): NativeInt; overload;
     function InternalIndexOf(const Value: T; const Comparer: IComparer<T>): NativeInt; overload;
     function InternalIndexOfRev(const Value: T): NativeInt; overload;
     function InternalIndexOfRev(const Value: T; const Comparer: IComparer<T>): NativeInt; overload;
-    class function InternalIsEmpty(Inst: Pointer; const Left, Right: T): Boolean; static;
+    class function InternalIsEmpty(const Inst: TComparerInst; const Left, Right: T): Boolean; static;
     {$ifdef SMARTGENERICS}
     procedure InternalPackDifficults;
     {$endif}
@@ -1052,11 +1217,28 @@ type
     procedure Sort; overload;
     procedure Sort(const AComparer: IComparer<T>); overload;
     procedure Sort(const AComparison: TComparison<T>); overload;
+    procedure Sort(Index, Count: Integer); overload;
+    procedure Sort(Index, Count: Integer; const AComparer: IComparer<T>); overload;
+    procedure Sort(Index, Count: Integer; const AComparison: TComparison<T>); overload;
     procedure SortDescending; overload;
     procedure SortDescending(const AComparer: IComparer<T>); overload;
     procedure SortDescending(const AComparison: TComparison<T>); overload;
-    function BinarySearch(const Item: T; out Index: Integer): Boolean; overload;
-    function BinarySearch(const Item: T; out Index: Integer; const AComparer: IComparer<T>): Boolean; overload;
+    procedure SortDescending(Index, Count: Integer); overload;
+    procedure SortDescending(Index, Count: Integer; const AComparer: IComparer<T>); overload;
+    procedure SortDescending(Index, Count: Integer; const AComparison: TComparison<T>); overload;
+
+    function BinarySearch(const Item: T; out FoundIndex: Integer): Boolean; overload;
+    function BinarySearch(const Item: T; out FoundIndex: Integer; const AComparer: IComparer<T>): Boolean; overload;
+    function BinarySearch(const Item: T; out FoundIndex: Integer; const AComparison: TComparison<T>): Boolean; overload;
+    function BinarySearch(const Item: T; out FoundIndex: Integer; Index, Count: Integer): Boolean; overload;
+    function BinarySearch(const Item: T; out FoundIndex: Integer; const AComparer: IComparer<T>; Index, Count: Integer): Boolean; overload;
+    function BinarySearch(const Item: T; out FoundIndex: Integer; Index, Count: Integer; const AComparison: TComparison<T>): Boolean; overload;
+    function BinarySearchDescending(const Item: T; out FoundIndex: Integer): Boolean; overload;
+    function BinarySearchDescending(const Item: T; out FoundIndex: Integer; const AComparer: IComparer<T>): Boolean; overload;
+    function BinarySearchDescending(const Item: T; out FoundIndex: Integer; const AComparison: TComparison<T>): Boolean; overload;
+    function BinarySearchDescending(const Item: T; out FoundIndex: Integer; Index, Count: Integer): Boolean; overload;
+    function BinarySearchDescending(const Item: T; out FoundIndex: Integer; const AComparer: IComparer<T>; Index, Count: Integer): Boolean; overload;
+    function BinarySearchDescending(const Item: T; out FoundIndex: Integer; Index, Count: Integer; const AComparison: TComparison<T>): Boolean; overload;
 
     function Contains(const Value: T): Boolean; inline;
     function IndexOf(const Value: T): Integer; inline;
@@ -2140,18 +2322,9 @@ begin
 end;
 
 class procedure TRAIIHelper<T>.InitArray(Items: P; Count: NativeUInt; Offset: NativeUInt);
-type
-  T16 = packed record
-  case Integer of
-    0: (Bytes: array[0..15] of Byte);
-    1: (Words: array[0..7] of Word);
-    2: (Integers: array[0..3] of Integer);
-    3: (Int64s: array[0..1] of Int64);
-  end;
-  P16 = ^T16;
 var
   i: NativeUInt;
-  Item: P16;
+  Item: ^TRAIIHelper.TData16;
   Null: NativeInt;
 begin
   {$ifdef SMARTGENERICS}
@@ -2234,17 +2407,9 @@ begin
 end;
 
 class procedure TRAIIHelper<T>.ClearArray(Items: P; Count: NativeUInt; Offset: NativeUInt);
-type
-  TRec = packed record
-  case Integer of
-    0: (Native: NativeInt);
-    1: (Method: TMethod);
-    2: (VarData: TVarData);
-  end;
-  PRec = ^TRec;
 var
   i: NativeUInt;
-  Item: PRec;
+  Item: ^TRAIIHelper.TData16;
   {$ifdef SMARTGENERICS}
   VType: Integer;
   {$endif}
@@ -6016,20 +6181,9 @@ end;
 procedure TCustomDictionary<TKey, TValue>.DoCleanupItems(Item: PItem; Count: NativeInt);
 {$ifdef SMARTGENERICS}
 type
-  TKeyRec = packed record
-  case Integer of
-    0: (Native: NativeInt);
-    1: (Method: TMethod);
-    2: (VarData: TVarData);
-  end;
+  TKeyRec = TRAIIHelper.TData16;
   PKeyRec = ^TKeyRec;
-  TValueRec = packed record
-    Key: TKey;
-  case Integer of
-    0: (Native: NativeInt);
-    1: (Method: TMethod);
-    2: (VarData: TVarData);
-  end;
+  TValueRec = TRAIIHelper.TData16<TKey>;
   PValueRec = ^TValueRec;
 var
   i: NativeInt;
@@ -6265,49 +6419,14 @@ function TCustomDictionary<TKey, TValue>.NewItem: PItem;
 label
   start;
 type
-  TKeyNative = packed record
-    X: NativeInt;
-  end;
-  PKeyNative = ^TKeyNative;
-  TKey8 = packed record
-    X: Int64;
-  end;
-  PKey8 = ^TKey8;
-  TKey12 = packed record
-    X: Int64;
-    Y: Integer;
-  end;
-  PKey12 = ^TKey12;
-  TKey16 = packed record
-    X: Int64;
-    Y: Int64;
-  end;
-  PKey16 = ^TKey16;
-  TValueNative = packed record
-    Key: TKey;
-    X: NativeInt;
-  end;
-  PValueNative = ^TValueNative;
-  TValue8 = packed record
-    Key: TKey;
-    X: Int64;
-  end;
-  PValue8 = ^TValue8;
-  TValue12 = packed record
-    Key: TKey;
-    X: Int64;
-    Y: Integer;
-  end;
-  PValue12 = ^TValue12;
-  TValue16 = packed record
-    Key: TKey;
-    X: Int64;
-    Y: Int64;
-  end;
-  PValue16 = ^TValue16;
+  TKeyRec = TRAIIHelper.TData16;
+  PKeyRec = ^TKeyRec;
+  TValueRec = TRAIIHelper.TData16<TKey>;
+  PValueRec = ^TValueRec;
 var
   Instance: TCustomDictionary<TKey, TValue>;
   Count: NativeInt;
+  Null: NativeUInt;
 begin
   Instance := Self;
 start:
@@ -6317,6 +6436,15 @@ start:
     Instance.FCount.Native := Count + 1;
     Result := @Instance.FItems[Count];
 
+    if ((SizeOf(TKey) >= SizeOf(NativeInt)) and (SizeOf(TKey) <= 16)) or
+      ((SizeOf(TValue) >= SizeOf(NativeInt)) and (SizeOf(TValue) <= 16)) then
+    begin
+      {$ifdef SMARTGENERICS}
+      if (System.IsManagedType(TItem) or System.HasWeakRef(TItem)) then
+      {$endif}
+      Null := 0;
+    end;
+
     {$ifdef SMARTGENERICS}
     if (System.IsManagedType(TKey) or System.HasWeakRef(TKey)) then
     {$else}
@@ -6325,21 +6453,14 @@ start:
     begin
       if (SizeOf(TKey) = SizeOf(NativeInt)){$ifdef SMARTGENERICS}or (GetTypeKind(TKey) = tkVariant){$endif} then
       begin
-        PKeyNative(Result).X := 0;
+        PKeyRec(Result).Natives[0] := Null;
       end else
-      if (SizeOf(TKey) <= 8) then
+      if ((SizeOf(TKey) >= SizeOf(NativeInt)) and (SizeOf(TKey) <= 16)) then
       begin
-        PKey8(Result).X := 0;
-      end else
-      if (SizeOf(TKey) <= 12) then
-      begin
-        PKey12(Result).X := 0;
-        PKey12(Result).Y := 0;
-      end else
-      if (SizeOf(TKey) <= 16) then
-      begin
-        PKey16(Result).X := 0;
-        PKey16(Result).Y := 0;
+        PKeyRec(Result).Natives[0] := Null;
+        if (SizeOf(TKey) >= 2 * SizeOf(NativeInt)) then PKeyRec(Result).Natives[1] := Null;
+        if (SizeOf(TKey) >= 3 * SizeOf(NativeInt)) then PKeyRec(Result).Natives[2] := Null;
+        if (SizeOf(TKey)  = 4 * SizeOf(NativeInt)) then PKeyRec(Result).Natives[3] := Null;
       end else
       TRAIIHelper<TKey>.Init(@Result.FKey);
     end;
@@ -6352,21 +6473,14 @@ start:
     begin
       if (SizeOf(TValue) = SizeOf(NativeInt)){$ifdef SMARTGENERICS}or (GetTypeKind(TValue) = tkVariant){$endif} then
       begin
-        PValueNative(Result).X := 0;
+        PValueRec(Result).Natives[0] := Null;
       end else
-      if (SizeOf(TValue) <= 8) then
+      if ((SizeOf(TValue) >= SizeOf(NativeInt)) and (SizeOf(TValue) <= 16)) then
       begin
-        PValue8(Result).X := 0;
-      end else
-      if (SizeOf(TValue) <= 12) then
-      begin
-        PValue12(Result).X := 0;
-        PValue12(Result).Y := 0;
-      end else
-      if (SizeOf(TValue) <= 16) then
-      begin
-        PValue16(Result).X := 0;
-        PValue16(Result).Y := 0;
+        PValueRec(Result).Natives[0] := Null;
+        if (SizeOf(TValue) >= 2 * SizeOf(NativeInt)) then PValueRec(Result).Natives[1] := Null;
+        if (SizeOf(TValue) >= 3 * SizeOf(NativeInt)) then PValueRec(Result).Natives[2] := Null;
+        if (SizeOf(TValue)  = 4 * SizeOf(NativeInt)) then PValueRec(Result).Natives[3] := Null;
       end else
       TRAIIHelper<TValue>.Init(@Result.FValue);
     end;
@@ -6381,63 +6495,10 @@ end;
 
 procedure TCustomDictionary<TKey, TValue>.DisposeItem(Item: PItem);
 type
-  TKeyRec = packed record
-  case Integer of
-    0: (Native: NativeInt);
-    1: (Method: TMethod);
-    2: (VarData: TVarData);
-  end;
+  TKeyRec = TRAIIHelper.TData16;
   PKeyRec = ^TKeyRec;
-  TValueRec = packed record
-    Key: TKey;
-  case Integer of
-    0: (Native: NativeInt);
-    1: (Method: TMethod);
-    2: (VarData: TVarData);
-  end;
+  TValueRec = TRAIIHelper.TData16<TKey>;
   PValueRec = ^TValueRec;
-
-  T1 = Byte;
-  T2 = Word;
-  T3 = array[1..3] of Byte;
-  T4 = Cardinal;
-  T5 = array[1..5] of Byte;
-  T6 = array[1..6] of Byte;
-  T7 = array[1..7] of Byte;
-  T8 = Int64;
-  T9 = array[1..9] of Byte;
-  T10 = array[1..10] of Byte;
-  T11 = array[1..11] of Byte;
-  T12 = array[1..12] of Byte;
-  T13 = array[1..13] of Byte;
-  T14 = array[1..14] of Byte;
-  T15 = array[1..15] of Byte;
-  T16 = array[1..16] of Byte;
-  T17 = array[1..17] of Byte;
-  T18 = array[1..18] of Byte;
-  T19 = array[1..19] of Byte;
-  T20 = array[1..20] of Byte;
-  T21 = array[1..21] of Byte;
-  T22 = array[1..22] of Byte;
-  T23 = array[1..23] of Byte;
-  T24 = array[1..24] of Byte;
-  T25 = array[1..25] of Byte;
-  T26 = array[1..26] of Byte;
-  T27 = array[1..27] of Byte;
-  T28 = array[1..28] of Byte;
-  T29 = array[1..29] of Byte;
-  T30 = array[1..30] of Byte;
-  T31 = array[1..31] of Byte;
-  T32 = array[1..32] of Byte;
-  T33 = array[1..33] of Byte;
-  T34 = array[1..34] of Byte;
-  T35 = array[1..35] of Byte;
-  T36 = array[1..36] of Byte;
-  T37 = array[1..37] of Byte;
-  T38 = array[1..38] of Byte;
-  T39 = array[1..39] of Byte;
-  T40 = array[1..40] of Byte;
-
 var
   {$ifdef SMARTGENERICS}
   VType: Integer;
@@ -6445,6 +6506,7 @@ var
   Count: NativeInt;
   Parent: ^PItem;
   TopItem, Current: PItem;
+  Index: NativeInt;
 begin
   // Key
   {$ifdef SMARTGENERICS}
@@ -6590,46 +6652,46 @@ begin
 
     // move TopItem --> Item
     case SizeOf(TItem) of
-      1: T1(Pointer(Item)^) := T1(Pointer(TopItem)^);
-      2: T2(Pointer(Item)^) := T2(Pointer(TopItem)^);
-      3: T3(Pointer(Item)^) := T3(Pointer(TopItem)^);
-      4: T4(Pointer(Item)^) := T4(Pointer(TopItem)^);
-      5: T5(Pointer(Item)^) := T5(Pointer(TopItem)^);
-      6: T6(Pointer(Item)^) := T6(Pointer(TopItem)^);
-      7: T7(Pointer(Item)^) := T7(Pointer(TopItem)^);
-      8: T8(Pointer(Item)^) := T8(Pointer(TopItem)^);
-      9: T9(Pointer(Item)^) := T9(Pointer(TopItem)^);
-     10: T10(Pointer(Item)^) := T10(Pointer(TopItem)^);
-     11: T11(Pointer(Item)^) := T11(Pointer(TopItem)^);
-     12: T12(Pointer(Item)^) := T12(Pointer(TopItem)^);
-     13: T13(Pointer(Item)^) := T13(Pointer(TopItem)^);
-     14: T14(Pointer(Item)^) := T14(Pointer(TopItem)^);
-     15: T15(Pointer(Item)^) := T15(Pointer(TopItem)^);
-     16: T16(Pointer(Item)^) := T16(Pointer(TopItem)^);
-     17: T17(Pointer(Item)^) := T17(Pointer(TopItem)^);
-     18: T18(Pointer(Item)^) := T18(Pointer(TopItem)^);
-     19: T19(Pointer(Item)^) := T19(Pointer(TopItem)^);
-     20: T20(Pointer(Item)^) := T20(Pointer(TopItem)^);
-     21: T21(Pointer(Item)^) := T21(Pointer(TopItem)^);
-     22: T22(Pointer(Item)^) := T22(Pointer(TopItem)^);
-     23: T23(Pointer(Item)^) := T23(Pointer(TopItem)^);
-     24: T24(Pointer(Item)^) := T24(Pointer(TopItem)^);
-     25: T25(Pointer(Item)^) := T25(Pointer(TopItem)^);
-     26: T26(Pointer(Item)^) := T26(Pointer(TopItem)^);
-     27: T27(Pointer(Item)^) := T27(Pointer(TopItem)^);
-     28: T28(Pointer(Item)^) := T28(Pointer(TopItem)^);
-     29: T29(Pointer(Item)^) := T29(Pointer(TopItem)^);
-     30: T30(Pointer(Item)^) := T30(Pointer(TopItem)^);
-     31: T31(Pointer(Item)^) := T31(Pointer(TopItem)^);
-     32: T32(Pointer(Item)^) := T32(Pointer(TopItem)^);
-     33: T33(Pointer(Item)^) := T33(Pointer(TopItem)^);
-     34: T34(Pointer(Item)^) := T34(Pointer(TopItem)^);
-     35: T35(Pointer(Item)^) := T35(Pointer(TopItem)^);
-     36: T36(Pointer(Item)^) := T36(Pointer(TopItem)^);
-     37: T37(Pointer(Item)^) := T37(Pointer(TopItem)^);
-     38: T38(Pointer(Item)^) := T38(Pointer(TopItem)^);
-     39: T39(Pointer(Item)^) := T39(Pointer(TopItem)^);
-     40: T40(Pointer(Item)^) := T40(Pointer(TopItem)^);
+      1: TRAIIHelper.T1(Pointer(Item)^) := TRAIIHelper.T1(Pointer(TopItem)^);
+      2: TRAIIHelper.T2(Pointer(Item)^) := TRAIIHelper.T2(Pointer(TopItem)^);
+      3: TRAIIHelper.T3(Pointer(Item)^) := TRAIIHelper.T3(Pointer(TopItem)^);
+      4: TRAIIHelper.T4(Pointer(Item)^) := TRAIIHelper.T4(Pointer(TopItem)^);
+      5: TRAIIHelper.T5(Pointer(Item)^) := TRAIIHelper.T5(Pointer(TopItem)^);
+      6: TRAIIHelper.T6(Pointer(Item)^) := TRAIIHelper.T6(Pointer(TopItem)^);
+      7: TRAIIHelper.T7(Pointer(Item)^) := TRAIIHelper.T7(Pointer(TopItem)^);
+      8: TRAIIHelper.T8(Pointer(Item)^) := TRAIIHelper.T8(Pointer(TopItem)^);
+      9: TRAIIHelper.T9(Pointer(Item)^) := TRAIIHelper.T9(Pointer(TopItem)^);
+     10: TRAIIHelper.T10(Pointer(Item)^) := TRAIIHelper.T10(Pointer(TopItem)^);
+     11: TRAIIHelper.T11(Pointer(Item)^) := TRAIIHelper.T11(Pointer(TopItem)^);
+     12: TRAIIHelper.T12(Pointer(Item)^) := TRAIIHelper.T12(Pointer(TopItem)^);
+     13: TRAIIHelper.T13(Pointer(Item)^) := TRAIIHelper.T13(Pointer(TopItem)^);
+     14: TRAIIHelper.T14(Pointer(Item)^) := TRAIIHelper.T14(Pointer(TopItem)^);
+     15: TRAIIHelper.T15(Pointer(Item)^) := TRAIIHelper.T15(Pointer(TopItem)^);
+     16: TRAIIHelper.T16(Pointer(Item)^) := TRAIIHelper.T16(Pointer(TopItem)^);
+     17: TRAIIHelper.T17(Pointer(Item)^) := TRAIIHelper.T17(Pointer(TopItem)^);
+     18: TRAIIHelper.T18(Pointer(Item)^) := TRAIIHelper.T18(Pointer(TopItem)^);
+     19: TRAIIHelper.T19(Pointer(Item)^) := TRAIIHelper.T19(Pointer(TopItem)^);
+     20: TRAIIHelper.T20(Pointer(Item)^) := TRAIIHelper.T20(Pointer(TopItem)^);
+     21: TRAIIHelper.T21(Pointer(Item)^) := TRAIIHelper.T21(Pointer(TopItem)^);
+     22: TRAIIHelper.T22(Pointer(Item)^) := TRAIIHelper.T22(Pointer(TopItem)^);
+     23: TRAIIHelper.T23(Pointer(Item)^) := TRAIIHelper.T23(Pointer(TopItem)^);
+     24: TRAIIHelper.T24(Pointer(Item)^) := TRAIIHelper.T24(Pointer(TopItem)^);
+     25: TRAIIHelper.T25(Pointer(Item)^) := TRAIIHelper.T25(Pointer(TopItem)^);
+     26: TRAIIHelper.T26(Pointer(Item)^) := TRAIIHelper.T26(Pointer(TopItem)^);
+     27: TRAIIHelper.T27(Pointer(Item)^) := TRAIIHelper.T27(Pointer(TopItem)^);
+     28: TRAIIHelper.T28(Pointer(Item)^) := TRAIIHelper.T28(Pointer(TopItem)^);
+     29: TRAIIHelper.T29(Pointer(Item)^) := TRAIIHelper.T29(Pointer(TopItem)^);
+     30: TRAIIHelper.T30(Pointer(Item)^) := TRAIIHelper.T30(Pointer(TopItem)^);
+     31: TRAIIHelper.T31(Pointer(Item)^) := TRAIIHelper.T31(Pointer(TopItem)^);
+     32: TRAIIHelper.T32(Pointer(Item)^) := TRAIIHelper.T32(Pointer(TopItem)^);
+     33: TRAIIHelper.T33(Pointer(Item)^) := TRAIIHelper.T33(Pointer(TopItem)^);
+     34: TRAIIHelper.T34(Pointer(Item)^) := TRAIIHelper.T34(Pointer(TopItem)^);
+     35: TRAIIHelper.T35(Pointer(Item)^) := TRAIIHelper.T35(Pointer(TopItem)^);
+     36: TRAIIHelper.T36(Pointer(Item)^) := TRAIIHelper.T36(Pointer(TopItem)^);
+     37: TRAIIHelper.T37(Pointer(Item)^) := TRAIIHelper.T37(Pointer(TopItem)^);
+     38: TRAIIHelper.T38(Pointer(Item)^) := TRAIIHelper.T38(Pointer(TopItem)^);
+     39: TRAIIHelper.T39(Pointer(Item)^) := TRAIIHelper.T39(Pointer(TopItem)^);
+     40: TRAIIHelper.T40(Pointer(Item)^) := TRAIIHelper.T40(Pointer(TopItem)^);
     else
       System.Move(TopItem^, Item^, SizeOf(TItem));
     end;
@@ -6644,14 +6706,8 @@ label
   {$endif}
   done;
 type
-  T16 = packed record
-  case Integer of
-    0: (Bytes: array[0..15] of Byte);
-    1: (Words: array[0..7] of Word);
-    2: (Integers: array[0..3] of Integer);
-    3: (Int64s: array[0..1] of Int64);
-  end;
-  P16 = ^T16;
+  TData16 = TRAIIHelper.TData16;
+  PData16 = ^TData16;
   PValue = ^TValue;
 var
   i: NativeInt;
@@ -6721,45 +6777,45 @@ begin
       begin
         // small binary
         if (SizeOf(TValue) <> 0) then
-        with P16(@Value)^ do
+        with PData16(@Value)^ do
         begin
           if (SizeOf(TValue) >= SizeOf(Integer)) then
           begin
             if (SizeOf(TValue) >= SizeOf(Int64)) then
             begin
               {$ifdef LARGEINT}
-              if (Int64s[0] <> P16(Item).Int64s[0]) then goto next_item;
+              if (Int64s[0] <> PData16(Item).Int64s[0]) then goto next_item;
               {$else}
-              if (Integers[0] <> P16(Item).Integers[0]) then goto next_item;
-              if (Integers[1] <> P16(Item).Integers[1]) then goto next_item;
+              if (Integers[0] <> PData16(Item).Integers[0]) then goto next_item;
+              if (Integers[1] <> PData16(Item).Integers[1]) then goto next_item;
               {$endif}
 
               if (SizeOf(TValue) = 16) then
               begin
                 {$ifdef LARGEINT}
-                if (Int64s[1] <> P16(Item).Int64s[1]) then goto next_item;
+                if (Int64s[1] <> PData16(Item).Int64s[1]) then goto next_item;
                 {$else}
-                if (Integers[2] <> P16(Item).Integers[2]) then goto next_item;
-                if (Integers[3] <> P16(Item).Integers[3]) then goto next_item;
+                if (Integers[2] <> PData16(Item).Integers[2]) then goto next_item;
+                if (Integers[3] <> PData16(Item).Integers[3]) then goto next_item;
                 {$endif}
               end else
               if (SizeOf(TValue) >= 12) then
               begin
-                if (Integers[2] <> P16(Item).Integers[2]) then goto next_item;
+                if (Integers[2] <> PData16(Item).Integers[2]) then goto next_item;
               end;
             end else
             begin
-              if (Integers[0] <> P16(Item).Integers[0]) then goto next_item;
+              if (Integers[0] <> PData16(Item).Integers[0]) then goto next_item;
             end;
           end;
 
           if (SizeOf(TValue) and 2 <> 0) then
           begin
-            if (Words[(SizeOf(TValue) and -4) shr 1] <> P16(Item).Words[(SizeOf(TValue) and -4) shr 1]) then goto next_item;
+            if (Words[(SizeOf(TValue) and -4) shr 1] <> PData16(Item).Words[(SizeOf(TValue) and -4) shr 1]) then goto next_item;
           end;
           if (SizeOf(TValue) and 1 <> 0) then
           begin
-            if (Bytes[SizeOf(TValue) and -2] <> P16(Item).Bytes[SizeOf(TValue) and -2]) then goto next_item;
+            if (Bytes[SizeOf(TValue) and -2] <> PData16(Item).Bytes[SizeOf(TValue) and -2]) then goto next_item;
           end;
         end;
       end else
@@ -6876,21 +6932,21 @@ begin
         begin
           // non-dynamic (constant) size binary > 16
           if (SizeOf(TValue) and {$ifdef LARGEINT}7{$else}3{$endif} <> 0) then
-          with P16(@Value)^ do
+          with PData16(@Value)^ do
           begin
             {$ifdef LARGEINT}
             if (SizeOf(TValue) and 4 <> 0) then
             begin
-              if (Integers[(SizeOf(TValue) and -8) shr 2] <> P16(Item).Integers[(SizeOf(TValue) and -8) shr 2]) then goto next_item;
+              if (Integers[(SizeOf(TValue) and -8) shr 2] <> PData16(Item).Integers[(SizeOf(TValue) and -8) shr 2]) then goto next_item;
             end;
             {$endif}
             if (SizeOf(TValue) and 2 <> 0) then
             begin
-              if (Words[(SizeOf(TValue) and -4) shr 1] <> P16(Item).Words[(SizeOf(TValue) and -4) shr 1]) then goto next_item;
+              if (Words[(SizeOf(TValue) and -4) shr 1] <> PData16(Item).Words[(SizeOf(TValue) and -4) shr 1]) then goto next_item;
             end;
             if (SizeOf(TValue) and 1 <> 0) then
             begin
-              if (Bytes[SizeOf(TValue) and -2] <> P16(Item).Bytes[SizeOf(TValue) and -2]) then goto next_item;
+              if (Bytes[SizeOf(TValue) and -2] <> PData16(Item).Bytes[SizeOf(TValue) and -2]) then goto next_item;
             end;
           end;
           Left := Pointer(@Value);
@@ -7191,10 +7247,7 @@ label
 var
   Parent: ^PItem;
   HashCode, Mode: Integer;
-  Stored: record
-    HashCode: Integer;
-    Parent: ^PItem;
-  end;
+  Stored: TInternalFindStored;
 begin
   // hash code
   HashCode := Self.FComparerGetHashCode(Key);
@@ -7419,49 +7472,16 @@ label
   {$endif}
   hash_calculated, next_item, not_found;
 type
-  TSingleRec = packed record
-    Exponent: Integer;
-    case Integer of
-      0: (Mantissa: Single);
-      1: (HighInt: Integer);
-  end;
-  TDoubleRec = packed record
-    Exponent: Integer;
-    case Integer of
-      0: (Mantissa: Double);
-      1: (LowInt: Integer; HighInt: Integer);
-  end;
-  TExtendedRec = packed record
-    Exponent: Integer;
-    case Integer of
-      0: (Mantissa: Extended);
-      1: (LowInt: Integer; Middle: Word; HighInt: Integer);
-  end;
-  T16 = packed record
-  case Integer of
-    0: (Bytes: array[0..15] of Byte);
-    1: (Words: array[0..7] of Word);
-    2: (Integers: array[0..3] of Integer);
-    3: (Int64s: array[0..1] of Int64);
-  end;
-  P16 = ^T16;
+  TData16 = TRAIIHelper.TData16;
+  PData16 = ^TData16;
 var
   Parent: ^PItem;
   HashCode, Mode, M: Integer;
-  Stored: record
-    HashCode: Integer;
-    {$ifdef SMARTGENERICS}
-    Self: TRapidDictionary<TKey,TValue>;
-    {$endif}
-    Parent: ^PItem;
-  end;
+  Stored: TInternalFindStored;
   {$ifdef SMARTGENERICS}
   Left, Right: PByte;
   Count, Offset: NativeUInt;
   _Self1, _Self2: TRapidDictionary<TKey,TValue>;
-  SingleRec: TSingleRec;
-  DoubleRec: TDoubleRec;
-  ExtendedRec: TExtendedRec;
   {$endif}
 begin
   // stores, hash code
@@ -7511,15 +7531,15 @@ begin
       4:
       begin
         if (PSingle(@Key)^ = 0) then goto hash_calculated;
-        Frexp(PSingle(@Key)^, SingleRec.Mantissa, SingleRec.Exponent);
-        HashCode := SingleRec.Exponent + SingleRec.HighInt * 63689;
+        Frexp(PSingle(@Key)^, Stored.SingleRec.Mantissa, Stored.SingleRec.Exponent);
+        HashCode := Stored.SingleRec.Exponent + Stored.SingleRec.HighInt * 63689;
       end;
       10:
       begin
         if (PExtended(@Key)^ = 0) then goto hash_calculated;
-        Frexp(PExtended(@Key)^, ExtendedRec.Mantissa, ExtendedRec.Exponent);
-        HashCode := ExtendedRec.Exponent + ExtendedRec.LowInt * 63689 + ExtendedRec.HighInt * -1660269137 +
-          Integer(ExtendedRec.Middle) * -1092754919;
+        Frexp(PExtended(@Key)^, Stored.ExtendedRec.Mantissa, Stored.ExtendedRec.Exponent);
+        HashCode := Stored.ExtendedRec.Exponent + Stored.ExtendedRec.LowInt * 63689 +
+          Stored.ExtendedRec.HighInt * -1660269137 + Integer(Stored.ExtendedRec.Middle) * -1092754919;
       end;
     else
       if (InterfaceDefaults.TDefaultEqualityComparer<TKey>.Instance.Size < 0) then
@@ -7528,8 +7548,9 @@ begin
       end else
       begin
         if (PDouble(@Key)^ = 0) then goto hash_calculated;
-        Frexp(PDouble(@Key)^, DoubleRec.Mantissa, DoubleRec.Exponent);
-        HashCode := DoubleRec.Exponent + DoubleRec.LowInt * 63689 + DoubleRec.HighInt * -1660269137;
+        Frexp(PDouble(@Key)^, Stored.DoubleRec.Mantissa, Stored.DoubleRec.Exponent);
+        HashCode := Stored.DoubleRec.Exponent + Stored.DoubleRec.LowInt * 63689 +
+          Stored.DoubleRec.HighInt * -1660269137;
       end;
     end;
 
@@ -7799,17 +7820,17 @@ hash_calculated:
     begin
       // small binary
       if (SizeOf(TKey) <> 0) then
-      with P16(@Key)^ do
+      with PData16(@Key)^ do
       begin
         if (SizeOf(TKey) >= SizeOf(Integer)) then
         begin
           if (SizeOf(TKey) >= SizeOf(Int64)) then
           begin
             {$ifdef LARGEINT}
-            if (Int64s[0] <> P16(Result).Int64s[0]) then goto next_item;
+            if (Int64s[0] <> PData16(Result).Int64s[0]) then goto next_item;
             {$else}
-            if (Integers[0] <> P16(Result).Integers[0]) then goto next_item;
-            if (Integers[1] <> P16(Result).Integers[1]) then goto next_item;
+            if (Integers[0] <> PData16(Result).Integers[0]) then goto next_item;
+            if (Integers[1] <> PData16(Result).Integers[1]) then goto next_item;
             {$endif}
 
             if (SizeOf(TKey) = 16) then
@@ -7817,27 +7838,27 @@ hash_calculated:
               {$ifdef LARGEINT}
               if (Int64s[1] <> P16(Result).Int64s[1]) then goto next_item;
               {$else}
-              if (Integers[2] <> P16(Result).Integers[2]) then goto next_item;
-              if (Integers[3] <> P16(Result).Integers[3]) then goto next_item;
+              if (Integers[2] <> PData16(Result).Integers[2]) then goto next_item;
+              if (Integers[3] <> PData16(Result).Integers[3]) then goto next_item;
               {$endif}
             end else
             if (SizeOf(TKey) >= 12) then
             begin
-              if (Integers[2] <> P16(Result).Integers[2]) then goto next_item;
+              if (Integers[2] <> PData16(Result).Integers[2]) then goto next_item;
             end;
           end else
           begin
-            if (Integers[0] <> P16(Result).Integers[0]) then goto next_item;
+            if (Integers[0] <> PData16(Result).Integers[0]) then goto next_item;
           end;
         end;
 
         if (SizeOf(TKey) and 2 <> 0) then
         begin
-          if (Words[(SizeOf(TKey) and -4) shr 1] <> P16(Result).Words[(SizeOf(TKey) and -4) shr 1]) then goto next_item;
+          if (Words[(SizeOf(TKey) and -4) shr 1] <> PData16(Result).Words[(SizeOf(TKey) and -4) shr 1]) then goto next_item;
         end;
         if (SizeOf(TKey) and 1 <> 0) then
         begin
-          if (Bytes[SizeOf(TKey) and -2] <> P16(Result).Bytes[SizeOf(TKey) and -2]) then goto next_item;
+          if (Bytes[SizeOf(TKey) and -2] <> PData16(Result).Bytes[SizeOf(TKey) and -2]) then goto next_item;
         end;
       end;
     end else
@@ -7954,21 +7975,21 @@ hash_calculated:
       begin
         // non-dynamic (constant) size binary > 16
         if (SizeOf(TKey) and {$ifdef LARGEINT}7{$else}3{$endif} <> 0) then
-        with P16(@Key)^ do
+        with PData16(@Key)^ do
         begin
           {$ifdef LARGEINT}
           if (SizeOf(TKey) and 4 <> 0) then
           begin
-            if (Integers[(SizeOf(TKey) and -8) shr 2] <> P16(Result).Integers[(SizeOf(TKey) and -8) shr 2]) then goto next_item;
+            if (Integers[(SizeOf(TKey) and -8) shr 2] <> P1Data6(Result).Integers[(SizeOf(TKey) and -8) shr 2]) then goto next_item;
           end;
           {$endif}
           if (SizeOf(TKey) and 2 <> 0) then
           begin
-            if (Words[(SizeOf(TKey) and -4) shr 1] <> P16(Result).Words[(SizeOf(TKey) and -4) shr 1]) then goto next_item;
+            if (Words[(SizeOf(TKey) and -4) shr 1] <> PData16(Result).Words[(SizeOf(TKey) and -4) shr 1]) then goto next_item;
           end;
           if (SizeOf(TKey) and 1 <> 0) then
           begin
-            if (Bytes[SizeOf(TKey) and -2] <> P16(Result).Bytes[SizeOf(TKey) and -2]) then goto next_item;
+            if (Bytes[SizeOf(TKey) and -2] <> PData16(Result).Bytes[SizeOf(TKey) and -2]) then goto next_item;
           end;
         end;
         Left := Pointer(@Key);
@@ -9122,16 +9143,6 @@ end;
 class function TArray.RadixSortFloats<T>(var StackItem: TSortStackItem<T>): Pointer;
 label
   sign_sorted;
-type
-  TFloat = packed record
-  case Integer of
-    0: (VSingle: Single);
-    1: (VDouble: Double);
-    2: (VExtended: Extended);
-    3: (SSingle: Integer);
-    4: (B1: array[1..SizeOf(Double) - SizeOf(Integer)] of Byte; SDouble: Integer);
-    5: (B2: array[1..SizeOf(Extended) - SizeOf(Integer)] of Byte; SExtended: Integer);
-  end;
 var
   I, J: ^TFloat;
   Count: NativeInt;
@@ -9204,16 +9215,6 @@ end;
 class function TArray.RadixSortDescendingFloats<T>(var StackItem: TSortStackItem<T>): Pointer;
 label
   sign_sorted;
-type
-  TFloat = packed record
-  case Integer of
-    0: (VSingle: Single);
-    1: (VDouble: Double);
-    2: (VExtended: Extended);
-    3: (SSingle: Integer);
-    4: (B1: array[1..SizeOf(Double) - SizeOf(Integer)] of Byte; SDouble: Integer);
-    5: (B2: array[1..SizeOf(Extended) - SizeOf(Integer)] of Byte; SExtended: Integer);
-  end;
 var
   I, J: ^TFloat;
   Count: NativeInt;
@@ -12481,7 +12482,7 @@ begin
    Sort<T>(Values[0], Length(Values), Comparison);
 end;
 
-class procedure TArray.Sort<T>(var Values: array of T; const Comparison: TComparison<T>; Index, Count: Integer);
+class procedure TArray.Sort<T>(var Values: array of T; Index, Count: Integer; const Comparison: TComparison<T>);
 begin
   if (Index < Low(Values)) or ((Index > High(Values)) and (Count > 0))
     or (Index + Count - 1 > High(Values)) or (Count < 0)
@@ -12700,7 +12701,7 @@ begin
    SortDescending<T>(Values[0], Length(Values), Comparison);
 end;
 
-class procedure TArray.SortDescending<T>(var Values: array of T; const Comparison: TComparison<T>; Index, Count: Integer);
+class procedure TArray.SortDescending<T>(var Values: array of T; Index, Count: Integer; const Comparison: TComparison<T>);
 begin
   if (Index < Low(Values)) or ((Index > High(Values)) and (Count > 0))
     or (Index + Count - 1 > High(Values)) or (Count < 0)
@@ -14633,18 +14634,9 @@ end;
 function TList<T>.InternalInsert(Index: NativeInt; const Value: T): Integer;
 label
   available;
-type
-  T16 = packed record
-  case Integer of
-    0: (Bytes: array[0..15] of Byte);
-    1: (Words: array[0..7] of Word);
-    2: (Integers: array[0..3] of Integer);
-    3: (Int64s: array[0..1] of Int64);
-  end;
-  P16 = ^T16;
 var
   Count, Null: NativeInt;
-  Item: P16;
+  Item: ^TRAIIHelper.TData16;
 begin
   Result := Index;
   Count := FCount.Native;
@@ -14732,18 +14724,9 @@ begin
 end;
 
 function TList<T>.Add(const Value: T): Integer;
-type
-  T16 = packed record
-  case Integer of
-    0: (Bytes: array[0..15] of Byte);
-    1: (Words: array[0..7] of Word);
-    2: (Integers: array[0..3] of Integer);
-    3: (Int64s: array[0..1] of Int64);
-  end;
-  P16 = ^T16;
 var
   Count, Null: NativeInt;
-  Item: P16;
+  Item: ^TRAIIHelper.TData16;
 begin
   Count := FCount.Native;
   if (Count <> FCapacity.Native) and (not Assigned(FInternalNotify)) then
@@ -14823,10 +14806,7 @@ label
 var
   Count, ValuesCount, i: NativeInt;
   Item, Source, Buffer: PItem;
-  Stored: record
-    Self: Pointer;
-    InternalNotify: TMethod;
-  end;
+  Stored: TInternalStored;
 begin
   ValuesCount := High(Values);
   if (ValuesCount < 0) then Exit;
@@ -14905,12 +14885,7 @@ label
 var
   Count, ValuesCount, AIndex: NativeInt;
   Item, Source, Buffer: PItem;
-  Stored: record
-    Self: Pointer;
-    InternalNotify: TMethod;
-    ValuesCount: NativeInt;
-    TopSource: PItem;
-  end;
+  Stored: TInternalStored;
 begin
   ValuesCount := High(Values);
   if (ValuesCount < 0) then Exit;
@@ -14918,7 +14893,7 @@ begin
 
   Stored.Self := Self;
   Stored.InternalNotify := TMethod(FInternalNotify);
-  Stored.ValuesCount := ValuesCount;
+  Stored.Count := ValuesCount;
   AIndex := Index;
 
   Count := FCount.Native;
@@ -14937,7 +14912,7 @@ begin
     if (Count <> 0) then
     begin
       Count := Count * SizeOf(T);
-      Source := Buffer{Item} + Stored.ValuesCount;
+      Source := Buffer{Item} + Stored.Count;
       System.Move(Buffer{Item}^, Source^, Count);
     end;
 
@@ -14949,20 +14924,20 @@ begin
     begin
       if (SizeOf(T) <= 16) then
       begin
-        FillChar(Buffer{Item}^, Stored.ValuesCount * SizeOf(T), #0);
+        FillChar(Buffer{Item}^, Stored.Count * SizeOf(T), #0);
       end else
       begin
-        TRAIIHelper<T>.InitArray(Buffer{Item}, Stored.ValuesCount);
+        TRAIIHelper<T>.InitArray(Buffer{Item}, Stored.Count);
       end;
     end else
     if (not Assigned(Stored.InternalNotify.Code)) then
     begin
-      System.Move(Values[0], Buffer{Item}^, Stored.ValuesCount * SizeOf(T));
+      System.Move(Values[0], Buffer{Item}^, Stored.Count * SizeOf(T));
       Exit;
     end;
 
     Source := @Values[0];
-    Stored.TopSource := Source + Stored.ValuesCount;
+    Stored.Item := Source + Stored.Count;
     Item := Buffer{Item};
     if (not Assigned(Stored.InternalNotify.Code)) then
     begin
@@ -14970,7 +14945,7 @@ begin
         Item^ := Source^;
         Inc(Source);
         Inc(Item);
-      until (Source = Stored.TopSource);
+      until (Source = Stored.Item);
     end else
     begin
       repeat
@@ -14978,14 +14953,14 @@ begin
         TCollectionNotifyEvent<T>(Stored.InternalNotify)(Stored.Self, Source^, cnAdded);
         Inc(Source);
         Inc(Item);
-      until (Source = Stored.TopSource);
+      until (Source = Stored.Item);
     end;
     Exit;
   end else
   begin
     Self.GrowTo(Count);
     AIndex := Index;
-    ValuesCount := Stored.ValuesCount;
+    ValuesCount := Stored.Count;
     Count := FCount.Native;
     Inc(Count, ValuesCount);
     goto available;
@@ -15185,12 +15160,7 @@ var
   IndexTop: Integer;
   Item: PItem;
   VType: Integer;
-  Stored: record
-    Self: Pointer;
-    InternalNotify: TMethod;
-    Count: NativeInt;
-    ACount: Integer;
-  end;
+  Stored: TInternalStored;
 begin
   Stored.Self := Self;
   Stored.InternalNotify := TMethod(FInternalNotify);
@@ -15370,101 +15340,15 @@ begin
 end;
 
 procedure TList<T>.InternalMove40(CurIndex, NewIndex: Integer);
-type
-  T1 = Byte;
-  T2 = Word;
-  T3 = array[1..3] of Byte;
-  T4 = Cardinal;
-  T5 = array[1..5] of Byte;
-  T6 = array[1..6] of Byte;
-  T7 = array[1..7] of Byte;
-  T8 = Int64;
-  T9 = array[1..9] of Byte;
-  T10 = array[1..10] of Byte;
-  T11 = array[1..11] of Byte;
-  T12 = array[1..12] of Byte;
-  T13 = array[1..13] of Byte;
-  T14 = array[1..14] of Byte;
-  T15 = array[1..15] of Byte;
-  T16 = array[1..16] of Byte;
-  T17 = array[1..17] of Byte;
-  T18 = array[1..18] of Byte;
-  T19 = array[1..19] of Byte;
-  T20 = array[1..20] of Byte;
-  T21 = array[1..21] of Byte;
-  T22 = array[1..22] of Byte;
-  T23 = array[1..23] of Byte;
-  T24 = array[1..24] of Byte;
-  T25 = array[1..25] of Byte;
-  T26 = array[1..26] of Byte;
-  T27 = array[1..27] of Byte;
-  T28 = array[1..28] of Byte;
-  T29 = array[1..29] of Byte;
-  T30 = array[1..30] of Byte;
-  T31 = array[1..31] of Byte;
-  T32 = array[1..32] of Byte;
-  T33 = array[1..33] of Byte;
-  T34 = array[1..34] of Byte;
-  T35 = array[1..35] of Byte;
-  T36 = array[1..36] of Byte;
-  T37 = array[1..37] of Byte;
-  T38 = array[1..38] of Byte;
-  T39 = array[1..39] of Byte;
-  T40 = array[1..40] of Byte;
-
-  TTemp40 = record
-  case Integer of
-     1: (V1: T1);
-     2: (V2: T2);
-     3: (V3: T3);
-     4: (V4: T4);
-     5: (V5: T5);
-     6: (V6: T6);
-     7: (V7: T7);
-     8: (V8: T8);
-     9: (V9: T9);
-    10: (V10: T10);
-    11: (V11: T11);
-    12: (V12: T12);
-    13: (V13: T13);
-    14: (V14: T14);
-    15: (V15: T15);
-    16: (V16: T16);
-    17: (V17: T17);
-    18: (V18: T18);
-    19: (V19: T19);
-    20: (V20: T20);
-    21: (V21: T21);
-    22: (V22: T22);
-    23: (V23: T23);
-    24: (V24: T24);
-    25: (V25: T25);
-    26: (V26: T26);
-    27: (V27: T27);
-    28: (V28: T28);
-    29: (V29: T29);
-    30: (V30: T30);
-    31: (V31: T31);
-    32: (V32: T32);
-    33: (V33: T33);
-    34: (V34: T34);
-    35: (V35: T35);
-    36: (V36: T36);
-    37: (V37: T37);
-    38: (V38: T38);
-    39: (V39: T39);
-    40: (V40: T40);
-  end;
-
 var
   Count: Cardinal;
   X, Y: PItem;
 
-  Temp1: T1;
-  Temp2: T2;
-  Temp4: T4;
-  Temp8: T8;
-  Temp40: TTemp40;
+  Temp1: TRAIIHelper.T1;
+  Temp2: TRAIIHelper.T2;
+  Temp4: TRAIIHelper.T4;
+  Temp8: TRAIIHelper.T8;
+  Temp40: TRAIIHelper.TTemp40;
 begin
   Count := FCount.Int;
   if (Cardinal(CurIndex) < Count) and (Cardinal(NewIndex) < Count) then
@@ -15476,46 +15360,46 @@ begin
       X := X + CurIndex;
 
       case SizeOf(T) of
-         1: Temp1 := T1(Pointer(X)^);
-         2: Temp2 := T2(Pointer(X)^);
-         3: Temp40.V3 := T3(Pointer(X)^);
-         4: Temp4 := T4(Pointer(X)^);
-         5: Temp40.V5 := T5(Pointer(X)^);
-         6: Temp40.V6 := T6(Pointer(X)^);
-         7: Temp40.V7 := T7(Pointer(X)^);
-         8: Temp8 := T8(Pointer(X)^);
-         9: Temp40.V9 := T9(Pointer(X)^);
-        10: Temp40.V10 := T10(Pointer(X)^);
-        11: Temp40.V11 := T11(Pointer(X)^);
-        12: Temp40.V12 := T12(Pointer(X)^);
-        13: Temp40.V13 := T13(Pointer(X)^);
-        14: Temp40.V14 := T14(Pointer(X)^);
-        15: Temp40.V15 := T15(Pointer(X)^);
-        16: Temp40.V16 := T16(Pointer(X)^);
-        17: Temp40.V17 := T17(Pointer(X)^);
-        18: Temp40.V18 := T18(Pointer(X)^);
-        19: Temp40.V19 := T19(Pointer(X)^);
-        20: Temp40.V20 := T20(Pointer(X)^);
-        21: Temp40.V21 := T21(Pointer(X)^);
-        22: Temp40.V22 := T22(Pointer(X)^);
-        23: Temp40.V23 := T23(Pointer(X)^);
-        24: Temp40.V24 := T24(Pointer(X)^);
-        25: Temp40.V25 := T25(Pointer(X)^);
-        26: Temp40.V26 := T26(Pointer(X)^);
-        27: Temp40.V27 := T27(Pointer(X)^);
-        28: Temp40.V28 := T28(Pointer(X)^);
-        29: Temp40.V29 := T29(Pointer(X)^);
-        30: Temp40.V30 := T30(Pointer(X)^);
-        31: Temp40.V31 := T31(Pointer(X)^);
-        32: Temp40.V32 := T32(Pointer(X)^);
-        33: Temp40.V33 := T33(Pointer(X)^);
-        34: Temp40.V34 := T34(Pointer(X)^);
-        35: Temp40.V35 := T35(Pointer(X)^);
-        36: Temp40.V36 := T36(Pointer(X)^);
-        37: Temp40.V37 := T37(Pointer(X)^);
-        38: Temp40.V38 := T38(Pointer(X)^);
-        39: Temp40.V39 := T39(Pointer(X)^);
-        40: Temp40.V40 := T40(Pointer(X)^);
+         1: Temp1 := TRAIIHelper.T1(Pointer(X)^);
+         2: Temp2 := TRAIIHelper.T2(Pointer(X)^);
+         3: Temp40.V3 := TRAIIHelper.T3(Pointer(X)^);
+         4: Temp4 := TRAIIHelper.T4(Pointer(X)^);
+         5: Temp40.V5 := TRAIIHelper.T5(Pointer(X)^);
+         6: Temp40.V6 := TRAIIHelper.T6(Pointer(X)^);
+         7: Temp40.V7 := TRAIIHelper.T7(Pointer(X)^);
+         8: Temp8 := TRAIIHelper.T8(Pointer(X)^);
+         9: Temp40.V9 := TRAIIHelper.T9(Pointer(X)^);
+        10: Temp40.V10 := TRAIIHelper.T10(Pointer(X)^);
+        11: Temp40.V11 := TRAIIHelper.T11(Pointer(X)^);
+        12: Temp40.V12 := TRAIIHelper.T12(Pointer(X)^);
+        13: Temp40.V13 := TRAIIHelper.T13(Pointer(X)^);
+        14: Temp40.V14 := TRAIIHelper.T14(Pointer(X)^);
+        15: Temp40.V15 := TRAIIHelper.T15(Pointer(X)^);
+        16: Temp40.V16 := TRAIIHelper.T16(Pointer(X)^);
+        17: Temp40.V17 := TRAIIHelper.T17(Pointer(X)^);
+        18: Temp40.V18 := TRAIIHelper.T18(Pointer(X)^);
+        19: Temp40.V19 := TRAIIHelper.T19(Pointer(X)^);
+        20: Temp40.V20 := TRAIIHelper.T20(Pointer(X)^);
+        21: Temp40.V21 := TRAIIHelper.T21(Pointer(X)^);
+        22: Temp40.V22 := TRAIIHelper.T22(Pointer(X)^);
+        23: Temp40.V23 := TRAIIHelper.T23(Pointer(X)^);
+        24: Temp40.V24 := TRAIIHelper.T24(Pointer(X)^);
+        25: Temp40.V25 := TRAIIHelper.T25(Pointer(X)^);
+        26: Temp40.V26 := TRAIIHelper.T26(Pointer(X)^);
+        27: Temp40.V27 := TRAIIHelper.T27(Pointer(X)^);
+        28: Temp40.V28 := TRAIIHelper.T28(Pointer(X)^);
+        29: Temp40.V29 := TRAIIHelper.T29(Pointer(X)^);
+        30: Temp40.V30 := TRAIIHelper.T30(Pointer(X)^);
+        31: Temp40.V31 := TRAIIHelper.T31(Pointer(X)^);
+        32: Temp40.V32 := TRAIIHelper.T32(Pointer(X)^);
+        33: Temp40.V33 := TRAIIHelper.T33(Pointer(X)^);
+        34: Temp40.V34 := TRAIIHelper.T34(Pointer(X)^);
+        35: Temp40.V35 := TRAIIHelper.T35(Pointer(X)^);
+        36: Temp40.V36 := TRAIIHelper.T36(Pointer(X)^);
+        37: Temp40.V37 := TRAIIHelper.T37(Pointer(X)^);
+        38: Temp40.V38 := TRAIIHelper.T38(Pointer(X)^);
+        39: Temp40.V39 := TRAIIHelper.T39(Pointer(X)^);
+        40: Temp40.V40 := TRAIIHelper.T40(Pointer(X)^);
       end;
 
       if (X < Y) then
@@ -15527,46 +15411,46 @@ begin
       end;
 
       case SizeOf(T) of
-         1: T1(Pointer(Y)^) := Temp1;
-         2: T2(Pointer(Y)^) := Temp2;
-         3: T3(Pointer(Y)^) := Temp40.V3;
-         4: T4(Pointer(Y)^) := Temp4;
-         5: T5(Pointer(Y)^) := Temp40.V5;
-         6: T6(Pointer(Y)^) := Temp40.V6;
-         7: T7(Pointer(Y)^) := Temp40.V7;
-         8: T8(Pointer(Y)^) := Temp8;
-         9: T9(Pointer(Y)^) := Temp40.V9;
-        10: T10(Pointer(Y)^) := Temp40.V10;
-        11: T11(Pointer(Y)^) := Temp40.V11;
-        12: T12(Pointer(Y)^) := Temp40.V12;
-        13: T13(Pointer(Y)^) := Temp40.V13;
-        14: T14(Pointer(Y)^) := Temp40.V14;
-        15: T15(Pointer(Y)^) := Temp40.V15;
-        16: T16(Pointer(Y)^) := Temp40.V16;
-        17: T17(Pointer(Y)^) := Temp40.V17;
-        18: T18(Pointer(Y)^) := Temp40.V18;
-        19: T19(Pointer(Y)^) := Temp40.V19;
-        20: T20(Pointer(Y)^) := Temp40.V20;
-        21: T21(Pointer(Y)^) := Temp40.V21;
-        22: T22(Pointer(Y)^) := Temp40.V22;
-        23: T23(Pointer(Y)^) := Temp40.V23;
-        24: T24(Pointer(Y)^) := Temp40.V24;
-        25: T25(Pointer(Y)^) := Temp40.V25;
-        26: T26(Pointer(Y)^) := Temp40.V26;
-        27: T27(Pointer(Y)^) := Temp40.V27;
-        28: T28(Pointer(Y)^) := Temp40.V28;
-        29: T29(Pointer(Y)^) := Temp40.V29;
-        30: T30(Pointer(Y)^) := Temp40.V30;
-        31: T31(Pointer(Y)^) := Temp40.V31;
-        32: T32(Pointer(Y)^) := Temp40.V32;
-        33: T33(Pointer(Y)^) := Temp40.V33;
-        34: T34(Pointer(Y)^) := Temp40.V34;
-        35: T35(Pointer(Y)^) := Temp40.V35;
-        36: T36(Pointer(Y)^) := Temp40.V36;
-        37: T37(Pointer(Y)^) := Temp40.V37;
-        38: T38(Pointer(Y)^) := Temp40.V38;
-        39: T39(Pointer(Y)^) := Temp40.V39;
-        40: T40(Pointer(Y)^) := Temp40.V40;
+         1: TRAIIHelper.T1(Pointer(Y)^) := Temp1;
+         2: TRAIIHelper.T2(Pointer(Y)^) := Temp2;
+         3: TRAIIHelper.T3(Pointer(Y)^) := Temp40.V3;
+         4: TRAIIHelper.T4(Pointer(Y)^) := Temp4;
+         5: TRAIIHelper.T5(Pointer(Y)^) := Temp40.V5;
+         6: TRAIIHelper.T6(Pointer(Y)^) := Temp40.V6;
+         7: TRAIIHelper.T7(Pointer(Y)^) := Temp40.V7;
+         8: TRAIIHelper.T8(Pointer(Y)^) := Temp8;
+         9: TRAIIHelper.T9(Pointer(Y)^) := Temp40.V9;
+        10: TRAIIHelper.T10(Pointer(Y)^) := Temp40.V10;
+        11: TRAIIHelper.T11(Pointer(Y)^) := Temp40.V11;
+        12: TRAIIHelper.T12(Pointer(Y)^) := Temp40.V12;
+        13: TRAIIHelper.T13(Pointer(Y)^) := Temp40.V13;
+        14: TRAIIHelper.T14(Pointer(Y)^) := Temp40.V14;
+        15: TRAIIHelper.T15(Pointer(Y)^) := Temp40.V15;
+        16: TRAIIHelper.T16(Pointer(Y)^) := Temp40.V16;
+        17: TRAIIHelper.T17(Pointer(Y)^) := Temp40.V17;
+        18: TRAIIHelper.T18(Pointer(Y)^) := Temp40.V18;
+        19: TRAIIHelper.T19(Pointer(Y)^) := Temp40.V19;
+        20: TRAIIHelper.T20(Pointer(Y)^) := Temp40.V20;
+        21: TRAIIHelper.T21(Pointer(Y)^) := Temp40.V21;
+        22: TRAIIHelper.T22(Pointer(Y)^) := Temp40.V22;
+        23: TRAIIHelper.T23(Pointer(Y)^) := Temp40.V23;
+        24: TRAIIHelper.T24(Pointer(Y)^) := Temp40.V24;
+        25: TRAIIHelper.T25(Pointer(Y)^) := Temp40.V25;
+        26: TRAIIHelper.T26(Pointer(Y)^) := Temp40.V26;
+        27: TRAIIHelper.T27(Pointer(Y)^) := Temp40.V27;
+        28: TRAIIHelper.T28(Pointer(Y)^) := Temp40.V28;
+        29: TRAIIHelper.T29(Pointer(Y)^) := Temp40.V29;
+        30: TRAIIHelper.T30(Pointer(Y)^) := Temp40.V30;
+        31: TRAIIHelper.T31(Pointer(Y)^) := Temp40.V31;
+        32: TRAIIHelper.T32(Pointer(Y)^) := Temp40.V32;
+        33: TRAIIHelper.T33(Pointer(Y)^) := Temp40.V33;
+        34: TRAIIHelper.T34(Pointer(Y)^) := Temp40.V34;
+        35: TRAIIHelper.T35(Pointer(Y)^) := Temp40.V35;
+        36: TRAIIHelper.T36(Pointer(Y)^) := Temp40.V36;
+        37: TRAIIHelper.T37(Pointer(Y)^) := Temp40.V37;
+        38: TRAIIHelper.T38(Pointer(Y)^) := Temp40.V38;
+        39: TRAIIHelper.T39(Pointer(Y)^) := Temp40.V39;
+        40: TRAIIHelper.T40(Pointer(Y)^) := Temp40.V40;
       end;
     end;
   end else
@@ -15673,6 +15557,24 @@ begin
   end;
 end;
 
+procedure TList<T>.Sort(Index, Count: Integer);
+begin
+  if (Index < 0) or ((Index >= FCount.Int) and (Count > 0))
+    or (Index + Count - 1 >= FCount.Int) or (Count < 0)
+    or (Index + Count < 0) then
+    raise EArgumentOutOfRangeException.CreateRes(Pointer(@SArgumentOutOfRange));
+  if Count <= 1 then
+    Exit;
+
+  if (Assigned(FComparer)) then
+  begin
+    TArray.Sort<T>(FItems[Index], Count, FComparer);
+  end else
+  begin
+    TArray.Sort<T>(FItems[Index], Count);
+  end;
+end;
+
 procedure TList<T>.Sort(const AComparer: IComparer<T>);
 var
   Count: NativeInt;
@@ -15695,6 +15597,30 @@ begin
   end;
 end;
 
+procedure TList<T>.Sort(Index, Count: Integer; const AComparer: IComparer<T>);
+begin
+  if (Index < 0) or ((Index >= FCount.Int) and (Count > 0))
+    or (Index + Count - 1 >= FCount.Int) or (Count < 0)
+    or (Index + Count < 0) then
+    raise EArgumentOutOfRangeException.CreateRes(Pointer(@SArgumentOutOfRange));
+  if Count <= 1 then
+    Exit;
+
+  TArray.Sort<T>(FItems[Index], Count, AComparer);
+end;
+
+procedure TList<T>.Sort(Index, Count: Integer; const AComparison: TComparison<T>);
+begin
+  if (Index < 0) or ((Index >= FCount.Int) and (Count > 0))
+    or (Index + Count - 1 >= FCount.Int) or (Count < 0)
+    or (Index + Count < 0) then
+    raise EArgumentOutOfRangeException.CreateRes(Pointer(@SArgumentOutOfRange));
+  if Count <= 1 then
+    Exit;
+
+  TArray.Sort<T>(FItems[Index], Count, AComparison);
+end;
+
 procedure TList<T>.SortDescending;
 var
   Count: NativeInt;
@@ -15709,6 +15635,24 @@ begin
     begin
       TArray.SortDescending<T>(FItems[0], Count);
     end;
+  end;
+end;
+
+procedure TList<T>.SortDescending(Index, Count: Integer);
+begin
+  if (Index < 0) or ((Index >= FCount.Int) and (Count > 0))
+    or (Index + Count - 1 >= FCount.Int) or (Count < 0)
+    or (Index + Count < 0) then
+    raise EArgumentOutOfRangeException.CreateRes(Pointer(@SArgumentOutOfRange));
+  if Count <= 1 then
+    Exit;
+
+  if (Assigned(FComparer)) then
+  begin
+    TArray.SortDescending<T>(FItems[Index], Count, FComparer);
+  end else
+  begin
+    TArray.SortDescending<T>(FItems[Index], Count);
   end;
 end;
 
@@ -15734,58 +15678,146 @@ begin
   end;
 end;
 
-function TList<T>.InternalBinarySearch(const Item: T; const Comparer: IComparer<T>): NativeInt;
-var
-  List: PItemList;
-  L, H, M: NativeInt;
-  Cmp: Integer;
+procedure TList<T>.SortDescending(Index, Count: Integer; const AComparer: IComparer<T>);
 begin
-  L := 0;
-  H := FCount.Native - 1;
-  List := FItems;
+  if (Index < 0) or ((Index >= FCount.Int) and (Count > 0))
+    or (Index + Count - 1 >= FCount.Int) or (Count < 0)
+    or (Index + Count < 0) then
+    raise EArgumentOutOfRangeException.CreateRes(Pointer(@SArgumentOutOfRange));
+  if Count <= 1 then
+    Exit;
 
-  while (L <= H) do
-  begin
-    M := L + (H - L) shr 1;
-    Cmp := Comparer.Compare(List[M], Item);
-    if (Cmp < 0) then
-    begin
-      L := M + 1;
-    end else
-    begin
-      H := M - 1;
-      if (Cmp = 0) then
-        Exit(L);
-    end;
-  end;
-
-  Result := -1;
+  TArray.SortDescending<T>(FItems[Index], Count, AComparer);
 end;
 
-function TList<T>.BinarySearch(const Item: T; out Index: Integer): Boolean;
-var
-  I: NativeInt;
+procedure TList<T>.SortDescending(Index, Count: Integer; const AComparison: TComparison<T>);
+begin
+  if (Index < 0) or ((Index >= FCount.Int) and (Count > 0))
+    or (Index + Count - 1 >= FCount.Int) or (Count < 0)
+    or (Index + Count < 0) then
+    raise EArgumentOutOfRangeException.CreateRes(Pointer(@SArgumentOutOfRange));
+  if Count <= 1 then
+    Exit;
+
+  TArray.SortDescending<T>(FItems[Index], Count, AComparison);
+end;
+
+function TList<T>.BinarySearch(const Item: T; out FoundIndex: Integer): Boolean;
 begin
   if (Assigned(FComparer)) then
   begin
-    I := InternalBinarySearch(Item, FComparer);
+    Result := TArray.InternalSearch<T>(FItems, 0, FCount.Int, Item, FoundIndex, Pointer(FComparer));
   end else
   begin
-    I := InternalBinarySearch(Item, IComparer<T>(@InterfaceDefaults.TDefaultComparer<T>.Instance));
+    Result := TArray.InternalSearch<T>(FItems, 0, FCount.Int, Item, FoundIndex);
   end;
-
-  Index := I + (I shr {$ifdef LARGEINT}63{$else .SMALLINT}31{$endif});
-  Result := (I >= 0);
 end;
 
-function TList<T>.BinarySearch(const Item: T; out Index: Integer; const AComparer: IComparer<T>): Boolean;
-var
-  I: NativeInt;
+function TList<T>.BinarySearch(const Item: T; out FoundIndex: Integer; const AComparer: IComparer<T>): Boolean;
 begin
-  I := InternalBinarySearch(Item, AComparer);
+  Result := TArray.InternalSearch<T>(FItems, 0, FCount.Int, Item, FoundIndex, Pointer(AComparer));
+end;
 
-  Index := I + (I shr {$ifdef LARGEINT}63{$else .SMALLINT}31{$endif});
-  Result := (I >= 0);
+function TList<T>.BinarySearch(const Item: T; out FoundIndex: Integer; const AComparison: TComparison<T>): Boolean;
+begin
+  Result := TArray.InternalSearch<T>(FItems, 0, FCount.Int, Item, FoundIndex, PPointer(@AComparison)^);
+end;
+
+function TList<T>.BinarySearch(const Item: T; out FoundIndex: Integer; Index, Count: Integer): Boolean;
+begin
+  if (Index < 0) or ((Index >= FCount.Int) and (Count > 0))
+    or (Index + Count - 1 >= FCount.Int) {or (Count < 0)}
+    or (Index + Count < 0) then
+    raise EArgumentOutOfRangeException.CreateRes(Pointer(@SArgumentOutOfRange));
+
+  if (Assigned(FComparer)) then
+  begin
+    Result := TArray.InternalSearch<T>(FItems, Index, Count, Item, FoundIndex, Pointer(FComparer));
+  end else
+  begin
+    Result := TArray.InternalSearch<T>(FItems, Index, Count, Item, FoundIndex);
+  end;
+end;
+
+function TList<T>.BinarySearch(const Item: T; out FoundIndex: Integer; const AComparer: IComparer<T>;
+  Index, Count: Integer): Boolean;
+begin
+  if (Index < 0) or ((Index >= FCount.Int) and (Count > 0))
+    or (Index + Count - 1 >= FCount.Int) {or (Count < 0)}
+    or (Index + Count < 0) then
+    raise EArgumentOutOfRangeException.CreateRes(Pointer(@SArgumentOutOfRange));
+
+  Result := TArray.InternalSearch<T>(FItems, Index, Count, Item, FoundIndex, Pointer(AComparer));
+end;
+
+function TList<T>.BinarySearch(const Item: T; out FoundIndex: Integer; Index, Count: Integer;
+  const AComparison: TComparison<T>): Boolean;
+begin
+  if (Index < 0) or ((Index >= FCount.Int) and (Count > 0))
+    or (Index + Count - 1 >= FCount.Int) {or (Count < 0)}
+    or (Index + Count < 0) then
+    raise EArgumentOutOfRangeException.CreateRes(Pointer(@SArgumentOutOfRange));
+
+  Result := TArray.InternalSearch<T>(FItems, Index, Count, Item, FoundIndex, PPointer(@AComparison)^);
+end;
+
+function TList<T>.BinarySearchDescending(const Item: T; out FoundIndex: Integer): Boolean;
+begin
+  if (Assigned(FComparer)) then
+  begin
+    Result := TArray.InternalSearchDescending<T>(FItems, 0, FCount.Int, Item, FoundIndex, Pointer(FComparer));
+  end else
+  begin
+    Result := TArray.InternalSearchDescending<T>(FItems, 0, FCount.Int, Item, FoundIndex);
+  end;
+end;
+
+function TList<T>.BinarySearchDescending(const Item: T; out FoundIndex: Integer; const AComparer: IComparer<T>): Boolean;
+begin
+  Result := TArray.InternalSearchDescending<T>(FItems, 0, FCount.Int, Item, FoundIndex, Pointer(AComparer));
+end;
+
+function TList<T>.BinarySearchDescending(const Item: T; out FoundIndex: Integer; const AComparison: TComparison<T>): Boolean;
+begin
+  Result := TArray.InternalSearchDescending<T>(FItems, 0, FCount.Int, Item, FoundIndex, PPointer(@AComparison)^);
+end;
+
+function TList<T>.BinarySearchDescending(const Item: T; out FoundIndex: Integer; Index, Count: Integer): Boolean;
+begin
+  if (Index < 0) or ((Index >= FCount.Int) and (Count > 0))
+    or (Index + Count - 1 >= FCount.Int) {or (Count < 0)}
+    or (Index + Count < 0) then
+    raise EArgumentOutOfRangeException.CreateRes(Pointer(@SArgumentOutOfRange));
+
+  if (Assigned(FComparer)) then
+  begin
+    Result := TArray.InternalSearchDescending<T>(FItems, Index, Count, Item, FoundIndex, Pointer(FComparer));
+  end else
+  begin
+    Result := TArray.InternalSearchDescending<T>(FItems, Index, Count, Item, FoundIndex);
+  end;
+end;
+
+function TList<T>.BinarySearchDescending(const Item: T; out FoundIndex: Integer; const AComparer: IComparer<T>;
+  Index, Count: Integer): Boolean;
+begin
+  if (Index < 0) or ((Index >= FCount.Int) and (Count > 0))
+    or (Index + Count - 1 >= FCount.Int) {or (Count < 0)}
+    or (Index + Count < 0) then
+    raise EArgumentOutOfRangeException.CreateRes(Pointer(@SArgumentOutOfRange));
+
+  Result := TArray.InternalSearchDescending<T>(FItems, Index, Count, Item, FoundIndex, Pointer(AComparer));
+end;
+
+function TList<T>.BinarySearchDescending(const Item: T; out FoundIndex: Integer; Index, Count: Integer;
+  const AComparison: TComparison<T>): Boolean;
+begin
+  if (Index < 0) or ((Index >= FCount.Int) and (Count > 0))
+    or (Index + Count - 1 >= FCount.Int) {or (Count < 0)}
+    or (Index + Count < 0) then
+    raise EArgumentOutOfRangeException.CreateRes(Pointer(@SArgumentOutOfRange));
+
+  Result := TArray.InternalSearchDescending<T>(FItems, Index, Count, Item, FoundIndex, PPointer(@AComparison)^);
 end;
 
 function TList<T>.InternalIndexOf(const Value: T): NativeInt;
@@ -15794,15 +15826,8 @@ label
   cmp0, cmp1, cmp2, cmp3, cmp4, cmp5{$ifdef SMALLINT}, cmp6, cmp7, cmp8, cmp9, cmp10{$endif};
 {$endif}
 type
-  TEquals = function(Inst: Pointer; const Left, Right: T): Boolean;
-  T16 = packed record
-  case Integer of
-    0: (Bytes: array[0..15] of Byte);
-    1: (Words: array[0..7] of Word);
-    2: (Integers: array[0..3] of Integer);
-    3: (Int64s: array[0..1] of Int64);
-  end;
-  P16 = ^T16;
+  TData16 = TRAIIHelper.TData16;
+  PData16 = ^TData16;
 var
   R: NativeInt;
   Item, TopItem: PItem;
@@ -15811,14 +15836,12 @@ var
   Left, Right: PByte;
   Offset: NativeUInt;
   {$endif}
-  Stored: record
-    Items: PItem;
-  end;
+  Stored: TInternalStored;
 begin
   if (not Assigned(FComparer)) then
   begin
     Item := Pointer(FItems);
-    Stored.Items := Item;
+    Stored.Item := Item;
     Dec(Item);
     TopItem := Item + FCount.Native;
 
@@ -15876,45 +15899,45 @@ begin
       begin
         // small binary
         if (SizeOf(T) <> 0) then
-        with P16(@Value)^ do
+        with PData16(@Value)^ do
         begin
           if (SizeOf(T) >= SizeOf(Integer)) then
           begin
             if (SizeOf(T) >= SizeOf(Int64)) then
             begin
               {$ifdef LARGEINT}
-              if (Int64s[0] <> P16(Item).Int64s[0]) then Continue;
+              if (Int64s[0] <> PData16(Item).Int64s[0]) then Continue;
               {$else}
-              if (Integers[0] <> P16(Item).Integers[0]) then Continue;
-              if (Integers[1] <> P16(Item).Integers[1]) then Continue;
+              if (Integers[0] <> PData16(Item).Integers[0]) then Continue;
+              if (Integers[1] <> PData16(Item).Integers[1]) then Continue;
               {$endif}
 
               if (SizeOf(T) = 16) then
               begin
                 {$ifdef LARGEINT}
-                if (Int64s[1] <> P16(Item).Int64s[1]) then Continue;
+                if (Int64s[1] <> PData16(Item).Int64s[1]) then Continue;
                 {$else}
-                if (Integers[2] <> P16(Item).Integers[2]) then Continue;
-                if (Integers[3] <> P16(Item).Integers[3]) then Continue;
+                if (Integers[2] <> PData16(Item).Integers[2]) then Continue;
+                if (Integers[3] <> PData16(Item).Integers[3]) then Continue;
                 {$endif}
               end else
               if (SizeOf(T) >= 12) then
               begin
-                if (Integers[2] <> P16(Item).Integers[2]) then Continue;
+                if (Integers[2] <> PData16(Item).Integers[2]) then Continue;
               end;
             end else
             begin
-              if (Integers[0] <> P16(Item).Integers[0]) then Continue;
+              if (Integers[0] <> PData16(Item).Integers[0]) then Continue;
             end;
           end;
 
           if (SizeOf(T) and 2 <> 0) then
           begin
-            if (Words[(SizeOf(T) and -4) shr 1] <> P16(Item).Words[(SizeOf(T) and -4) shr 1]) then Continue;
+            if (Words[(SizeOf(T) and -4) shr 1] <> PData16(Item).Words[(SizeOf(T) and -4) shr 1]) then Continue;
           end;
           if (SizeOf(T) and 1 <> 0) then
           begin
-            if (Bytes[SizeOf(T) and -2] <> P16(Item).Bytes[SizeOf(T) and -2]) then Continue;
+            if (Bytes[SizeOf(T) and -2] <> PData16(Item).Bytes[SizeOf(T) and -2]) then Continue;
           end;
         end;
       end else
@@ -16031,21 +16054,21 @@ begin
         begin
           // non-dynamic (constant) size binary > 16
           if (SizeOf(T) and {$ifdef LARGEINT}7{$else}3{$endif} <> 0) then
-          with P16(@Value)^ do
+          with PData16(@Value)^ do
           begin
             {$ifdef LARGEINT}
             if (SizeOf(T) and 4 <> 0) then
             begin
-              if (Integers[(SizeOf(T) and -8) shr 2] <> P16(Item).Integers[(SizeOf(T) and -8) shr 2]) then Continue;
+              if (Integers[(SizeOf(T) and -8) shr 2] <> PData16(Item).Integers[(SizeOf(T) and -8) shr 2]) then Continue;
             end;
             {$endif}
             if (SizeOf(T) and 2 <> 0) then
             begin
-              if (Words[(SizeOf(T) and -4) shr 1] <> P16(Item).Words[(SizeOf(T) and -4) shr 1]) then Continue;
+              if (Words[(SizeOf(T) and -4) shr 1] <> PData16(Item).Words[(SizeOf(T) and -4) shr 1]) then Continue;
             end;
             if (SizeOf(T) and 1 <> 0) then
             begin
-              if (Bytes[SizeOf(T) and -2] <> P16(Item).Bytes[SizeOf(T) and -2]) then Continue;
+              if (Bytes[SizeOf(T) and -2] <> PData16(Item).Bytes[SizeOf(T) and -2]) then Continue;
             end;
           end;
           Left := Pointer(@Value);
@@ -16125,7 +16148,7 @@ begin
           @InterfaceDefaults.TDefaultEqualityComparer<T>.Instance, Item^, Value)) then Continue;
       {$endif}
 
-      R := NativeInt(Item) - NativeInt(Stored.Items);
+      R := NativeInt(Item) - NativeInt(Stored.Item);
       case SizeOf(T) of
       0, 1: Exit(R);
          2: Exit(R shr 1);
@@ -16149,8 +16172,6 @@ begin
 end;
 
 function TList<T>.InternalIndexOf(const Value: T; const Comparer: IComparer<T>): NativeInt;
-type
-  TCompare = function(Inst: Pointer; const Left, Right: T): Integer;
 var
   Count: NativeInt;
   Item: PItem;
@@ -16175,15 +16196,8 @@ label
   cmp0, cmp1, cmp2, cmp3, cmp4, cmp5{$ifdef SMALLINT}, cmp6, cmp7, cmp8, cmp9, cmp10{$endif};
 {$endif}
 type
-  TEquals = function(Inst: Pointer; const Left, Right: T): Boolean;
-  T16 = packed record
-  case Integer of
-    0: (Bytes: array[0..15] of Byte);
-    1: (Words: array[0..7] of Word);
-    2: (Integers: array[0..3] of Integer);
-    3: (Int64s: array[0..1] of Int64);
-  end;
-  P16 = ^T16;
+  TData16 = TRAIIHelper.TData16;
+  PData16 = ^TData16;
 var
   R: NativeInt;
   Item, LowItem: PItem;
@@ -16192,14 +16206,12 @@ var
   Left, Right: PByte;
   Offset: NativeUInt;
   {$endif}
-  Stored: record
-    Items: PItem;
-  end;
+  Stored: TInternalStored;
 begin
   if (not Assigned(FComparer)) then
   begin
     LowItem := Pointer(FItems);
-    Stored.Items := LowItem;
+    Stored.Item := LowItem;
     Item := LowItem + FCount.Native;
 
     repeat
@@ -16256,45 +16268,45 @@ begin
       begin
         // small binary
         if (SizeOf(T) <> 0) then
-        with P16(@Value)^ do
+        with PData16(@Value)^ do
         begin
           if (SizeOf(T) >= SizeOf(Integer)) then
           begin
             if (SizeOf(T) >= SizeOf(Int64)) then
             begin
               {$ifdef LARGEINT}
-              if (Int64s[0] <> P16(Item).Int64s[0]) then Continue;
+              if (Int64s[0] <> PData16(Item).Int64s[0]) then Continue;
               {$else}
-              if (Integers[0] <> P16(Item).Integers[0]) then Continue;
-              if (Integers[1] <> P16(Item).Integers[1]) then Continue;
+              if (Integers[0] <> PData16(Item).Integers[0]) then Continue;
+              if (Integers[1] <> PData16(Item).Integers[1]) then Continue;
               {$endif}
 
               if (SizeOf(T) = 16) then
               begin
                 {$ifdef LARGEINT}
-                if (Int64s[1] <> P16(Item).Int64s[1]) then Continue;
+                if (Int64s[1] <> PData16(Item).Int64s[1]) then Continue;
                 {$else}
-                if (Integers[2] <> P16(Item).Integers[2]) then Continue;
-                if (Integers[3] <> P16(Item).Integers[3]) then Continue;
+                if (Integers[2] <> PData16(Item).Integers[2]) then Continue;
+                if (Integers[3] <> PData16(Item).Integers[3]) then Continue;
                 {$endif}
               end else
               if (SizeOf(T) >= 12) then
               begin
-                if (Integers[2] <> P16(Item).Integers[2]) then Continue;
+                if (Integers[2] <> PData16(Item).Integers[2]) then Continue;
               end;
             end else
             begin
-              if (Integers[0] <> P16(Item).Integers[0]) then Continue;
+              if (Integers[0] <> PData16(Item).Integers[0]) then Continue;
             end;
           end;
 
           if (SizeOf(T) and 2 <> 0) then
           begin
-            if (Words[(SizeOf(T) and -4) shr 1] <> P16(Item).Words[(SizeOf(T) and -4) shr 1]) then Continue;
+            if (Words[(SizeOf(T) and -4) shr 1] <> PData16(Item).Words[(SizeOf(T) and -4) shr 1]) then Continue;
           end;
           if (SizeOf(T) and 1 <> 0) then
           begin
-            if (Bytes[SizeOf(T) and -2] <> P16(Item).Bytes[SizeOf(T) and -2]) then Continue;
+            if (Bytes[SizeOf(T) and -2] <> PData16(Item).Bytes[SizeOf(T) and -2]) then Continue;
           end;
         end;
       end else
@@ -16411,21 +16423,21 @@ begin
         begin
           // non-dynamic (constant) size binary > 16
           if (SizeOf(T) and {$ifdef LARGEINT}7{$else}3{$endif} <> 0) then
-          with P16(@Value)^ do
+          with PData16(@Value)^ do
           begin
             {$ifdef LARGEINT}
             if (SizeOf(T) and 4 <> 0) then
             begin
-              if (Integers[(SizeOf(T) and -8) shr 2] <> P16(Item).Integers[(SizeOf(T) and -8) shr 2]) then Continue;
+              if (Integers[(SizeOf(T) and -8) shr 2] <> PData16(Item).Integers[(SizeOf(T) and -8) shr 2]) then Continue;
             end;
             {$endif}
             if (SizeOf(T) and 2 <> 0) then
             begin
-              if (Words[(SizeOf(T) and -4) shr 1] <> P16(Item).Words[(SizeOf(T) and -4) shr 1]) then Continue;
+              if (Words[(SizeOf(T) and -4) shr 1] <> PData16(Item).Words[(SizeOf(T) and -4) shr 1]) then Continue;
             end;
             if (SizeOf(T) and 1 <> 0) then
             begin
-              if (Bytes[SizeOf(T) and -2] <> P16(Item).Bytes[SizeOf(T) and -2]) then Continue;
+              if (Bytes[SizeOf(T) and -2] <> PData16(Item).Bytes[SizeOf(T) and -2]) then Continue;
             end;
           end;
           Left := Pointer(@Value);
@@ -16505,7 +16517,7 @@ begin
           @InterfaceDefaults.TDefaultEqualityComparer<T>.Instance, Item^, Value)) then Continue;
       {$endif}
 
-      R := NativeInt(Item) - NativeInt(Stored.Items);
+      R := NativeInt(Item) - NativeInt(Stored.Item);
       case SizeOf(T) of
       0, 1: Exit(R);
          2: Exit(R shr 1);
@@ -16529,8 +16541,6 @@ begin
 end;
 
 function TList<T>.InternalIndexOfRev(const Value: T; const Comparer: IComparer<T>): NativeInt;
-type
-  TCompare = function(Inst: Pointer; const Left, Right: T): Integer;
 var
   Count: NativeInt;
   Item: PItem;
@@ -16628,18 +16638,9 @@ begin
   end;
 end;
 
-class function TList<T>.InternalIsEmpty(Inst: Pointer; const Left, Right: T): Boolean;
-type
-  TComparerInst = packed record
-    Vtable: Pointer;
-    Compare: function(const Left, Right: T): Integer of object;
-    QueryInterface,
-    AddRef,
-    Release,
-    Call: Pointer;
-  end;
+class function TList<T>.InternalIsEmpty(const Inst: TComparerInst; const Left, Right: T): Boolean;
 begin
-  Result := (TComparerInst(Inst^).Compare(Left, Right) = 0);
+  Result := (TCompare(Inst.Method.Code)(Inst.Method.Data, Left, Right) = 0);
 end;
 
 {$ifdef SMARTGENERICS}
@@ -16803,27 +16804,9 @@ end;
 procedure TList<T>.Pack;
 label
   next_find, next_item, comparer_recall;
-type
-  TEquals = function(Inst: Pointer; const Left, Right: T): Boolean;
-  TComparerInst = packed record
-    Vtable: Pointer;
-    Method: TMethod;
-    QueryInterface,
-    AddRef,
-    Release,
-    Call: Pointer;
-  end;
-  T16 = packed record
-  case Integer of
-    0: (Bytes: array[0..15] of Byte);
-    1: (Words: array[0..7] of Word);
-    2: (Integers: array[0..3] of Integer);
-    3: (Int64s: array[0..1] of Int64);
-  end;
-  P16 = ^T16;
 var
   R, Index: NativeInt;
-  Item, TopItem, DestItem: P16;
+  Item, TopItem, DestItem: ^TRAIIHelper.TData16;
   VByte: Byte;
   VWord: Word;
   VInteger: Integer;
@@ -17109,56 +17092,6 @@ end;
 procedure TList<T>.Pack;
 label
   next_item, comparer_recall;
-type
-  TEquals = function(Inst: Pointer; const Left, Right: T): Boolean;
-  TComparerInst = packed record
-    Vtable: Pointer;
-    Method: TMethod;
-    QueryInterface,
-    AddRef,
-    Release,
-    Call: Pointer;
-  end;
-  T1 = Byte;
-  T2 = Word;
-  T3 = array[1..3] of Byte;
-  T4 = Cardinal;
-  T5 = array[1..5] of Byte;
-  T6 = array[1..6] of Byte;
-  T7 = array[1..7] of Byte;
-  T8 = Int64;
-  T9 = array[1..9] of Byte;
-  T10 = array[1..10] of Byte;
-  T11 = array[1..11] of Byte;
-  T12 = array[1..12] of Byte;
-  T13 = array[1..13] of Byte;
-  T14 = array[1..14] of Byte;
-  T15 = array[1..15] of Byte;
-  T16 = array[1..16] of Byte;
-  T17 = array[1..17] of Byte;
-  T18 = array[1..18] of Byte;
-  T19 = array[1..19] of Byte;
-  T20 = array[1..20] of Byte;
-  T21 = array[1..21] of Byte;
-  T22 = array[1..22] of Byte;
-  T23 = array[1..23] of Byte;
-  T24 = array[1..24] of Byte;
-  T25 = array[1..25] of Byte;
-  T26 = array[1..26] of Byte;
-  T27 = array[1..27] of Byte;
-  T28 = array[1..28] of Byte;
-  T29 = array[1..29] of Byte;
-  T30 = array[1..30] of Byte;
-  T31 = array[1..31] of Byte;
-  T32 = array[1..32] of Byte;
-  T33 = array[1..33] of Byte;
-  T34 = array[1..34] of Byte;
-  T35 = array[1..35] of Byte;
-  T36 = array[1..36] of Byte;
-  T37 = array[1..37] of Byte;
-  T38 = array[1..38] of Byte;
-  T39 = array[1..39] of Byte;
-  T40 = array[1..40] of Byte;
 var
   R, i: NativeInt;
   Item, TopItem, DestItem: PItem;
@@ -17186,46 +17119,46 @@ begin
   repeat
     // DestItem^ := Item^;
     case SizeOf(T) of
-      1: T1(Pointer(DestItem)^) := T1(Pointer(Item)^);
-      2: T2(Pointer(DestItem)^) := T2(Pointer(Item)^);
-      3: T3(Pointer(DestItem)^) := T3(Pointer(Item)^);
-      4: T4(Pointer(DestItem)^) := T4(Pointer(Item)^);
-      5: T5(Pointer(DestItem)^) := T5(Pointer(Item)^);
-      6: T6(Pointer(DestItem)^) := T6(Pointer(Item)^);
-      7: T7(Pointer(DestItem)^) := T7(Pointer(Item)^);
-      8: T8(Pointer(DestItem)^) := T8(Pointer(Item)^);
-      9: T9(Pointer(DestItem)^) := T9(Pointer(Item)^);
-      10: T10(Pointer(DestItem)^) := T10(Pointer(Item)^);
-      11: T11(Pointer(DestItem)^) := T11(Pointer(Item)^);
-      12: T12(Pointer(DestItem)^) := T12(Pointer(Item)^);
-      13: T13(Pointer(DestItem)^) := T13(Pointer(Item)^);
-      14: T14(Pointer(DestItem)^) := T14(Pointer(Item)^);
-      15: T15(Pointer(DestItem)^) := T15(Pointer(Item)^);
-      16: T16(Pointer(DestItem)^) := T16(Pointer(Item)^);
-      17: T17(Pointer(DestItem)^) := T17(Pointer(Item)^);
-      18: T18(Pointer(DestItem)^) := T18(Pointer(Item)^);
-      19: T19(Pointer(DestItem)^) := T19(Pointer(Item)^);
-      20: T20(Pointer(DestItem)^) := T20(Pointer(Item)^);
-      21: T21(Pointer(DestItem)^) := T21(Pointer(Item)^);
-      22: T22(Pointer(DestItem)^) := T22(Pointer(Item)^);
-      23: T23(Pointer(DestItem)^) := T23(Pointer(Item)^);
-      24: T24(Pointer(DestItem)^) := T24(Pointer(Item)^);
-      25: T25(Pointer(DestItem)^) := T25(Pointer(Item)^);
-      26: T26(Pointer(DestItem)^) := T26(Pointer(Item)^);
-      27: T27(Pointer(DestItem)^) := T27(Pointer(Item)^);
-      28: T28(Pointer(DestItem)^) := T28(Pointer(Item)^);
-      29: T29(Pointer(DestItem)^) := T29(Pointer(Item)^);
-      30: T30(Pointer(DestItem)^) := T30(Pointer(Item)^);
-      31: T31(Pointer(DestItem)^) := T31(Pointer(Item)^);
-      32: T32(Pointer(DestItem)^) := T32(Pointer(Item)^);
-      33: T33(Pointer(DestItem)^) := T33(Pointer(Item)^);
-      34: T34(Pointer(DestItem)^) := T34(Pointer(Item)^);
-      35: T35(Pointer(DestItem)^) := T35(Pointer(Item)^);
-      36: T36(Pointer(DestItem)^) := T36(Pointer(Item)^);
-      37: T37(Pointer(DestItem)^) := T37(Pointer(Item)^);
-      38: T38(Pointer(DestItem)^) := T38(Pointer(Item)^);
-      39: T39(Pointer(DestItem)^) := T39(Pointer(Item)^);
-      40: T40(Pointer(DestItem)^) := T40(Pointer(Item)^);
+      1: TRAIIHelper.T1(Pointer(DestItem)^) := TRAIIHelper.T1(Pointer(Item)^);
+      2: TRAIIHelper.T2(Pointer(DestItem)^) := TRAIIHelper.T2(Pointer(Item)^);
+      3: TRAIIHelper.T3(Pointer(DestItem)^) := TRAIIHelper.T3(Pointer(Item)^);
+      4: TRAIIHelper.T4(Pointer(DestItem)^) := TRAIIHelper.T4(Pointer(Item)^);
+      5: TRAIIHelper.T5(Pointer(DestItem)^) := TRAIIHelper.T5(Pointer(Item)^);
+      6: TRAIIHelper.T6(Pointer(DestItem)^) := TRAIIHelper.T6(Pointer(Item)^);
+      7: TRAIIHelper.T7(Pointer(DestItem)^) := TRAIIHelper.T7(Pointer(Item)^);
+      8: TRAIIHelper.T8(Pointer(DestItem)^) := TRAIIHelper.T8(Pointer(Item)^);
+      9: TRAIIHelper.T9(Pointer(DestItem)^) := TRAIIHelper.T9(Pointer(Item)^);
+      10: TRAIIHelper.T10(Pointer(DestItem)^) := TRAIIHelper.T10(Pointer(Item)^);
+      11: TRAIIHelper.T11(Pointer(DestItem)^) := TRAIIHelper.T11(Pointer(Item)^);
+      12: TRAIIHelper.T12(Pointer(DestItem)^) := TRAIIHelper.T12(Pointer(Item)^);
+      13: TRAIIHelper.T13(Pointer(DestItem)^) := TRAIIHelper.T13(Pointer(Item)^);
+      14: TRAIIHelper.T14(Pointer(DestItem)^) := TRAIIHelper.T14(Pointer(Item)^);
+      15: TRAIIHelper.T15(Pointer(DestItem)^) := TRAIIHelper.T15(Pointer(Item)^);
+      16: TRAIIHelper.T16(Pointer(DestItem)^) := TRAIIHelper.T16(Pointer(Item)^);
+      17: TRAIIHelper.T17(Pointer(DestItem)^) := TRAIIHelper.T17(Pointer(Item)^);
+      18: TRAIIHelper.T18(Pointer(DestItem)^) := TRAIIHelper.T18(Pointer(Item)^);
+      19: TRAIIHelper.T19(Pointer(DestItem)^) := TRAIIHelper.T19(Pointer(Item)^);
+      20: TRAIIHelper.T20(Pointer(DestItem)^) := TRAIIHelper.T20(Pointer(Item)^);
+      21: TRAIIHelper.T21(Pointer(DestItem)^) := TRAIIHelper.T21(Pointer(Item)^);
+      22: TRAIIHelper.T22(Pointer(DestItem)^) := TRAIIHelper.T22(Pointer(Item)^);
+      23: TRAIIHelper.T23(Pointer(DestItem)^) := TRAIIHelper.T23(Pointer(Item)^);
+      24: TRAIIHelper.T24(Pointer(DestItem)^) := TRAIIHelper.T24(Pointer(Item)^);
+      25: TRAIIHelper.T25(Pointer(DestItem)^) := TRAIIHelper.T25(Pointer(Item)^);
+      26: TRAIIHelper.T26(Pointer(DestItem)^) := TRAIIHelper.T26(Pointer(Item)^);
+      27: TRAIIHelper.T27(Pointer(DestItem)^) := TRAIIHelper.T27(Pointer(Item)^);
+      28: TRAIIHelper.T28(Pointer(DestItem)^) := TRAIIHelper.T28(Pointer(Item)^);
+      29: TRAIIHelper.T29(Pointer(DestItem)^) := TRAIIHelper.T29(Pointer(Item)^);
+      30: TRAIIHelper.T30(Pointer(DestItem)^) := TRAIIHelper.T30(Pointer(Item)^);
+      31: TRAIIHelper.T31(Pointer(DestItem)^) := TRAIIHelper.T31(Pointer(Item)^);
+      32: TRAIIHelper.T32(Pointer(DestItem)^) := TRAIIHelper.T32(Pointer(Item)^);
+      33: TRAIIHelper.T33(Pointer(DestItem)^) := TRAIIHelper.T33(Pointer(Item)^);
+      34: TRAIIHelper.T34(Pointer(DestItem)^) := TRAIIHelper.T34(Pointer(Item)^);
+      35: TRAIIHelper.T35(Pointer(DestItem)^) := TRAIIHelper.T35(Pointer(Item)^);
+      36: TRAIIHelper.T36(Pointer(DestItem)^) := TRAIIHelper.T36(Pointer(Item)^);
+      37: TRAIIHelper.T37(Pointer(DestItem)^) := TRAIIHelper.T37(Pointer(Item)^);
+      38: TRAIIHelper.T38(Pointer(DestItem)^) := TRAIIHelper.T38(Pointer(Item)^);
+      39: TRAIIHelper.T39(Pointer(DestItem)^) := TRAIIHelper.T39(Pointer(Item)^);
+      40: TRAIIHelper.T40(Pointer(DestItem)^) := TRAIIHelper.T40(Pointer(Item)^);
     else
       for i := 1 to SizeOf(T) div SizeOf(NativeUInt) do
       begin
@@ -17235,14 +17168,14 @@ begin
       end;
 
       case SizeOf(T) and (SizeOf(NativeUInt) - 1) of
-        1: T1(Pointer(DestItem)^) := T1(Pointer(Item)^);
-        2: T2(Pointer(DestItem)^) := T2(Pointer(Item)^);
-        3: T3(Pointer(DestItem)^) := T3(Pointer(Item)^);
+        1: TRAIIHelper.T1(Pointer(DestItem)^) := TRAIIHelper.T1(Pointer(Item)^);
+        2: TRAIIHelper.T2(Pointer(DestItem)^) := TRAIIHelper.T2(Pointer(Item)^);
+        3: TRAIIHelper.T3(Pointer(DestItem)^) := TRAIIHelper.T3(Pointer(Item)^);
       {$ifdef LARGEINT}
-        4: T4(Pointer(DestItem)^) := T4(Pointer(Item)^);
-        5: T5(Pointer(DestItem)^) := T5(Pointer(Item)^);
-        6: T6(Pointer(DestItem)^) := T6(Pointer(Item)^);
-        7: T7(Pointer(DestItem)^) := T7(Pointer(Item)^);
+        4: TRAIIHelper.T4(Pointer(DestItem)^) := TRAIIHelper.T4(Pointer(Item)^);
+        5: TRAIIHelper.T5(Pointer(DestItem)^) := TRAIIHelper.T5(Pointer(Item)^);
+        6: TRAIIHelper.T6(Pointer(DestItem)^) := TRAIIHelper.T6(Pointer(Item)^);
+        7: TRAIIHelper.T7(Pointer(DestItem)^) := TRAIIHelper.T7(Pointer(Item)^);
       {$endif}
       end;
 
@@ -17292,48 +17225,6 @@ end;
 procedure TList<T>.Pack(const IsEmpty: TEmptyFunc);
 label
   next_item;
-type
-  TEquals = function(Inst: Pointer; const Left, Right: T): Boolean;
-  T1 = Byte;
-  T2 = Word;
-  T3 = array[1..3] of Byte;
-  T4 = Cardinal;
-  T5 = array[1..5] of Byte;
-  T6 = array[1..6] of Byte;
-  T7 = array[1..7] of Byte;
-  T8 = Int64;
-  T9 = array[1..9] of Byte;
-  T10 = array[1..10] of Byte;
-  T11 = array[1..11] of Byte;
-  T12 = array[1..12] of Byte;
-  T13 = array[1..13] of Byte;
-  T14 = array[1..14] of Byte;
-  T15 = array[1..15] of Byte;
-  T16 = array[1..16] of Byte;
-  T17 = array[1..17] of Byte;
-  T18 = array[1..18] of Byte;
-  T19 = array[1..19] of Byte;
-  T20 = array[1..20] of Byte;
-  T21 = array[1..21] of Byte;
-  T22 = array[1..22] of Byte;
-  T23 = array[1..23] of Byte;
-  T24 = array[1..24] of Byte;
-  T25 = array[1..25] of Byte;
-  T26 = array[1..26] of Byte;
-  T27 = array[1..27] of Byte;
-  T28 = array[1..28] of Byte;
-  T29 = array[1..29] of Byte;
-  T30 = array[1..30] of Byte;
-  T31 = array[1..31] of Byte;
-  T32 = array[1..32] of Byte;
-  T33 = array[1..33] of Byte;
-  T34 = array[1..34] of Byte;
-  T35 = array[1..35] of Byte;
-  T36 = array[1..36] of Byte;
-  T37 = array[1..37] of Byte;
-  T38 = array[1..38] of Byte;
-  T39 = array[1..39] of Byte;
-  T40 = array[1..40] of Byte;
 var
   R, i: NativeInt;
   Item, TopItem, DestItem: PItem;
@@ -17361,46 +17252,46 @@ begin
   repeat
     // DestItem^ := Item^;
     case SizeOf(T) of
-      1: T1(Pointer(DestItem)^) := T1(Pointer(Item)^);
-      2: T2(Pointer(DestItem)^) := T2(Pointer(Item)^);
-      3: T3(Pointer(DestItem)^) := T3(Pointer(Item)^);
-      4: T4(Pointer(DestItem)^) := T4(Pointer(Item)^);
-      5: T5(Pointer(DestItem)^) := T5(Pointer(Item)^);
-      6: T6(Pointer(DestItem)^) := T6(Pointer(Item)^);
-      7: T7(Pointer(DestItem)^) := T7(Pointer(Item)^);
-      8: T8(Pointer(DestItem)^) := T8(Pointer(Item)^);
-      9: T9(Pointer(DestItem)^) := T9(Pointer(Item)^);
-      10: T10(Pointer(DestItem)^) := T10(Pointer(Item)^);
-      11: T11(Pointer(DestItem)^) := T11(Pointer(Item)^);
-      12: T12(Pointer(DestItem)^) := T12(Pointer(Item)^);
-      13: T13(Pointer(DestItem)^) := T13(Pointer(Item)^);
-      14: T14(Pointer(DestItem)^) := T14(Pointer(Item)^);
-      15: T15(Pointer(DestItem)^) := T15(Pointer(Item)^);
-      16: T16(Pointer(DestItem)^) := T16(Pointer(Item)^);
-      17: T17(Pointer(DestItem)^) := T17(Pointer(Item)^);
-      18: T18(Pointer(DestItem)^) := T18(Pointer(Item)^);
-      19: T19(Pointer(DestItem)^) := T19(Pointer(Item)^);
-      20: T20(Pointer(DestItem)^) := T20(Pointer(Item)^);
-      21: T21(Pointer(DestItem)^) := T21(Pointer(Item)^);
-      22: T22(Pointer(DestItem)^) := T22(Pointer(Item)^);
-      23: T23(Pointer(DestItem)^) := T23(Pointer(Item)^);
-      24: T24(Pointer(DestItem)^) := T24(Pointer(Item)^);
-      25: T25(Pointer(DestItem)^) := T25(Pointer(Item)^);
-      26: T26(Pointer(DestItem)^) := T26(Pointer(Item)^);
-      27: T27(Pointer(DestItem)^) := T27(Pointer(Item)^);
-      28: T28(Pointer(DestItem)^) := T28(Pointer(Item)^);
-      29: T29(Pointer(DestItem)^) := T29(Pointer(Item)^);
-      30: T30(Pointer(DestItem)^) := T30(Pointer(Item)^);
-      31: T31(Pointer(DestItem)^) := T31(Pointer(Item)^);
-      32: T32(Pointer(DestItem)^) := T32(Pointer(Item)^);
-      33: T33(Pointer(DestItem)^) := T33(Pointer(Item)^);
-      34: T34(Pointer(DestItem)^) := T34(Pointer(Item)^);
-      35: T35(Pointer(DestItem)^) := T35(Pointer(Item)^);
-      36: T36(Pointer(DestItem)^) := T36(Pointer(Item)^);
-      37: T37(Pointer(DestItem)^) := T37(Pointer(Item)^);
-      38: T38(Pointer(DestItem)^) := T38(Pointer(Item)^);
-      39: T39(Pointer(DestItem)^) := T39(Pointer(Item)^);
-      40: T40(Pointer(DestItem)^) := T40(Pointer(Item)^);
+      1: TRAIIHelper.T1(Pointer(DestItem)^) := TRAIIHelper.T1(Pointer(Item)^);
+      2: TRAIIHelper.T2(Pointer(DestItem)^) := TRAIIHelper.T2(Pointer(Item)^);
+      3: TRAIIHelper.T3(Pointer(DestItem)^) := TRAIIHelper.T3(Pointer(Item)^);
+      4: TRAIIHelper.T4(Pointer(DestItem)^) := TRAIIHelper.T4(Pointer(Item)^);
+      5: TRAIIHelper.T5(Pointer(DestItem)^) := TRAIIHelper.T5(Pointer(Item)^);
+      6: TRAIIHelper.T6(Pointer(DestItem)^) := TRAIIHelper.T6(Pointer(Item)^);
+      7: TRAIIHelper.T7(Pointer(DestItem)^) := TRAIIHelper.T7(Pointer(Item)^);
+      8: TRAIIHelper.T8(Pointer(DestItem)^) := TRAIIHelper.T8(Pointer(Item)^);
+      9: TRAIIHelper.T9(Pointer(DestItem)^) := TRAIIHelper.T9(Pointer(Item)^);
+      10: TRAIIHelper.T10(Pointer(DestItem)^) := TRAIIHelper.T10(Pointer(Item)^);
+      11: TRAIIHelper.T11(Pointer(DestItem)^) := TRAIIHelper.T11(Pointer(Item)^);
+      12: TRAIIHelper.T12(Pointer(DestItem)^) := TRAIIHelper.T12(Pointer(Item)^);
+      13: TRAIIHelper.T13(Pointer(DestItem)^) := TRAIIHelper.T13(Pointer(Item)^);
+      14: TRAIIHelper.T14(Pointer(DestItem)^) := TRAIIHelper.T14(Pointer(Item)^);
+      15: TRAIIHelper.T15(Pointer(DestItem)^) := TRAIIHelper.T15(Pointer(Item)^);
+      16: TRAIIHelper.T16(Pointer(DestItem)^) := TRAIIHelper.T16(Pointer(Item)^);
+      17: TRAIIHelper.T17(Pointer(DestItem)^) := TRAIIHelper.T17(Pointer(Item)^);
+      18: TRAIIHelper.T18(Pointer(DestItem)^) := TRAIIHelper.T18(Pointer(Item)^);
+      19: TRAIIHelper.T19(Pointer(DestItem)^) := TRAIIHelper.T19(Pointer(Item)^);
+      20: TRAIIHelper.T20(Pointer(DestItem)^) := TRAIIHelper.T20(Pointer(Item)^);
+      21: TRAIIHelper.T21(Pointer(DestItem)^) := TRAIIHelper.T21(Pointer(Item)^);
+      22: TRAIIHelper.T22(Pointer(DestItem)^) := TRAIIHelper.T22(Pointer(Item)^);
+      23: TRAIIHelper.T23(Pointer(DestItem)^) := TRAIIHelper.T23(Pointer(Item)^);
+      24: TRAIIHelper.T24(Pointer(DestItem)^) := TRAIIHelper.T24(Pointer(Item)^);
+      25: TRAIIHelper.T25(Pointer(DestItem)^) := TRAIIHelper.T25(Pointer(Item)^);
+      26: TRAIIHelper.T26(Pointer(DestItem)^) := TRAIIHelper.T26(Pointer(Item)^);
+      27: TRAIIHelper.T27(Pointer(DestItem)^) := TRAIIHelper.T27(Pointer(Item)^);
+      28: TRAIIHelper.T28(Pointer(DestItem)^) := TRAIIHelper.T28(Pointer(Item)^);
+      29: TRAIIHelper.T29(Pointer(DestItem)^) := TRAIIHelper.T29(Pointer(Item)^);
+      30: TRAIIHelper.T30(Pointer(DestItem)^) := TRAIIHelper.T30(Pointer(Item)^);
+      31: TRAIIHelper.T31(Pointer(DestItem)^) := TRAIIHelper.T31(Pointer(Item)^);
+      32: TRAIIHelper.T32(Pointer(DestItem)^) := TRAIIHelper.T32(Pointer(Item)^);
+      33: TRAIIHelper.T33(Pointer(DestItem)^) := TRAIIHelper.T33(Pointer(Item)^);
+      34: TRAIIHelper.T34(Pointer(DestItem)^) := TRAIIHelper.T34(Pointer(Item)^);
+      35: TRAIIHelper.T35(Pointer(DestItem)^) := TRAIIHelper.T35(Pointer(Item)^);
+      36: TRAIIHelper.T36(Pointer(DestItem)^) := TRAIIHelper.T36(Pointer(Item)^);
+      37: TRAIIHelper.T37(Pointer(DestItem)^) := TRAIIHelper.T37(Pointer(Item)^);
+      38: TRAIIHelper.T38(Pointer(DestItem)^) := TRAIIHelper.T38(Pointer(Item)^);
+      39: TRAIIHelper.T39(Pointer(DestItem)^) := TRAIIHelper.T39(Pointer(Item)^);
+      40: TRAIIHelper.T40(Pointer(DestItem)^) := TRAIIHelper.T40(Pointer(Item)^);
     else
       for i := 1 to SizeOf(T) div SizeOf(NativeUInt) do
       begin
@@ -17410,14 +17301,14 @@ begin
       end;
 
       case SizeOf(T) and (SizeOf(NativeUInt) - 1) of
-        1: T1(Pointer(DestItem)^) := T1(Pointer(Item)^);
-        2: T2(Pointer(DestItem)^) := T2(Pointer(Item)^);
-        3: T3(Pointer(DestItem)^) := T3(Pointer(Item)^);
+        1: TRAIIHelper.T1(Pointer(DestItem)^) := TRAIIHelper.T1(Pointer(Item)^);
+        2: TRAIIHelper.T2(Pointer(DestItem)^) := TRAIIHelper.T2(Pointer(Item)^);
+        3: TRAIIHelper.T3(Pointer(DestItem)^) := TRAIIHelper.T3(Pointer(Item)^);
       {$ifdef LARGEINT}
-        4: T4(Pointer(DestItem)^) := T4(Pointer(Item)^);
-        5: T5(Pointer(DestItem)^) := T5(Pointer(Item)^);
-        6: T6(Pointer(DestItem)^) := T6(Pointer(Item)^);
-        7: T7(Pointer(DestItem)^) := T7(Pointer(Item)^);
+        4: TRAIIHelper.T4(Pointer(DestItem)^) := TRAIIHelper.T4(Pointer(Item)^);
+        5: TRAIIHelper.T5(Pointer(DestItem)^) := TRAIIHelper.T5(Pointer(Item)^);
+        6: TRAIIHelper.T6(Pointer(DestItem)^) := TRAIIHelper.T6(Pointer(Item)^);
+        7: TRAIIHelper.T7(Pointer(DestItem)^) := TRAIIHelper.T7(Pointer(Item)^);
       {$endif}
       end;
 
@@ -17474,18 +17365,9 @@ end;
 procedure TStack<T>.InternalPush(const Value: T);
 label
   available;
-type
-  T16 = packed record
-  case Integer of
-    0: (Bytes: array[0..15] of Byte);
-    1: (Words: array[0..7] of Word);
-    2: (Integers: array[0..3] of Integer);
-    3: (Int64s: array[0..1] of Int64);
-  end;
-  P16 = ^T16;
 var
   Count, Null: NativeInt;
-  Item: P16;
+  Item: ^TRAIIHelper.TData16;
 begin
   Count := FCount.Native;
   if (Count <> FCapacity.Native) then
@@ -17556,18 +17438,9 @@ begin
 end;
 
 procedure TStack<T>.Push(const Value: T);
-type
-  T16 = packed record
-  case Integer of
-    0: (Bytes: array[0..15] of Byte);
-    1: (Words: array[0..7] of Word);
-    2: (Integers: array[0..3] of Integer);
-    3: (Int64s: array[0..1] of Int64);
-  end;
-  P16 = ^T16;
 var
   Count, Null: NativeInt;
-  Item: P16;
+  Item: ^TRAIIHelper.TData16;
 begin
   Count := FCount.Native;
   if (Count <> FCapacity.Native) and (not Assigned(FInternalNotify)) then
@@ -17920,18 +17793,9 @@ end;
 procedure TQueue<T>.InternalEnqueue(const Value: T);
 label
   available, actual;
-type
-  T16 = packed record
-  case Integer of
-    0: (Bytes: array[0..15] of Byte);
-    1: (Words: array[0..7] of Word);
-    2: (Integers: array[0..3] of Integer);
-    3: (Int64s: array[0..1] of Int64);
-  end;
-  P16 = ^T16;
 var
   Count, Null: NativeInt;
-  Item: P16;
+  Item: ^TRAIIHelper.TData16;
 begin
   Count := FCount.Native;
   if (Count <> FCapacity.Native) then
@@ -18017,18 +17881,9 @@ end;
 procedure TQueue<T>.Enqueue(const Value: T);
 label
   actual;
-type
-  T16 = packed record
-  case Integer of
-    0: (Bytes: array[0..15] of Byte);
-    1: (Words: array[0..7] of Word);
-    2: (Integers: array[0..3] of Integer);
-    3: (Int64s: array[0..1] of Int64);
-  end;
-  P16 = ^T16;
 var
   Count, Null: NativeInt;
-  Item: P16;
+  Item: ^TRAIIHelper.TData16;
 begin
   Count := FCount.Native;
   if (Count <> FCapacity.Native) and (not Assigned(FInternalNotify)) then
