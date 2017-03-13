@@ -12400,7 +12400,7 @@ begin
 end;
 {$else}
 begin
-  TArray.Sort<T>(@Values, Count, IComparer<T>(@InterfaceDefaults.TDefaultComparer<T>.Instance));
+  TArray.Sort<T>(Values, Count, IComparer<T>(@InterfaceDefaults.TDefaultComparer<T>.Instance));
 end;
 {$endif}
 
@@ -12619,7 +12619,7 @@ begin
 end;
 {$else}
 begin
-  TArray.SortDescending<T>(@Values, Count, IComparer<T>(@InterfaceDefaults.TDefaultComparer<T>.Instance));
+  TArray.SortDescending<T>(Values, Count, IComparer<T>(@InterfaceDefaults.TDefaultComparer<T>.Instance));
 end;
 {$endif}
 
