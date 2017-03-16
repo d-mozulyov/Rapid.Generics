@@ -354,12 +354,14 @@ type
       Instance: IComparerInst;
     public
       class constructor Create;
+      class procedure Initialize; static;
     end;
     TDefaultEqualityComparer<T> = record
     public class var
       Instance: IEqualityComparerInst;
     public
       class constructor Create;
+      class procedure Initialize; static;
     end;
   private
     class function Compare_Var_Difficult(Equal: Boolean; Left, Right: PVariant): Integer; static;
@@ -2495,6 +2497,11 @@ end;
 { InterfaceDefaults }
 
 class constructor InterfaceDefaults.TDefaultComparer<T>.Create;
+begin
+  Initialize;
+end;
+
+class procedure InterfaceDefaults.TDefaultComparer<T>.Initialize;
 var
   TypeData: PTypeData;
 begin
@@ -2588,6 +2595,11 @@ begin
 end;
 
 class constructor InterfaceDefaults.TDefaultEqualityComparer<T>.Create;
+begin
+  Initialize;
+end;
+
+class procedure InterfaceDefaults.TDefaultEqualityComparer<T>.Initialize;
 var
   TypeData: PTypeData;
 begin
@@ -5512,8 +5524,13 @@ end;
 { TComparer<T> }
 
 class function TComparer<T>.Default: IComparer<T>;
+var
+  Instance: ^InterfaceDefaults.IComparerInst;
 begin
-  Result := IComparer<T>(@InterfaceDefaults.TDefaultComparer<T>.Instance);
+  { TDefaultComparer<T> constructor bug fix }
+  Instance := @InterfaceDefaults.TDefaultComparer<T>.Instance;
+  if (not Assigned(Instance.Compare)) then InterfaceDefaults.TDefaultComparer<T>.Initialize;
+  Result := IComparer<T>(Instance);
 end;
 
 class function TComparer<T>.Construct(const Comparison: TComparison<T>): IComparer<T>;
@@ -5528,8 +5545,13 @@ end;
 { TEqualityComparer<T> }
 
 class function TEqualityComparer<T>.Default: IEqualityComparer<T>;
+var
+  Instance: ^InterfaceDefaults.IEqualityComparerInst;
 begin
-  Result := IEqualityComparer<T>(@InterfaceDefaults.TDefaultEqualityComparer<T>.Instance);
+  { TDefaultEqualityComparer<T> constructor bug fix }
+  Instance := @InterfaceDefaults.TDefaultEqualityComparer<T>.Instance;
+  if (not Assigned(Instance.GetHashCode)) then InterfaceDefaults.TDefaultEqualityComparer<T>.Initialize;
+  Result := IEqualityComparer<T>(Instance);
 end;
 
 class function TEqualityComparer<T>.Construct(
