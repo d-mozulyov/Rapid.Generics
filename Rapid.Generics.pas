@@ -11748,7 +11748,7 @@ proc_loop_current:
       if (J = PStop) then Break;
       Dec(J);
 
-      if (Helper.Compare(Helper.Inst, Helper.Pivot, J^) >= 0) then Continue;
+      if (Helper.Compare(Helper.Inst, Helper.Pivot, J^) <= 0) then Continue;
     insertion_init:
       I := J;
       TArray.CopyMemory<T>(@Helper.Pivot, J);
@@ -11762,13 +11762,13 @@ proc_loop_current:
       if (J = PStop) then Break;
 
       TArray.CopyMemory<T>(@Helper.Pivot, J + 1);
-      if (Helper.Compare(Helper.Inst, J^, Helper.Pivot) >= 0) then Continue;
+      if (Helper.Compare(Helper.Inst, J^, Helper.Pivot) <= 0) then Continue;
 
       I := J;
       repeat
         TArray.CopyMemory<T>(I + 1, I);
         Dec(I);
-        if (Helper.Compare(Helper.Inst, I^, Helper.Pivot) >= 0) then Break;
+        if (Helper.Compare(Helper.Inst, I^, Helper.Pivot) <= 0) then Break;
       until (False);
 
       TArray.CopyMemory<T>(I + 1, @Helper.Pivot);
@@ -11790,12 +11790,12 @@ proc_loop_current:
 
     repeat
       Inc(I);
-      if (Helper.Compare(Helper.Inst, Helper.Pivot, I^) >= 0) then Break;
+      if (Helper.Compare(Helper.Inst, Helper.Pivot, I^) <= 0) then Break;
     until (False);
 
     repeat
       Dec(J);
-      if (Helper.Compare(Helper.Inst, J^, Helper.Pivot) >= 0) then Break;
+      if (Helper.Compare(Helper.Inst, J^, Helper.Pivot) <= 0) then Break;
     until (False);
 
     if (I <= J) then
@@ -12029,7 +12029,7 @@ proc_loop_current:
       if (J = PStop) then Break;
       Dec(J);
 
-      if (Helper.Compare(Helper.Inst, Helper.Pivot, J^) <= 0) then Continue;
+      if (Helper.Compare(Helper.Inst, Helper.Pivot, J^) >= 0) then Continue;
     insertion_init:
       I := J;
       TArray.CopyMemory<T>(@Helper.Pivot, J);
@@ -12043,13 +12043,13 @@ proc_loop_current:
       if (J = PStop) then Break;
 
       TArray.CopyMemory<T>(@Helper.Pivot, J + 1);
-      if (Helper.Compare(Helper.Inst, J^, Helper.Pivot) <= 0) then Continue;
+      if (Helper.Compare(Helper.Inst, J^, Helper.Pivot) >= 0) then Continue;
 
       I := J;
       repeat
         TArray.CopyMemory<T>(I + 1, I);
         Dec(I);
-        if (Helper.Compare(Helper.Inst, I^, Helper.Pivot) <= 0) then Break;
+        if (Helper.Compare(Helper.Inst, I^, Helper.Pivot) >= 0) then Break;
       until (False);
 
       TArray.CopyMemory<T>(I + 1, @Helper.Pivot);
@@ -12071,12 +12071,12 @@ proc_loop_current:
 
     repeat
       Inc(I);
-      if (Helper.Compare(Helper.Inst, Helper.Pivot, I^) <= 0) then Break;
+      if (Helper.Compare(Helper.Inst, Helper.Pivot, I^) >= 0) then Break;
     until (False);
 
     repeat
       Dec(J);
-      if (Helper.Compare(Helper.Inst, J^, Helper.Pivot) <= 0) then Break;
+      if (Helper.Compare(Helper.Inst, J^, Helper.Pivot) >= 0) then Break;
     until (False);
 
     if (I <= J) then

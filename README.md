@@ -10,3 +10,6 @@ Rapid "inline" `TDictionary`/`TObjectDictionary` equivalents with default hash c
 
 ##### Benchmarks: containers
 ![](http://dmozulyov.ucoz.net/RapidGenerics/Containers.png)
+
+##### Benchmarks: sortings
+![](http://dmozulyov.ucoz.net/RapidGenerics/Sortings.png)
