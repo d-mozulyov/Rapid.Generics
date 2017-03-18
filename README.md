@@ -8,6 +8,9 @@ Rapid generics/defaults equivalent classes for Delphi (much faster in XE7+ versi
 ##### TRapidDictionary/TRapidObjectDictionary
 Rapid "inline" `TDictionary`/`TObjectDictionary` equivalents with default hash codes and comparers
 
+##### Benchmarks: dictionaries
+![](http://dmozulyov.ucoz.net/RapidGenerics/Dictionaries.png)
+
 ##### Benchmarks: containers
 ![](http://dmozulyov.ucoz.net/RapidGenerics/Containers.png)
 

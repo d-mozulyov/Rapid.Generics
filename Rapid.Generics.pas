@@ -6481,8 +6481,10 @@ start:
       begin
         PKeyRec(Result).Natives[0] := Null;
         if (SizeOf(TKey) >= 2 * SizeOf(NativeInt)) then PKeyRec(Result).Natives[1] := Null;
+        {$ifdef SMALLINT}
         if (SizeOf(TKey) >= 3 * SizeOf(NativeInt)) then PKeyRec(Result).Natives[2] := Null;
         if (SizeOf(TKey)  = 4 * SizeOf(NativeInt)) then PKeyRec(Result).Natives[3] := Null;
+        {$endif}
       end else
       TRAIIHelper<TKey>.Init(@Result.FKey);
     end;
@@ -6501,8 +6503,10 @@ start:
       begin
         PValueRec(Result).Natives[0] := Null;
         if (SizeOf(TValue) >= 2 * SizeOf(NativeInt)) then PValueRec(Result).Natives[1] := Null;
+        {$ifdef SMALLINT}
         if (SizeOf(TValue) >= 3 * SizeOf(NativeInt)) then PValueRec(Result).Natives[2] := Null;
         if (SizeOf(TValue)  = 4 * SizeOf(NativeInt)) then PValueRec(Result).Natives[3] := Null;
+        {$endif}
       end else
       TRAIIHelper<TValue>.Init(@Result.FValue);
     end;
@@ -7858,7 +7862,7 @@ hash_calculated:
             if (SizeOf(TKey) = 16) then
             begin
               {$ifdef LARGEINT}
-              if (Int64s[1] <> P16(Result).Int64s[1]) then goto next_item;
+              if (Int64s[1] <> PData16(Result).Int64s[1]) then goto next_item;
               {$else}
               if (Integers[2] <> PData16(Result).Integers[2]) then goto next_item;
               if (Integers[3] <> PData16(Result).Integers[3]) then goto next_item;
@@ -8002,7 +8006,7 @@ hash_calculated:
           {$ifdef LARGEINT}
           if (SizeOf(TKey) and 4 <> 0) then
           begin
-            if (Integers[(SizeOf(TKey) and -8) shr 2] <> P1Data6(Result).Integers[(SizeOf(TKey) and -8) shr 2]) then goto next_item;
+            if (Integers[(SizeOf(TKey) and -8) shr 2] <> PData16(Result).Integers[(SizeOf(TKey) and -8) shr 2]) then goto next_item;
           end;
           {$endif}
           if (SizeOf(TKey) and 2 <> 0) then
