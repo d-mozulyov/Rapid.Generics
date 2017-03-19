@@ -7234,7 +7234,7 @@ begin
   // comparer
   FComparer := AComparer;
   if (FComparer = nil) then
-    IInterface(FComparer) := IInterface(@InterfaceDefaults.TDefaultEqualityComparer<TKey>.Instance);
+    FComparer := TEqualityComparer<TKey>.Default;
 
   // comparer methods
   TMethod(FComparerEquals) := IntfMethod(Pointer(FComparer), 3);
