@@ -161,9 +161,11 @@ type
     function Execute: T; override;
   end;
 
+  {$if CompilerVersion >= 23}
   SystemListPack = class(TSystemListTest)
     function Execute: T; override;
   end;
+  {$ifend}
 
   RapidListPack = class(TRapidListTest)
     function Execute: T; override;
@@ -334,7 +336,9 @@ var
   i: Integer;
 begin
   Stack.Clear;
+  {$if CompilerVersion >= 22}
   if (UseCapacity) then Stack.Capacity := ITEMS_COUNT;
+  {$ifend}
 
   for i := 0 to ITEMS_COUNT - 1 do
     Stack.Push(ITEMS[i]);
@@ -363,7 +367,9 @@ var
   i: Integer;
 begin
   Stack.Clear;
+  {$if CompilerVersion >= 22}
   if (UseCapacity) then Stack.Capacity := ITEMS_COUNT;
+  {$ifend}
 
   for i := 0 to ITEMS_COUNT - 1 do
     Stack.Push(ITEMS[i]);
@@ -392,7 +398,9 @@ var
   i: Integer;
 begin
   Queue.Clear;
+  {$if CompilerVersion >= 22}
   if (UseCapacity) then Queue.Capacity := ITEMS_COUNT;
+  {$ifend}
 
   for i := 0 to ITEMS_COUNT - 1 do
     Queue.Enqueue(ITEMS[i]);
@@ -579,12 +587,13 @@ begin
 end;
 
 { SystemListPack }
-
+{$if CompilerVersion >= 23}
 function SystemListPack.Execute: T;
 begin
   List.Pack;
   Result := Default(T);
 end;
+{$ifend}
 
 { RapidListPack }
 
@@ -734,7 +743,9 @@ begin
     Run(SystemListDelete, RapidListDelete, 500);
     Run(SystemListIndexOf, RapidListIndexOf, 1000);
     Run(SystemListReverse, RapidListReverse, 8000);
+    {$if CompilerVersion >= 23}
     Run(SystemListPack, RapidListPack, 500);
+    {$ifend}
     Run(SystemStackPush, RapidStackPush, 300);
     Run(SystemStackPush_Capacity, RapidStackPush_Capacity, 300);
     Run(SystemStackPop, RapidStackPop, 500);

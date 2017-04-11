@@ -25,6 +25,10 @@ type
       function ExecuteItems(const Items: TItems): Integer; virtual; abstract;
     end;
     TTestClass = class of TTest;
+  private const
+    ITERATIONS_COUNT = 10;
+    MODES: array[0..2] of string = ('Add', 'Add+Capacity', 'Items');
+    CAPACITIES: array[0..2] of Integer = (0, ITEMS_COUNT, ITEMS_COUNT);
   public
     Items: TItems;
     constructor Create(const RandomFunc: TRandomFunc);
@@ -69,7 +73,7 @@ var
   i: Integer;
 begin
   Dictionary := Generics.Collections.TDictionary<T,Integer>.Create(Capacity);
-  for i := Low(Items) to High(Items) do
+  for i := Low(TItems) to High(TItems) do
     Dictionary.AddOrSetValue(Items[i], i);
 end;
 
@@ -83,7 +87,7 @@ function TRunner<T>.SystemSystem.ExecuteItems(const Items: TItems): Integer;
 var
   i: Integer;
 begin
-  for i := Low(Items) to High(Items) do
+  for i := Low(TItems) to High(TItems) do
     Result := Dictionary.Items[Items[i]];
 end;
 
@@ -97,7 +101,7 @@ begin
   IInterface(Comparer) := Rapid.Generics.TEqualityComparer<T>.Default;
   Dictionary := Generics.Collections.TDictionary<T,Integer>.Create(Capacity, Comparer);
 
-  for i := Low(Items) to High(Items) do
+  for i := Low(TItems) to High(TItems) do
     Dictionary.AddOrSetValue(Items[i], i);
 end;
 
@@ -108,7 +112,7 @@ var
   i: Integer;
 begin
   Dictionary := Rapid.Generics.TDictionary<T,Integer>.Create(Capacity);
-  for i := Low(Items) to High(Items) do
+  for i := Low(TItems) to High(TItems) do
     Dictionary.AddOrSetValue(Items[i], i);
 end;
 
@@ -122,7 +126,7 @@ function TRunner<T>.RapidRapid.ExecuteItems(const Items: TItems): Integer;
 var
   i: Integer;
 begin
-  for i := Low(Items) to High(Items) do
+  for i := Low(TItems) to High(TItems) do
     Result := Dictionary.Items[Items[i]];
 end;
 
@@ -133,7 +137,7 @@ var
   i: Integer;
 begin
   Dictionary := TRapidDictionary<T,Integer>.Create(Capacity);
-  for i := Low(Items) to High(Items) do
+  for i := Low(TItems) to High(TItems) do
     Dictionary.AddOrSetValue(Items[i], i);
 end;
 
@@ -147,7 +151,7 @@ function TRunner<T>.RapidDictionary.ExecuteItems(const Items: TItems): Integer;
 var
   i: Integer;
 begin
-  for i := Low(Items) to High(Items) do
+  for i := Low(TItems) to High(TItems) do
     Result := Dictionary.Items[Items[i]];
 end;
 
@@ -163,19 +167,17 @@ begin
 end;
 
 procedure TRunner<T>.Run(const TestClass: TTestClass);
-const
-  ITERATIONS_COUNT = 10;
-  MODES: array[0..2] of string = ('Add', 'Add+Capacity', 'Items');
-  CAPACITIES: array[0..2] of Integer = (0, ITEMS_COUNT, ITEMS_COUNT);
 var
   i: Integer;
   Mode: Integer;
+  S: string;
   Instance: TTest;
   TotalTime, Time: Cardinal;
 begin
   for Mode := Low(MODES) to High(MODES) do
   begin
-    Write(TestClass.ClassName, ' ', MODES[Mode], '... ');
+    S := MODES[Mode];
+    Write(TestClass.ClassName, ' ', S, '... ');
 
     if (Mode <> 2) then
     begin

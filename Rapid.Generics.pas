@@ -29,16 +29,16 @@ unit Rapid.Generics;
 {$ifdef FPC}
   {$MESSAGE ERROR 'FreePascal not supported'}
 {$else}
-  {$ifNdef UNICODE}
-    {$MESSAGE ERROR 'Old version compiler not supported'} // CompilerVersion < 20
-  {$endif}
+  {$if CompilerVersion >= 24}
+    {$LEGACYIFEND ON}
+  {$ifend}
+  {$if CompilerVersion < 21}
+    {$MESSAGE ERROR 'Only 2010+ compiler versions supported'}
+  {$ifend}
   {$WARN UNSAFE_CODE OFF}
   {$WARN UNSAFE_TYPE OFF}
   {$WARN UNSAFE_CAST OFF}
   {$WARN SYMBOL_DEPRECATED OFF}
-  {$if CompilerVersion >= 24}
-    {$LEGACYIFEND ON}
-  {$ifend}
   {$if CompilerVersion < 23}
     {$define CPUX86}
   {$ifend}
@@ -85,6 +85,21 @@ interface
        {$endif};
 
 type
+  {$if CompilerVersion = 21}
+    PNativeInt = ^NativeInt;
+    PNativeUInt = ^NativeUInt;
+  {$ifend}
+  {$if CompilerVersion <= 23}
+    TDirection = (FromBeginning, FromEnd);
+    TDuplicates = (dupIgnore, dupAccept, dupError);
+  {$ifend}
+  {$if CompilerVersion <= 27}
+    TWaitResult = (wrSignaled, wrTimeout, wrAbandoned, wrError, wrIOCompletion);
+  {$ifend}
+  {$if CompilerVersion <= 23}
+    EListError = class(Exception);
+  {$ifend}
+
 
 { TRAIIHelper record
   Low level RTTI routine: initialization/finalization }
@@ -159,6 +174,7 @@ type
       6: (Int64s: array[0..1] of Int64);
       7: (Natives: array[0..{$ifdef LARGEINT}1{$else .SMALLINT}3{$endif}] of NativeUInt);
     end;
+    PData16 = ^TData16;
     TData16<TOffset> = packed record
       Offset: TOffset;
     case Integer of
@@ -254,13 +270,20 @@ type
       39: (V39: T39);
       40: (V40: T40);
     end;
+    TNativeIntRec = packed record
+    case Boolean of
+     False: (Int: Integer);
+      True: (Native: NativeInt);
+    end;
   private
     FTypeInfo: PTypeInfo;
     FSize: NativeInt;
+    FItemSize: NativeInt;
 
     // initialization/finalization
     procedure Include(AOffset: NativeInt; Value: PTypeInfo);
     procedure Initialize(Value: PTypeInfo);
+    function GetTypeData: PTypeData; inline;
     class function IsManagedTypeInfo(Value: PTypeInfo): Boolean; static;
     class procedure InitsProcNativeSingle(const Self: TRAIIHelper; P: Pointer); static;
     class procedure InitsProcNatives(const Self: TRAIIHelper; P: Pointer); static;
@@ -301,23 +324,33 @@ type
     ClearProc: procedure(const Self: TRAIIHelper; P: Pointer);
 
     property TypeInfo: PTypeInfo read FTypeInfo write Initialize;
+    property TypeData: PTypeData read GetTypeData;
     property Size: NativeInt read FSize;
+    property ItemSize: NativeInt read FItemSize;
   end;
 
   TRAIIHelper<T> = record
   public type
     P = ^T;
-  private class var
-    FOptions: TRAIIHelper;
+    TArrayT = array[0..0] of T;
+    PArrayT = ^TArrayT;
+  private
+    class var
+      FCreated: Boolean;
+      FOptions: TRAIIHelper;
+
     class function GetIsManaged: Boolean; static; inline;
+    class procedure InternalCreate; static;
   public
-    class constructor Create;
-    class property Options: TRAIIHelper read FOptions;
-    class property IsManaged: Boolean read GetIsManaged;
+    class procedure Create; static; inline;
     class procedure Init(Item: P); static; inline;
     class procedure InitArray(Items: P; Count: NativeUInt; Offset: NativeUInt = 0); static;
     class procedure Clear(Item: P); static; inline;
     class procedure ClearArray(Items: P; Count: NativeUInt; Offset: NativeUInt = 0); static;
+
+    class property Created: Boolean read FCreated;
+    class property IsManaged: Boolean read GetIsManaged;
+    class property Options: TRAIIHelper read FOptions;
   end;
 
 
@@ -351,17 +384,21 @@ type
     end;
     TDefaultComparer<T> = record
     public class var
+      Created: Boolean;
       Instance: IComparerInst;
+    private
+      class procedure InternalCreate; static;
     public
-      class constructor Create;
-      class procedure Initialize; static;
+      class function Create: Pointer; static; inline;
     end;
     TDefaultEqualityComparer<T> = record
     public class var
+      Created: Boolean;
       Instance: IEqualityComparerInst;
+    private
+      class procedure InternalCreate; static;
     public
-      class constructor Create;
-      class procedure Initialize; static;
+      class function Create: Pointer; static; inline;
     end;
   private
     class function Compare_Var_Difficult(Equal: Boolean; Left, Right: PVariant): Integer; static;
@@ -642,7 +679,7 @@ type
 
     TKeyCollection = class(TEnumerable<TKey>)
     private
-      [Weak] FDictionary: TCustomDictionary<TKey,TValue>;
+      {$ifdef WEAKREF}[Weak]{$endif} FDictionary: TCustomDictionary<TKey,TValue>;
       function GetCount: Integer; inline;
     protected
       function DoGetEnumerator: TEnumerator<TKey>; override;
@@ -655,7 +692,7 @@ type
 
     TValueCollection = class(TEnumerable<TValue>)
     private
-      [Weak] FDictionary: TCustomDictionary<TKey,TValue>;
+      {$ifdef WEAKREF}[Weak]{$endif} FDictionary: TCustomDictionary<TKey,TValue>;
       function GetCount: Integer; inline;
     protected
       function DoGetEnumerator: TEnumerator<TValue>; override;
@@ -665,16 +702,23 @@ type
       function ToArray: TArray<TValue>; override; final;
       property Count: Integer read GetCount;
     end;
+  private type
+    PKey = ^TKey;
+    PValue = ^TValue;
+    THashList = array[0..0] of PItem;
+    PHashList = ^THashList;
+    TData16 = TRAIIHelper.TData16;
+    PData16 = ^TData16;
+    TKeyRec = TRAIIHelper.TData16;
+    PKeyRec = ^TKeyRec;
+    TValueRec = TRAIIHelper.TData16<TKey>;
+    PValueRec = ^TValueRec;
   protected
     FItems: PItemList;
     FCapacity: NativeInt;
     FHashTable: TArray<PItem>;
     FHashTableMask: NativeInt;
-    FCount: packed record
-    case Boolean of
-     False: (Int: Integer);
-      True: (Native: NativeInt);
-    end;
+    FCount: TRAIIHelper.TNativeIntRec;
     FKeyCollection: TKeyCollection;
     FValueCollection: TValueCollection;
 
@@ -684,8 +728,8 @@ type
     function Grow: TCustomDictionary<TKey,TValue>;
 
     // items
-    function NewItem: PItem;
-    procedure DisposeItem(Item: PItem);
+    function NewItem: Pointer{PItem};
+    procedure DisposeItem(Item: Pointer{PItem});
     procedure DoCleanupItems(Item: PItem; Count: NativeInt); virtual;
 
     // enumarators
@@ -714,6 +758,8 @@ type
     procedure ItemNotifyKey(const Item: TItem; Action: TCollectionNotification);
     procedure ItemNotifyValue(const Item: TItem; Action: TCollectionNotification);
     procedure SetNotifyMethods; virtual;
+
+    property List: PItemList read FItems;
   protected const
     FOUND_NONE = 0;
     FOUND_EXCEPTION = 1;
@@ -752,21 +798,17 @@ type
     property List: PItemList read FItems; }
 
   TDictionary<TKey,TValue> = class(TCustomDictionary<TKey,TValue>)
-  public type
-    TItem = TCustomDictionary<TKey,TValue>.TItem;
-    PItem = TCustomDictionary<TKey,TValue>.PItem;
-    PItemList = TCustomDictionary<TKey,TValue>.PItemList;
   private type
     TInternalFindStored = record
       HashCode: Integer;
-      Parent: ^PItem;
+      Parent: Pointer;
     end;
   protected
     FComparer: IEqualityComparer<TKey>;
     FComparerEquals: function(const Left, Right: TKey): Boolean of object;
     FComparerGetHashCode: function(const Value: TKey): Integer of object;
 
-    function InternalFindItem(const Key: TKey; const FindMode: Integer): PItem;
+    function InternalFindItem(const Key: TKey; const FindMode: Integer): Pointer{Pitem};
     function GetItem(const Key: TKey): TValue;
     procedure SetItem(const Key: TKey; const Value: TValue);
   public
@@ -777,8 +819,8 @@ type
     constructor Create(const Collection: TEnumerable<TPair<TKey,TValue>>; const AComparer: IEqualityComparer<TKey>); overload;
     destructor Destroy; override;
 
-    function Find(const Key: TKey): PItem;
-    function FindOrAdd(const Key: TKey): PItem;
+    function Find(const Key: TKey): Pointer{PItem};
+    function FindOrAdd(const Key: TKey): Pointer{PItem};
     procedure Add(const Key: TKey; const Value: TValue);
     procedure Remove(const Key: TKey);
     function ExtractPair(const Key: TKey): TPair<TKey,TValue>;
@@ -787,7 +829,7 @@ type
     function ContainsKey(const Key: TKey): Boolean;
 
     property Items[const Key: TKey]: TValue read GetItem write SetItem; default;
-    property List: PItemList read FItems;
+    property List;
     property Count: Integer read FCount.Int;
     property OnKeyNotify: TCollectionNotifyEvent<TKey> read FOnKeyNotify write SetKeyNotify;
     property OnValueNotify: TCollectionNotifyEvent<TValue> read FOnValueNotify write SetValueNotify;
@@ -798,15 +840,11 @@ type
   Rapid "inline" TDictionary equivalent with default hash code and comparer }
 
   TRapidDictionary<TKey,TValue> = class(TCustomDictionary<TKey,TValue>)
-  public type
-    TItem = TCustomDictionary<TKey,TValue>.TItem;
-    PItem = TCustomDictionary<TKey,TValue>.PItem;
-    PItemList = TCustomDictionary<TKey,TValue>.PItemList;
   private type
     TInternalFindStored = record
       HashCode: Integer;
-      Parent: ^PItem;
-      {$ifdef SMARTGENERICS}
+      Parent: Pointer;
+      {$if CompilerVersion >= 29}
       Self: TRapidDictionary<TKey,TValue>;
       case Integer of
         0: (SingleRec: packed record
@@ -827,15 +865,16 @@ type
                 0: (Mantissa: Extended);
                 1: (LowInt: Integer; Middle: Word; HighInt: Integer);
             end);
-      {$endif}
+      {$ifend}
     end;
   protected
-    {$ifNdef SMARTGENERICS}
-    FDefaultComparer: IEqualityComparer<TKey>;
-    FDefaultEquals: function(const Left, Right: TKey): Boolean of object;
-    FDefaultGetHashCode: function(const Value: TKey): Integer of object;
-    {$endif}
-    function InternalFindItem(const Key: TKey; const FindMode: Integer): PItem;
+    {$if CompilerVersion >= 29}
+    function InternalFindItem(const Key: TKey; const FindMode: Integer): TCustomDictionary<TKey,TValue>.Pitem;
+    {$else}
+    FComparerEquals: function(const Left, Right: TKey): Boolean of object;
+    FComparerGetHashCode: function(const Value: TKey): Integer of object;
+    function InternalFindItem(const Key: TKey; const FindMode: Integer): Pointer{Pitem};
+    {$ifend}
     function GetItem(const Key: TKey): TValue; inline;
     procedure SetItem(const Key: TKey; const Value: TValue); inline;
   public
@@ -843,8 +882,8 @@ type
     constructor Create(const Collection: TEnumerable<TPair<TKey,TValue>>); overload;
     destructor Destroy; override;
 
-    function Find(const Key: TKey): PItem; inline;
-    function FindOrAdd(const Key: TKey): PItem; inline;
+    function Find(const Key: TKey): Pointer{PItem}; inline;
+    function FindOrAdd(const Key: TKey): Pointer{PItem}; inline;
     procedure Add(const Key: TKey; const Value: TValue); inline;
     procedure Remove(const Key: TKey); inline;
     function ExtractPair(const Key: TKey): TPair<TKey,TValue>;
@@ -853,7 +892,7 @@ type
     function ContainsKey(const Key: TKey): Boolean; inline;
 
     property Items[const Key: TKey]: TValue read GetItem write SetItem; default;
-    property List: PItemList read FItems;
+    property List;
     property Count: Integer read FCount.Int;
     property OnKeyNotify: TCollectionNotifyEvent<TKey> read FOnKeyNotify write SetKeyNotify;
     property OnValueNotify: TCollectionNotifyEvent<TValue> read FOnValueNotify write SetValueNotify;
@@ -880,7 +919,20 @@ type
     HugeByteArray = array[0..High(Integer) div SizeOf(Byte) - 1] of Byte;
     HugeWordArray = array[0..High(Integer) div SizeOf(Word) - 1] of Word;
     HugeCardinalArray = array[0..High(Integer) div SizeOf(Cardinal) - 1] of Cardinal;
-    HugeNativeArray = array[0..High(Integer) div SizeOf(NativeUInt) - 1] of NativeUInt;
+    HugeUInt64Array = array[0..High(Integer) div SizeOf(UInt64) - 1] of UInt64;
+    HugeNativeUIntArray = array[0..High(Integer) div SizeOf(NativeUInt) - 1] of NativeUInt;
+
+    HugeShortIntArray = array[0..High(Integer) div SizeOf(ShortInt) - 1] of ShortInt;
+    HugeSmallIntArray = array[0..High(Integer) div SizeOf(SmallInt) - 1] of SmallInt;
+    HugeIntegerArray = array[0..High(Integer) div SizeOf(Integer) - 1] of Integer;
+    HugeInt64Array = array[0..High(Integer) div SizeOf(Int64) - 1] of Int64;
+    HugeNativeIntArray = array[0..High(Integer) div SizeOf(NativeInt) - 1] of NativeInt;
+
+    HugeNativeArray = HugeNativeUIntArray;
+    HugeTPointArray = array[0..High(Integer) div SizeOf(TPoint) - 1] of TPoint;
+    HugeSingleArray = array[0..High(Integer) div SizeOf(Single) - 1] of Single;
+    HugeDoubleArray = array[0..High(Integer) div SizeOf(Double) - 1] of Double;
+    HugeExtendedArray = array[0..High(Integer) div SizeOf(Extended) - 1] of Extended;
 
     TLMemory = packed record
     case Integer of
@@ -955,6 +1007,20 @@ type
       procedure FillZero;
     end;
 
+    PS1 = ^ShortInt;
+    PS2 = ^SmallInt;
+    PS4 = ^Integer;
+    PS8 = ^Int64;
+
+    PU1 = ^Byte;
+    PU2 = ^Word;
+    PU4 = ^Cardinal;
+    PU8 = ^UInt64;
+
+    PF4 = ^Single;
+    PF8 = ^Double;
+    PFE = ^Extended;
+
     TFloat = packed record
     case Integer of
       0: (VSingle: Single);
@@ -965,10 +1031,39 @@ type
       5: (B2: array[1..SizeOf(Extended) - SizeOf(Integer)] of Byte; SExtended: Integer);
     end;
 
+    TSortPivot = packed record
+    case Integer of
+      0: (Ptr: Pointer);
+      1: (Data: array[0..BUFFER_SIZE - 1] of Byte);
+    end;
+
     TSearchHelper = record
       Count: NativeInt;
       Comparer: Pointer;
     end;
+
+    TRadixes = array[Byte] of Word;
+    PRadixes = ^TRadixes;
+    TInternalRadixStored<T> = record
+      Radixes: TRadixes;
+      Data: array[0..RADIX_BUFFER_SIZE - 1] of T;
+      Index: NativeInt;
+      Ptr: array[0..1] of Pointer;
+      Mask: NativeInt;
+      SingleRadix: Word;
+    end;
+
+    TInternalSearchStored = record
+      X: NativeUInt;
+      ItemPtr: Pointer;
+    end;
+
+    TInternalSearchStored<T> = record
+      Inst: Pointer;
+      Compare: function(const Inst: Pointer; const Left, Right: T): Integer;
+      Count: NativeInt;
+    end;
+
   protected
     class procedure CheckArrays(Source, Destination: Pointer; SourceIndex, SourceLength, DestIndex, DestLength, Count: NativeInt); static;
     class function SortItemPivot<T>(const I, J: Pointer): Pointer; static; inline;
@@ -977,7 +1072,6 @@ type
     {$ifdef SMARTGENERICS}
     class function SortItemCount<T>(const I, J: Pointer): NativeInt; static; inline;
     class function SortBinaryMarker<T>(const Binary: Pointer): NativeUInt; static; inline;
-    class function SortBinaryComparer<T>(const Pivot, Binary: Pointer): Integer; static; inline;
 
     class procedure RadixSort<T>(const Values: Pointer; const Count, Flags: NativeInt); static;
     class function RadixSortSigneds<T>(var StackItem: TSortStackItem<T>): Pointer; static;
@@ -1103,11 +1197,8 @@ type
     end;
   protected
     FItems: PItemList;
-    FCapacity, FCount: packed record
-    case Boolean of
-     False: (Int: Integer);
-      True: (Native: NativeInt);
-    end;
+    FCapacity: TRAIIHelper.TNativeIntRec;
+    FCount: TRAIIHelper.TNativeIntRec;
     FTail: NativeInt;
     FHead: NativeInt;
     FOnNotify: TCollectionNotifyEvent<T>;
@@ -1115,6 +1206,7 @@ type
 
     class procedure ClearMethod(var Method); static; inline;
     class function EmptyException: Exception; static;
+    class function OutOfRangeException: Exception; static;
     procedure SetCapacity(Value: Integer);
     procedure Grow;
     procedure GrowTo(Value: Integer);
@@ -1144,13 +1236,15 @@ type
 
   TList<T> = class(TCustomList<T>)
   private type
+    TData16 = TRAIIHelper.TData16;
+    PData16 = ^TData16;
     TCompare = function(Inst: Pointer; const Left, Right: T): Integer;
     TEquals = function(Inst: Pointer; const Left, Right: T): Boolean;
     TInternalStored = packed record
       Self: Pointer;
       InternalNotify: TMethod;
       Count: NativeInt;
-      Item: PItem;
+      Item: TCustomList<T>.PItem;
       ACount: Integer;
     end;
     TComparerInst = packed record
@@ -1176,13 +1270,13 @@ type
     function InternalIndexOf(const Value: T; const Comparer: IComparer<T>): NativeInt; overload;
     function InternalIndexOfRev(const Value: T): NativeInt; overload;
     function InternalIndexOfRev(const Value: T; const Comparer: IComparer<T>): NativeInt; overload;
-    class function InternalIsEmpty(const Inst: TComparerInst; const Left, Right: T): Boolean; static;
     {$ifdef SMARTGENERICS}
     procedure InternalPackDifficults;
     {$endif}
+    procedure InternalPackComparer;
   public
     type
-      TDirection = System.Types.TDirection;
+      TDirection = {$if CompilerVersion <= 23}Rapid.Generics{$else}System.Types{$ifend}.TDirection;
       TEmptyFunc = reference to function (const L, R: T): Boolean;
       TListCompareFunc = reference to function (const L, R: T): Integer;
 
@@ -1313,6 +1407,7 @@ type
     property Duplicates: TDuplicates read FDuplicates write FDuplicates;
   end;
 
+  {$if CompilerVersion >= 22}
   TThreadedQueue<T> = class
   private
     FQueue: array of T;
@@ -1341,6 +1436,7 @@ type
     property TotalItemsPushed: LongWord read FTotalItemsPushed;
     property TotalItemsPopped: LongWord read FTotalItemsPopped;
   end;
+  {$ifend}
 
   TObjectList<T: class> = class(TList<T>)
   protected
@@ -1389,6 +1485,9 @@ type
   TObjectDictionary<TKey,TValue> = class(TDictionary<TKey,TValue>)
   public type
     TItem = TCustomDictionary<TKey,TValue>.TItem;
+  private type
+    TOnKeyNotify = procedure(Data, Sender: TObject; const Key: TObject; Action: TCollectionNotification);
+    TOnValueNotify = procedure(Data, Sender: TObject; const Value: TObject; Action: TCollectionNotification);
   protected
     FOwnerships: TDictionaryOwnerships;
     procedure DisposeKeyEvent(Sender: TObject; const Key: TObject; Action: TCollectionNotification);
@@ -1413,6 +1512,9 @@ type
   TRapidObjectDictionary<TKey,TValue> = class(TRapidDictionary<TKey,TValue>)
   public type
     TItem = TCustomDictionary<TKey,TValue>.TItem;
+  private type
+    TOnKeyNotify = procedure(Data, Sender: TObject; const Key: TObject; Action: TCollectionNotification);
+    TOnValueNotify = procedure(Data, Sender: TObject; const Value: TObject; Action: TCollectionNotification);
   protected
     FOwnerships: TDictionaryOwnerships;
     procedure DisposeKeyEvent(Sender: TObject; const Key: TObject; Action: TCollectionNotification);
@@ -1433,6 +1535,11 @@ type
 
 implementation
 
+{$if CompilerVersion <= 27}
+resourcestring
+  sSameArrays = 'Source and Destination arrays must not be the same';
+{$ifend}
+
 // x86 architecture compatibility (Word mode)
 {$ifNdef CPUX86}
 function Swap(const X: NativeUInt): NativeUInt; inline;
@@ -1440,6 +1547,126 @@ begin
   Result := (Byte(X) shl 8) + Byte(X shr 8);
 end;
 {$endif}
+
+{$if CompilerVersion <= 23}
+function AtomicDecrement(var Target: Integer): Integer;
+asm
+  {$ifdef CPUX86}
+    or edx, -1
+    lock xadd [eax], edx
+    lea eax, [edx - 1]
+  {$else .CPUX64}
+    or edx, -1
+    lock xadd [rcx], edx
+    or eax, -1
+    add eax, edx
+  {$endif}
+end;
+{$ifend}
+
+{$if CompilerVersion <= 22}
+procedure Frexp(const X: Single; var Mantissa: Single; var Exponent: Integer); overload;
+{ Mantissa ptr in EAX, Exponent ptr in EDX }
+asm // StackAlignSafe
+        FLD     X
+        PUSH    EAX
+        MOV     dword ptr [edx], 0    { if X = 0, return 0 }
+
+        FTST
+        FSTSW   AX
+        FWAIT
+        SAHF
+        JZ      @@Done
+
+        FXTRACT                 // ST(1) = exponent, (pushed) ST = fraction
+        FXCH
+
+// The FXTRACT instruction normalizes the fraction 1 bit higher than
+// wanted for the definition of frexp() so we need to tweak the result
+// by scaling the fraction down and incrementing the exponent.
+
+        FISTP   dword ptr [edx]
+        FLD1
+        FCHS
+        FXCH
+        FSCALE                  // scale fraction
+        INC     dword ptr [edx] // exponent biased to match
+        FSTP ST(1)              // discard -1, leave fraction as TOS
+
+@@Done:
+        POP     EAX
+        FSTP    dword ptr [eax]
+        FWAIT
+end;
+
+procedure Frexp(const X: Double; var Mantissa: Double; var Exponent: Integer); overload;
+{ Mantissa ptr in EAX, Exponent ptr in EDX }
+asm // StackAlignSafe
+        FLD     X
+        PUSH    EAX
+        MOV     dword ptr [edx], 0    { if X = 0, return 0 }
+
+        FTST
+        FSTSW   AX
+        FWAIT
+        SAHF
+        JZ      @@Done
+
+        FXTRACT                 // ST(1) = exponent, (pushed) ST = fraction
+        FXCH
+
+// The FXTRACT instruction normalizes the fraction 1 bit higher than
+// wanted for the definition of frexp() so we need to tweak the result
+// by scaling the fraction down and incrementing the exponent.
+
+        FISTP   dword ptr [edx]
+        FLD1
+        FCHS
+        FXCH
+        FSCALE                  // scale fraction
+        INC     dword ptr [edx] // exponent biased to match
+        FSTP ST(1)              // discard -1, leave fraction as TOS
+
+@@Done:
+        POP     EAX
+        FSTP    qword ptr [eax]
+        FWAIT
+end;
+
+procedure Frexp(const X: Extended; var Mantissa: Extended; var Exponent: Integer); overload;
+{ Mantissa ptr in EAX, Exponent ptr in EDX }
+asm // StackAlignSafe
+        FLD     X
+        PUSH    EAX
+        MOV     dword ptr [edx], 0    { if X = 0, return 0 }
+
+        FTST
+        FSTSW   AX
+        FWAIT
+        SAHF
+        JZ      @@Done
+
+        FXTRACT                 // ST(1) = exponent, (pushed) ST = fraction
+        FXCH
+
+// The FXTRACT instruction normalizes the fraction 1 bit higher than
+// wanted for the definition of frexp() so we need to tweak the result
+// by scaling the fraction down and incrementing the exponent.
+
+        FISTP   dword ptr [edx]
+        FLD1
+        FCHS
+        FXCH
+        FSCALE                  // scale fraction
+        INC     dword ptr [edx] // exponent biased to match
+        FSTP ST(1)              // discard -1, leave fraction as TOS
+
+@@Done:
+        POP     EAX
+        FSTP    tbyte ptr [eax]
+        FWAIT
+end;
+{$ifend}
 
 
 { TRAIIHelper.TClearNatives }
@@ -1588,7 +1815,7 @@ begin
   begin
     if (RefCnt = 1) or (AtomicDecrement(Rec.RefCnt) = 0) then
     begin
-      Inc(PByte(TypeInfo), PDynArrayTypeInfo(TypeInfo).name);
+      Inc(PByte(TypeInfo), PByte(@PDynArrayTypeInfo(TypeInfo).name)^);
       TypeInfo := PDynArrayTypeInfo(TypeInfo).elType;
       if (TypeInfo <> nil) and (Rec.Length <> 0) then
       begin
@@ -1614,18 +1841,26 @@ end;
 
 {$ifdef WEAKINSTREF}
 class procedure TRAIIHelper.WeakObjClear(P: Pointer);
-var
+{var
   L: TObject;
 begin
   L := PPointer(P)^;
   PPointer(P)^ := nil;
   UnregisterWeakRef(P, L);
+end;}
+type
+  TInstance = record
+    [Weak] Obj: TObject;
+  end;
+  PInstance = ^TInstance;
+begin
+  PInstance(P).Obj := nil;
 end;
 {$endif}
 
 {$ifdef WEAKREF}
 class procedure TRAIIHelper.WeakMethodClear(P: Pointer);
-var
+{var
   L: TObject;
 begin
   L := PPointer(P)^;
@@ -1633,17 +1868,33 @@ begin
   Dec(NativeUInt(P), SizeOf(Pointer));
   PPointer(P)^ := nil;
   UnregisterWeakMethodRef(P, L);
+end;}
+type
+  TInstance = record
+    Method: procedure of object;
+  end;
+  PInstance = ^TInstance;
+begin
+  PInstance(NativeInt(P) - SizeOf(Pointer)).Method := nil;
 end;
 {$endif}
 
 {$ifdef WEAKINTFREF}
 class procedure TRAIIHelper.WeakIntfClear(P: Pointer);
-var
+{var
   L: TObject;
 begin
   L := IInterface(PPointer(P)^) as TObject;
   PPointer(P)^ := nil;
   UnregisterWeakRef(P, L);
+end;}
+type
+  TInstance = record
+    [Weak] Intf: IInterface;
+  end;
+  PInstance = ^TInstance;
+begin
+  PInstance(P).Intf := nil;
 end;
 {$endif}
 
@@ -1775,9 +2026,9 @@ begin
               begin
                 {$ifdef WEAKREF}
                   Self.InitNatives.Add(ChildOffset);
-                  Self.ClearNatives.Add(ChildOffset, nil, TClearProc(@TRAIIHelper.WeakIntfClear));
+                  Self.ClearNatives.Add(ChildOffset, nil, TClearNativeProc(@TRAIIHelper.WeakIntfClear));
                 {$else}
-                  Self.Natives.Add(ChildOffset, nil, TClearProc(@TRAIIHelper.WeakIntfClear));
+                  Self.Natives.Add(ChildOffset, nil, TClearNativeProc(@TRAIIHelper.WeakIntfClear));
                 {$endif}
               end;
             {$endif}
@@ -1786,9 +2037,9 @@ begin
               begin
                 {$ifdef WEAKREF}
                   Self.InitNatives.Add(ChildOffset);
-                  Self.ClearNatives.Add(ChildOffset, nil, TClearProc(@TRAIIHelper.WeakObjClear));
+                  Self.ClearNatives.Add(ChildOffset, nil, TClearNativeProc(@TRAIIHelper.WeakObjClear));
                 {$else}
-                  Self.Natives.Add(ChildOffset, nil, TClearProc(@TRAIIHelper.WeakObjClear));
+                  Self.Natives.Add(ChildOffset, nil, TClearNativeProc(@TRAIIHelper.WeakObjClear));
                 {$endif}
               end;
             {$endif}
@@ -1798,7 +2049,7 @@ begin
                 Self.InitNatives.Add(ChildOffset);
                 Self.InitNatives.Add(ChildOffset + SizeOf(Pointer));
 
-                Self.ClearNatives.Add(ChildOffset + SizeOf(Pointer), nil, TClearProc(@TRAIIHelper.WeakMethodClear));
+                Self.ClearNatives.Add(ChildOffset + SizeOf(Pointer), nil, TClearNativeProc(@TRAIIHelper.WeakMethodClear));
               end;
             {$endif}
             end;
@@ -1810,9 +2061,16 @@ begin
   end;
 end;
 
+function TRAIIHelper.GetTypeData: PTypeData;
+begin
+  Result := Pointer(FTypeInfo);
+  Inc(NativeUInt(Result), NativeUInt(PByte(@PTypeInfo(Result).Name)^) + 2);
+end;
+
 procedure TRAIIHelper.Initialize(Value: PTypeInfo);
 var
   FieldTable: PFieldTable;
+  TypeData: PTypeData;
 begin
   // clear
   FTypeInfo := Value;
@@ -1826,11 +2084,15 @@ begin
   InitProc := nil;
   ClearProc := nil;
 
+  // type data
+  TypeData := Pointer(Value);
+  Inc(NativeUInt(TypeData), NativeUInt(PByte(@PTypeInfo(TypeData).Name)^) + 2);
+
   // type kind
   case Value.Kind of
     tkInteger, tkChar, tkEnumeration, tkWChar:
     begin
-      case (Value.TypeData.OrdType) of
+      case (TypeData.OrdType) of
         otSByte, otUByte: FSize := SizeOf(Byte);
         otSWord, otUWord: FSize := SizeOf(Word);
         otSLong, otULong: FSize := SizeOf(Cardinal);
@@ -1839,7 +2101,9 @@ begin
     end;
     tkSet:
     begin
-      with Value.TypeData.CompType^.TypeData^ do
+      TypeData := Pointer(TypeData.CompType^);
+      Inc(NativeUInt(TypeData), NativeUInt(PByte(@PTypeInfo(TypeData).Name)^) + 2);
+      with TypeData^ do
       begin
         FSize := (((MaxValue + 7 + 1) and ($FF shl 3)) - (MinValue and ($FF shl 3))) shr 3;
         if (FSize = 3) then FSize := 4;
@@ -1848,12 +2112,16 @@ begin
     end;
     tkFloat:
     begin
-      case (Value.TypeData.FloatType) of
+      case (TypeData.FloatType) of
         ftSingle: FSize := SizeOf(Single);
         ftDouble: FSize := SizeOf(Double);
       ftExtended: FSize := SizeOf(Extended);
+      else
+        FItemSize := -1;
+        case (TypeData.FloatType) of
           ftComp: FSize := SizeOf(Comp);
           ftCurr: FSize := SizeOf(Currency);
+        end;
       end;
       Exit;
     end;
@@ -1865,7 +2133,7 @@ begin
     {$ifNdef NEXTGEN}
     tkString:
     begin
-      FSize := Value.TypeData.MaxLength + 1;
+      FSize := TypeData.MaxLength + 1;
       Exit;
     end;
     {$endif}
@@ -1885,15 +2153,22 @@ begin
       FSize := SizeOf(TMethod);
       Self.Include(0, Value);
     end;
-    tkClass, tkLString, tkWString, tkInterface, tkDynArray, tkUString:
+    tkClass, tkLString, tkWString, tkInterface, tkUString:
     begin
       FSize := SizeOf(Pointer);
+      Self.Include(0, Value);
+    end;
+    tkDynArray:
+    begin
+      FSize := SizeOf(Pointer);
+      FItemSize := TypeData.elSize;
       Self.Include(0, Value);
     end;
     tkArray:
     begin
       FieldTable := PFieldTable(NativeUInt(Value) + PByte(@Value.Name)^);
-      FSize := NativeInt(FieldTable.Size) * NativeInt(FieldTable.Count);
+      FItemSize := FieldTable.Size;
+      FSize := FItemSize * NativeInt(FieldTable.Count);
       Self.Include(0, Value);
     end;
     tkRecord:
@@ -2299,9 +2574,16 @@ end;
 
 { TRAIIHelper<T> }
 
-class constructor TRAIIHelper<T>.Create;
+class procedure TRAIIHelper<T>.Create;
+begin
+  if (not FCreated) then
+    InternalCreate;
+end;
+
+class procedure TRAIIHelper<T>.InternalCreate;
 begin
   FOptions.TypeInfo := TypeInfo(T);
+  FCreated := True;
 end;
 
 class function TRAIIHelper<T>.GetIsManaged: Boolean;
@@ -2496,12 +2778,13 @@ end;
 
 { InterfaceDefaults }
 
-class constructor InterfaceDefaults.TDefaultComparer<T>.Create;
+class function InterfaceDefaults.TDefaultComparer<T>.Create: Pointer;
 begin
-  Initialize;
+  if (not Created) then InternalCreate;
+  Result := @Instance;
 end;
 
-class procedure InterfaceDefaults.TDefaultComparer<T>.Initialize;
+class procedure InterfaceDefaults.TDefaultComparer<T>.InternalCreate;
 var
   TypeData: PTypeData;
 begin
@@ -2512,7 +2795,8 @@ begin
   Instance.Release := @InterfaceDefaults.NopRelease;
 
   // Compare
-  TypeData := PTypeInfo(TypeInfo(T)).TypeData;
+  TypeData := Pointer(TypeInfo(T));
+  Inc(NativeUInt(TypeData), NativeUInt(PByte(@PTypeInfo(TypeData).Name)^) + 2);
   case {$ifdef SMARTGENERICS}GetTypeKind(T){$else}PTypeInfo(TypeInfo(T)).Kind{$endif} of
     tkInteger, tkEnumeration, tkChar, tkWChar:
     case TypeData.OrdType of
@@ -2592,14 +2876,17 @@ begin
       Instance.Compare := @InterfaceDefaults.Compare_Bin;
     end;
   end;
+
+  Created := True;
 end;
 
-class constructor InterfaceDefaults.TDefaultEqualityComparer<T>.Create;
+class function InterfaceDefaults.TDefaultEqualityComparer<T>.Create: Pointer;
 begin
-  Initialize;
+  if (not Created) then InternalCreate;
+  Result := @Instance;
 end;
 
-class procedure InterfaceDefaults.TDefaultEqualityComparer<T>.Initialize;
+class procedure InterfaceDefaults.TDefaultEqualityComparer<T>.InternalCreate;
 var
   TypeData: PTypeData;
 begin
@@ -2610,7 +2897,8 @@ begin
   Instance.Release := @InterfaceDefaults.NopRelease;
 
   // Equals/GetHashCode
-  TypeData := PTypeInfo(TypeInfo(T)).TypeData;
+  TypeData := Pointer(TypeInfo(T));
+  Inc(NativeUInt(TypeData), NativeUInt(PByte(@PTypeInfo(TypeData).Name)^) + 2);
   case {$ifdef SMARTGENERICS}GetTypeKind(T){$else}PTypeInfo(TypeInfo(T)).Kind{$endif} of
     tkClass:
     begin
@@ -2649,7 +2937,6 @@ begin
         Instance.GetHashCode := @InterfaceDefaults.GetHashCode_FE;
       end;
     else
-      Instance.Size := -SizeOf(Int64);
       Instance.Equals := @InterfaceDefaults.Equals_N8;
       Instance.GetHashCode := @InterfaceDefaults.GetHashCode_N8;
     end;
@@ -2724,6 +3011,8 @@ begin
       Instance.GetHashCode := @InterfaceDefaults.GetHashCode_Bin;
     end;
   end;
+
+  Created := True;
 end;
 
 class function InterfaceDefaults.NopQueryInterface(Inst: Pointer; const IID: TGUID; out Obj): HResult; stdcall;
@@ -3298,87 +3587,82 @@ begin
 end;
 
 class function InterfaceDefaults.Equals_Var(Inst: Pointer; Left, Right: PVarData): Boolean;
-label
-  has_left, has_right, difficult;
 var
   VLeft, VRight: Integer;
 begin
   VLeft := Left.VType;
-  if (VLeft <> varByRef or varVariant) then
-  begin
-  has_left:
-    VRight := Right.VType;
-    if (VRight <> varByRef or varVariant) then
-    begin
-    has_right:
-      if (VLeft > varNull) and (VRight > varNull) then
-      begin
-        if (VLeft <> VRight) then goto difficult;
+  if (VLeft = varByRef or varVariant) then
+  repeat
+    Left := Left.VPointer;
+    VLeft := Left.VType;
+  until (VLeft <> varByRef or varVariant);
 
-        case (VLeft) of
-          varShortInt, varBoolean, varByte:
-          begin
-            Result := (Left.VByte = Right.VByte);
-          end;
-          varSmallint, varWord:
-          begin
-            Result := (Left.VWord = Right.VWord);
-          end;
-          varInteger, varLongWord:
-          begin
-            Result := (Left.VInteger = Right.VInteger);
-          end;
-          varInt64, varCurrency, varUInt64:
-          begin
-            {$ifdef LARGEINT}
-              Result := (Left.VInt64 = Right.VInt64);
-            {$else .SMALLINT}
-              Result := ((Left.VLongs[1] - Right.VLongs[1]) or (Left.VLongs[2] - Right.VLongs[2]) = 0);
-            {$endif}
-          end;
-          varSingle:
-          begin
-            Result := (Left.VSingle >= Right.VSingle) = (Left.VSingle <= Right.VSingle);
-          end;
-          varDouble, varDate:
-          begin
-            Result := (Left.VDouble >= Right.VDouble) = (Left.VDouble <= Right.VDouble);
-          end;
-          varString:
-          begin
-            Result := InterfaceDefaults.Equals_LStr(nil, Left.VPointer, Right.VPointer);
-          end;
-          varUString:
-          begin
-            Result := InterfaceDefaults.Equals_UStr(nil, Left.VPointer, Right.VPointer);
-          end;
-          varOleStr:
-          begin
-            Result := InterfaceDefaults.Equals_WStr(nil, Left.VPointer, Right.VPointer);
-          end;
-        else
-        difficult:
-          Result := (InterfaceDefaults.Compare_Var_Difficult(True, PVariant(Left), PVariant(Right)) = 0);
-        end;
-      end else
+  VRight := Right.VType;
+  if (VRight = varByRef or varVariant) then
+  repeat
+    Right := Right.VPointer;
+    VRight := Right.VType;
+  until (VRight <> varByRef or varVariant);
+
+  if (VLeft > varNull) and (VRight > varNull) then
+  begin
+    if (VLeft = VRight) then
+    case (VLeft) of
+      varShortInt, varBoolean, varByte:
       begin
-        Result := True;
+        Result := (Left.VByte = Right.VByte);
+        Exit;
       end;
-    end else
-    begin
-      repeat
-        Right := Right.VPointer;
-        VRight := Right.VType;
-      until (VRight <> varByRef or varVariant);
-      goto has_right;
+      varSmallint, varWord:
+      begin
+        Result := (Left.VWord = Right.VWord);
+        Exit;
+      end;
+      varInteger, varLongWord:
+      begin
+        Result := (Left.VInteger = Right.VInteger);
+        Exit;
+      end;
+      varInt64, varCurrency, varUInt64:
+      begin
+        {$ifdef LARGEINT}
+          Result := (Left.VInt64 = Right.VInt64);
+        {$else .SMALLINT}
+          Result := ((Left.VLongs[1] - Right.VLongs[1]) or (Left.VLongs[2] - Right.VLongs[2]) = 0);
+        {$endif}
+        Exit;
+      end;
+      varSingle:
+      begin
+        Result := (Left.VSingle >= Right.VSingle) = (Left.VSingle <= Right.VSingle);
+        Exit;
+      end;
+      varDouble, varDate:
+      begin
+        Result := (Left.VDouble >= Right.VDouble) = (Left.VDouble <= Right.VDouble);
+        Exit;
+      end;
+      varString:
+      begin
+        Result := InterfaceDefaults.Equals_LStr(nil, Left.VPointer, Right.VPointer);
+        Exit;
+      end;
+      varUString:
+      begin
+        Result := InterfaceDefaults.Equals_UStr(nil, Left.VPointer, Right.VPointer);
+        Exit;
+      end;
+      varOleStr:
+      begin
+        Result := InterfaceDefaults.Equals_WStr(nil, Left.VPointer, Right.VPointer);
+        Exit;
+      end;
     end;
+
+    Result := (InterfaceDefaults.Compare_Var_Difficult(True, PVariant(Left), PVariant(Right)) = 0);
   end else
   begin
-    repeat
-      Left := Left.VPointer;
-      VLeft := Left.VType;
-    until (VLeft <> varByRef or varVariant);
-    goto has_left;
+    Result := True;
   end;
 end;
 
@@ -3519,20 +3803,20 @@ begin
     varSingle:
     begin
       VFloat := Value.VSingle;
-      Top := @Buffer[FloatToText(Buffer, VFloat, fvExtended, ffGeneral, 15, 0, FormatSettings)];
+      Top := @Buffer[FloatToText(Buffer, VFloat, fvExtended, ffGeneral, 15, 0{$if CompilerVersion > 21}, FormatSettings{$ifend})];
       S := @Buffer[0];
       goto write_terminated_string;
     end;
     varDouble:
     begin
       VFloat := Value.VDouble;
-      Top := @Buffer[FloatToText(Buffer, VFloat, fvExtended, ffGeneral, 15, 0, FormatSettings)];
+      Top := @Buffer[FloatToText(Buffer, VFloat, fvExtended, ffGeneral, 15, 0{$if CompilerVersion > 21}, FormatSettings{$ifend})];
       S := @Buffer[0];
       goto write_terminated_string;
     end;
     varCurrency:
     begin
-      Top := @Buffer[FloatToText(Buffer, Value.VCurrency, fvCurrency, ffGeneral, 0, 0, FormatSettings)];
+      Top := @Buffer[FloatToText(Buffer, Value.VCurrency, fvCurrency, ffGeneral, 0, 0{$if CompilerVersion > 21}, FormatSettings{$ifend})];
       S := @Buffer[0];
       goto write_terminated_string;
     end;
@@ -5524,34 +5808,22 @@ end;
 { TComparer<T> }
 
 class function TComparer<T>.Default: IComparer<T>;
-var
-  Instance: ^InterfaceDefaults.IComparerInst;
 begin
-  { TDefaultComparer<T> constructor bug fix }
-  Instance := @InterfaceDefaults.TDefaultComparer<T>.Instance;
-  if (not Assigned(Instance.Compare)) then InterfaceDefaults.TDefaultComparer<T>.Initialize;
-  Result := IComparer<T>(Instance);
+  Result := IComparer<T>(InterfaceDefaults.TDefaultComparer<T>.Create);
 end;
 
 class function TComparer<T>.Construct(const Comparison: TComparison<T>): IComparer<T>;
 begin
   { Much faster way to have IComparer<T> interface, than
     TDelegatedComparer<T> instance }
-
   IInterface(Result) := IInterface(PPointer(@Comparison)^);
 end;
-
 
 { TEqualityComparer<T> }
 
 class function TEqualityComparer<T>.Default: IEqualityComparer<T>;
-var
-  Instance: ^InterfaceDefaults.IEqualityComparerInst;
 begin
-  { TDefaultEqualityComparer<T> constructor bug fix }
-  Instance := @InterfaceDefaults.TDefaultEqualityComparer<T>.Instance;
-  if (not Assigned(Instance.GetHashCode)) then InterfaceDefaults.TDefaultEqualityComparer<T>.Initialize;
-  Result := IEqualityComparer<T>(Instance);
+  Result := IEqualityComparer<T>(InterfaceDefaults.TDefaultEqualityComparer<T>.Create);
 end;
 
 class function TEqualityComparer<T>.Construct(
@@ -5847,12 +6119,12 @@ begin
   FDictionary := ADictionary;
 end;
 
-function TCustomDictionary<TKey, TValue>.TPairEnumerator.DoGetCurrent: TPair<TKey, TValue>;
+function TCustomDictionary<TKey,TValue>.TPairEnumerator.DoGetCurrent: TPair<TKey,TValue>;
 begin
   Result := GetCurrent;
 end;
 
-function TCustomDictionary<TKey, TValue>.TPairEnumerator.DoMoveNext: Boolean;
+function TCustomDictionary<TKey,TValue>.TPairEnumerator.DoMoveNext: Boolean;
 begin
   Result := MoveNext;
 end;
@@ -5886,12 +6158,12 @@ begin
   FDictionary := ADictionary;
 end;
 
-function TCustomDictionary<TKey, TValue>.TKeyEnumerator.DoGetCurrent: TKey;
+function TCustomDictionary<TKey,TValue>.TKeyEnumerator.DoGetCurrent: TKey;
 begin
   Result := GetCurrent;
 end;
 
-function TCustomDictionary<TKey, TValue>.TKeyEnumerator.DoMoveNext: Boolean;
+function TCustomDictionary<TKey,TValue>.TKeyEnumerator.DoMoveNext: Boolean;
 begin
   Result := MoveNext;
 end;
@@ -5920,12 +6192,12 @@ begin
   FDictionary := ADictionary;
 end;
 
-function TCustomDictionary<TKey, TValue>.TValueEnumerator.DoGetCurrent: TValue;
+function TCustomDictionary<TKey,TValue>.TValueEnumerator.DoGetCurrent: TValue;
 begin
   Result := GetCurrent;
 end;
 
-function TCustomDictionary<TKey, TValue>.TValueEnumerator.DoMoveNext: Boolean;
+function TCustomDictionary<TKey,TValue>.TValueEnumerator.DoMoveNext: Boolean;
 begin
   Result := MoveNext;
 end;
@@ -5945,33 +6217,33 @@ begin
   Result := False;
 end;
 
-{ TCustomDictionary<TKey, TValue>.TKeyCollection }
+{ TCustomDictionary<TKey,TValue>.TKeyCollection }
 
-constructor TCustomDictionary<TKey, TValue>.TKeyCollection.Create(const ADictionary: TCustomDictionary<TKey, TValue>);
+constructor TCustomDictionary<TKey,TValue>.TKeyCollection.Create(const ADictionary: TCustomDictionary<TKey,TValue>);
 begin
   inherited Create;
   FDictionary := ADictionary;
 end;
 
-function TCustomDictionary<TKey, TValue>.TKeyCollection.DoGetEnumerator: TEnumerator<TKey>;
+function TCustomDictionary<TKey,TValue>.TKeyCollection.DoGetEnumerator: TEnumerator<TKey>;
 begin
   Result := GetEnumerator;
 end;
 
-function TCustomDictionary<TKey, TValue>.TKeyCollection.GetCount: Integer;
+function TCustomDictionary<TKey,TValue>.TKeyCollection.GetCount: Integer;
 begin
   Result := FDictionary.FCount.Int;
 end;
 
-function TCustomDictionary<TKey, TValue>.TKeyCollection.GetEnumerator: TKeyEnumerator;
+function TCustomDictionary<TKey,TValue>.TKeyCollection.GetEnumerator: TKeyEnumerator;
 begin
   Result := TKeyEnumerator.Create(FDictionary);
 end;
 
-function TCustomDictionary<TKey, TValue>.TKeyCollection.ToArray: TArray<TKey>;
+function TCustomDictionary<TKey,TValue>.TKeyCollection.ToArray: TArray<TKey>;
 var
   i, Count: NativeInt;
-  Src: TCustomDictionary<TKey, TValue>.PItem;
+  Src: TCustomDictionary<TKey,TValue>.PItem;
   Dest: ^TKey;
 begin
   Count := Self.FDictionary.FCount.Native;
@@ -5987,33 +6259,33 @@ begin
   end;
 end;
 
-{ TCustomDictionary<TKey, TValue>.TValueCollection }
+{ TCustomDictionary<TKey,TValue>.TValueCollection }
 
-constructor TCustomDictionary<TKey, TValue>.TValueCollection.Create(const ADictionary: TCustomDictionary<TKey, TValue>);
+constructor TCustomDictionary<TKey,TValue>.TValueCollection.Create(const ADictionary: TCustomDictionary<TKey,TValue>);
 begin
   inherited Create;
   FDictionary := ADictionary;
 end;
 
-function TCustomDictionary<TKey, TValue>.TValueCollection.DoGetEnumerator: TEnumerator<TValue>;
+function TCustomDictionary<TKey,TValue>.TValueCollection.DoGetEnumerator: TEnumerator<TValue>;
 begin
   Result := GetEnumerator;
 end;
 
-function TCustomDictionary<TKey, TValue>.TValueCollection.GetCount: Integer;
+function TCustomDictionary<TKey,TValue>.TValueCollection.GetCount: Integer;
 begin
   Result := FDictionary.FCount.Int;
 end;
 
-function TCustomDictionary<TKey, TValue>.TValueCollection.GetEnumerator: TValueEnumerator;
+function TCustomDictionary<TKey,TValue>.TValueCollection.GetEnumerator: TValueEnumerator;
 begin
   Result := TValueEnumerator.Create(FDictionary);
 end;
 
-function TCustomDictionary<TKey, TValue>.TValueCollection.ToArray: TArray<TValue>;
+function TCustomDictionary<TKey,TValue>.TValueCollection.ToArray: TArray<TValue>;
 var
   i, Count: NativeInt;
-  Src: TCustomDictionary<TKey, TValue>.PItem;
+  Src: TCustomDictionary<TKey,TValue>.PItem;
   Dest: ^TValue;
 begin
   Count := Self.FDictionary.FCount.Native;
@@ -6029,37 +6301,37 @@ begin
   end;
 end;
 
-{ TCustomDictionary<TKey, TValue> }
+{ TCustomDictionary<TKey,TValue> }
 
-function TCustomDictionary<TKey, TValue>.DoGetEnumerator: TEnumerator<TPair<TKey, TValue>>;
+function TCustomDictionary<TKey,TValue>.DoGetEnumerator: TEnumerator<TPair<TKey,TValue>>;
 begin
   Result := GetEnumerator;
 end;
 
-function TCustomDictionary<TKey, TValue>.GetEnumerator: TPairEnumerator;
+function TCustomDictionary<TKey,TValue>.GetEnumerator: TPairEnumerator;
 begin
   Result := TPairEnumerator.Create(Self);
 end;
 
-function TCustomDictionary<TKey, TValue>.GetKeys: TKeyCollection;
+function TCustomDictionary<TKey,TValue>.GetKeys: TKeyCollection;
 begin
   if FKeyCollection = nil then
     FKeyCollection := TKeyCollection.Create(Self);
   Result := FKeyCollection;
 end;
 
-function TCustomDictionary<TKey, TValue>.GetValues: TValueCollection;
+function TCustomDictionary<TKey,TValue>.GetValues: TValueCollection;
 begin
   if FValueCollection = nil then
     FValueCollection := TValueCollection.Create(Self);
   Result := FValueCollection;
 end;
 
-function TCustomDictionary<TKey, TValue>.ToArray: TArray<TPair<TKey, TValue>>;
+function TCustomDictionary<TKey,TValue>.ToArray: TArray<TPair<TKey,TValue>>;
 var
   i, Count: NativeInt;
   Src: PItem;
-  Dest: ^TPair<TKey, TValue>;
+  Dest: ^TPair<TKey,TValue>;
 begin
   Count := Self.FCount.Native;
 
@@ -6068,17 +6340,20 @@ begin
   Dest := Pointer(Result);
   for i := 0 to Count - 1 do
   begin
-    Dest.Key := Src.Key;
-    Dest.Value := Src.Value;
+    Dest^.Key := Src.Key;
+    Dest^.Value := Src.Value;
 
     Inc(Src);
     Inc(Dest);
   end;
 end;
 
-constructor TCustomDictionary<TKey, TValue>.Create(ACapacity: Integer);
+constructor TCustomDictionary<TKey,TValue>.Create(ACapacity: Integer);
 begin
   inherited Create;
+  TRAIIHelper<TKey>.Create;
+  TRAIIHelper<TValue>.Create;
+
   FDefaultValue := Default(TValue);
   FHashTableMask := -1;
   SetNotifyMethods;
@@ -6092,7 +6367,7 @@ begin
   end;
 end;
 
-destructor TCustomDictionary<TKey, TValue>.Destroy;
+destructor TCustomDictionary<TKey,TValue>.Destroy;
 begin
   Clear;
   FKeyCollection.Free;
@@ -6104,8 +6379,6 @@ begin
 end;
 
 procedure TCustomDictionary<TKey,TValue>.Rehash(NewTableCount{power of 2}: NativeInt);
-type
-  THashList = array[0..0] of Pointer{PItem};
 var
   NewCapacity: NativeInt;
   NewHashTable: TArray<PItem>;
@@ -6178,12 +6451,15 @@ begin
   Result := Self;
 end;
 
-procedure TCustomDictionary<TKey, TValue>.TrimExcess;
+procedure TCustomDictionary<TKey,TValue>.TrimExcess;
+var
+  Capacity: Integer;
 begin
-  SetCapacity(FCount.Int);
+  Capacity := FCount.Int;
+  SetCapacity(Capacity);
 end;
 
-procedure TCustomDictionary<TKey, TValue>.Clear;
+procedure TCustomDictionary<TKey,TValue>.Clear;
 begin
   if (FCount.Native <> 0) then
   begin
@@ -6200,13 +6476,8 @@ begin
   end;
 end;
 
-procedure TCustomDictionary<TKey, TValue>.DoCleanupItems(Item: PItem; Count: NativeInt);
+procedure TCustomDictionary<TKey,TValue>.DoCleanupItems(Item: PItem; Count: NativeInt);
 {$ifdef SMARTGENERICS}
-type
-  TKeyRec = TRAIIHelper.TData16;
-  PKeyRec = ^TKeyRec;
-  TValueRec = TRAIIHelper.TData16<TKey>;
-  PValueRec = ^TValueRec;
 var
   i: NativeInt;
   VType: Integer;
@@ -6262,7 +6533,7 @@ begin
   if Assigned(FInternalValueNotify) then
   begin
     // Value
-    if (TMethod(FInternalValueNotify).Code = @TDictionary<TKey,TValue>.ValueNotifyCaller) then
+    if (TMethod(FInternalValueNotify).Code = @TCustomDictionary<TKey,TValue>.ValueNotifyCaller) then
     begin
       for i := 1 to Count do
       begin
@@ -6437,100 +6708,89 @@ begin
   end;
 end;
 
-function TCustomDictionary<TKey, TValue>.NewItem: PItem;
-label
-  start;
-type
-  TKeyRec = TRAIIHelper.TData16;
-  PKeyRec = ^TKeyRec;
-  TValueRec = TRAIIHelper.TData16<TKey>;
-  PValueRec = ^TValueRec;
+function TCustomDictionary<TKey,TValue>.NewItem: Pointer{PItem};
 var
-  Instance: TCustomDictionary<TKey, TValue>;
+  Instance: TCustomDictionary<TKey,TValue>;
   Count: NativeInt;
   Null: NativeUInt;
 begin
   Instance := Self;
-start:
-  Count := Instance.FCount.Native;
-  if (Count <> Instance.FCapacity) then
-  begin
-    Instance.FCount.Native := Count + 1;
-    Result := @Instance.FItems[Count];
-
-    if ((SizeOf(TKey) >= SizeOf(NativeInt)) and (SizeOf(TKey) <= 16)) or
-      ((SizeOf(TValue) >= SizeOf(NativeInt)) and (SizeOf(TValue) <= 16)) then
+  repeat
+    Count := Instance.FCount.Native;
+    if (Count <> Instance.FCapacity) then
     begin
+      Instance.FCount.Native := Count + 1;
+      Result := Pointer(Instance.FItems);
+      Inc(PItem(Result), Count);
+
+      if ((SizeOf(TKey) >= SizeOf(NativeInt)) and (SizeOf(TKey) <= 16)) or
+        ((SizeOf(TValue) >= SizeOf(NativeInt)) and (SizeOf(TValue) <= 16)) then
+      begin
+        {$ifdef SMARTGENERICS}
+        if (System.IsManagedType(TItem) or System.HasWeakRef(TItem)) then
+        {$endif}
+        Null := 0;
+      end;
+
       {$ifdef SMARTGENERICS}
-      if (System.IsManagedType(TItem) or System.HasWeakRef(TItem)) then
+      if (System.IsManagedType(TKey) or System.HasWeakRef(TKey)) then
+      {$else}
+      if (SizeOf(TKey) >= SizeOf(NativeInt)) then
       {$endif}
-      Null := 0;
-    end;
+      begin
+        if (SizeOf(TKey) = SizeOf(NativeInt)){$ifdef SMARTGENERICS}or (GetTypeKind(TKey) = tkVariant){$endif} then
+        begin
+          PKeyRec(Result).Natives[0] := Null;
+        end else
+        if ((SizeOf(TKey) >= SizeOf(NativeInt)) and (SizeOf(TKey) <= 16)) then
+        begin
+          PKeyRec(Result).Natives[0] := Null;
+          if (SizeOf(TKey) >= 2 * SizeOf(NativeInt)) then PKeyRec(Result).Natives[1] := Null;
+          {$ifdef SMALLINT}
+          if (SizeOf(TKey) >= 3 * SizeOf(NativeInt)) then PKeyRec(Result).Natives[2] := Null;
+          if (SizeOf(TKey)  = 4 * SizeOf(NativeInt)) then PKeyRec(Result).Natives[3] := Null;
+          {$endif}
+        end else
+        TRAIIHelper<TKey>.Init(@PItem(Result).FKey);
+      end;
 
-    {$ifdef SMARTGENERICS}
-    if (System.IsManagedType(TKey) or System.HasWeakRef(TKey)) then
-    {$else}
-    if (SizeOf(TKey) >= SizeOf(NativeInt)) then
-    {$endif}
+      {$ifdef SMARTGENERICS}
+      if (System.IsManagedType(TValue) or System.HasWeakRef(TValue)) then
+      {$else}
+      if (SizeOf(TValue) >= SizeOf(NativeInt)) then
+      {$endif}
+      begin
+        if (SizeOf(TValue) = SizeOf(NativeInt)){$ifdef SMARTGENERICS}or (GetTypeKind(TValue) = tkVariant){$endif} then
+        begin
+          PValueRec(Result)^.Natives[0] := Null;
+        end else
+        if ((SizeOf(TValue) >= SizeOf(NativeInt)) and (SizeOf(TValue) <= 16)) then
+        begin
+          PValueRec(Result)^.Natives[0] := Null;
+          if (SizeOf(TValue) >= 2 * SizeOf(NativeInt)) then PValueRec(Result)^.Natives[1] := Null;
+          {$ifdef SMALLINT}
+          if (SizeOf(TValue) >= 3 * SizeOf(NativeInt)) then PValueRec(Result)^.Natives[2] := Null;
+          if (SizeOf(TValue)  = 4 * SizeOf(NativeInt)) then PValueRec(Result)^.Natives[3] := Null;
+          {$endif}
+        end else
+        TRAIIHelper<TValue>.Init(@PItem(Result).FValue);
+      end;
+
+      Exit;
+    end else
     begin
-      if (SizeOf(TKey) = SizeOf(NativeInt)){$ifdef SMARTGENERICS}or (GetTypeKind(TKey) = tkVariant){$endif} then
-      begin
-        PKeyRec(Result).Natives[0] := Null;
-      end else
-      if ((SizeOf(TKey) >= SizeOf(NativeInt)) and (SizeOf(TKey) <= 16)) then
-      begin
-        PKeyRec(Result).Natives[0] := Null;
-        if (SizeOf(TKey) >= 2 * SizeOf(NativeInt)) then PKeyRec(Result).Natives[1] := Null;
-        {$ifdef SMALLINT}
-        if (SizeOf(TKey) >= 3 * SizeOf(NativeInt)) then PKeyRec(Result).Natives[2] := Null;
-        if (SizeOf(TKey)  = 4 * SizeOf(NativeInt)) then PKeyRec(Result).Natives[3] := Null;
-        {$endif}
-      end else
-      TRAIIHelper<TKey>.Init(@Result.FKey);
+      Instance := Instance.Grow;
     end;
-
-    {$ifdef SMARTGENERICS}
-    if (System.IsManagedType(TValue) or System.HasWeakRef(TValue)) then
-    {$else}
-    if (SizeOf(TValue) >= SizeOf(NativeInt)) then
-    {$endif}
-    begin
-      if (SizeOf(TValue) = SizeOf(NativeInt)){$ifdef SMARTGENERICS}or (GetTypeKind(TValue) = tkVariant){$endif} then
-      begin
-        PValueRec(Result).Natives[0] := Null;
-      end else
-      if ((SizeOf(TValue) >= SizeOf(NativeInt)) and (SizeOf(TValue) <= 16)) then
-      begin
-        PValueRec(Result).Natives[0] := Null;
-        if (SizeOf(TValue) >= 2 * SizeOf(NativeInt)) then PValueRec(Result).Natives[1] := Null;
-        {$ifdef SMALLINT}
-        if (SizeOf(TValue) >= 3 * SizeOf(NativeInt)) then PValueRec(Result).Natives[2] := Null;
-        if (SizeOf(TValue)  = 4 * SizeOf(NativeInt)) then PValueRec(Result).Natives[3] := Null;
-        {$endif}
-      end else
-      TRAIIHelper<TValue>.Init(@Result.FValue);
-    end;
-
-    Exit;
-  end else
-  begin
-    Instance := Instance.Grow;
-    goto start;
-  end;
+  until (False);
 end;
 
-procedure TCustomDictionary<TKey, TValue>.DisposeItem(Item: PItem);
-type
-  TKeyRec = TRAIIHelper.TData16;
-  PKeyRec = ^TKeyRec;
-  TValueRec = TRAIIHelper.TData16<TKey>;
-  PValueRec = ^TValueRec;
+procedure TCustomDictionary<TKey,TValue>.DisposeItem(Item: Pointer{Item});
 var
   {$ifdef SMARTGENERICS}
   VType: Integer;
   {$endif}
   Count: NativeInt;
-  Parent: ^PItem;
+  Parent: Pointer;
   TopItem, Current: PItem;
   Index: NativeInt;
 begin
@@ -6590,10 +6850,10 @@ begin
       end;
     end
   else
-    TRAIIHelper<TKey>.Clear(@Item.FKey);
+    TRAIIHelper<TKey>.Clear(@PItem(Item).FKey);
   end;
   {$else}
-  TRAIIHelper<TKey>.Clear(@Item.FKey);
+  TRAIIHelper<TKey>.Clear(@PItem(Item).FKey);
   {$endif}
 
   // Value
@@ -6652,28 +6912,29 @@ begin
       end;
     end
   else
-    TRAIIHelper<TValue>.Clear(@Item.FValue);
+    TRAIIHelper<TValue>.Clear(@PItem(Item).FValue);
   end;
   {$else}
-  TRAIIHelper<TValue>.Clear(@Item.FValue);
+  TRAIIHelper<TValue>.Clear(@PItem(Item).FValue);
   {$endif}
 
   Count := Self.FCount.Native;
   Dec(Count);
   Self.FCount.Native := Count;
-  TopItem := @FItems[Count];
+  TopItem := Pointer(FItems);
+  Inc(TopItem, Count);
   if (Item <> TopItem) then
   begin
     // change TopItem.Parent.Next --> Item
-    Parent := @FHashTable[NativeInt(Cardinal(TopItem.HashCode)) and FHashTableMask];
+    Parent := Pointer(@FHashTable[NativeInt(Cardinal(TopItem.HashCode)) and FHashTableMask]);
     repeat
-      Current := Parent^;
+      Current := PItem(Parent^);
       if (Current = TopItem) then
       begin
-        Parent^ := Item;
+        PItem(Parent^) := Item;
         Break;
       end;
-      Parent := @Current.FNext;
+      Parent := Pointer(@Current.FNext);
     until (False);
 
     // move TopItem --> Item
@@ -6724,17 +6985,12 @@ begin
   end;
 end;
 
-function TCustomDictionary<TKey, TValue>.ContainsValue(const Value: TValue): Boolean;
+function TCustomDictionary<TKey,TValue>.ContainsValue(const Value: TValue): Boolean;
+{$ifdef SMARTGENERICS}
 label
-  {$ifdef SMARTGENERICS}
   cmp0, cmp1, cmp2, cmp3, cmp4, cmp5, {$ifdef SMALLINT}cmp6, cmp7, cmp8, cmp9, cmp10,{$endif}
-  next_item,
-  {$endif}
-  done;
-type
-  TData16 = TRAIIHelper.TData16;
-  PData16 = ^TData16;
-  PValue = ^TValue;
+  next_item, done;
+{$endif}
 var
   i: NativeInt;
   Item: PValue;
@@ -6742,7 +6998,7 @@ var
   Left, Right: PByte;
   Count, Offset: NativeUInt;
   {$else}
-  Comparer: IEqualityComparer<TValue>;
+  Comparer: Pointer;
   ComparerEquals: function(const Left, Right: TValue): Boolean of object;
   {$endif}
 begin
@@ -6793,7 +7049,7 @@ begin
           if ((PPoint(@Value).X - PPoint(Result).X) or (PPoint(@Value).Y - PPoint(Result).Y) <> 0) then
         {$endif}
           begin
-            if (InterfaceDefaults.TDefaultEqualityComparer<TValue>.Instance.Size < 0) then goto next_item;
+            if (TRAIIHelper<TValue>.Options.ItemSize < 0) then goto next_item;
             if (PDouble(@Value)^ <> PDouble(Result)^) then goto next_item;
           end;
         end;
@@ -6894,7 +7150,7 @@ begin
               Dec(Right, SizeOf(NativeUInt));
               Count := PNativeUInt(Left)^;
               if (Count <> PNativeUInt(Right)^) then goto next_item;
-              NativeInt(Count) := NativeInt(Count) * InterfaceDefaults.TDefaultEqualityComparer<TKey>.Instance.Size;
+              NativeInt(Count) := NativeInt(Count) * TRAIIHelper<TValue>.Options.ItemSize;
               Inc(Left, SizeOf(NativeUInt));
               Inc(Right, SizeOf(NativeUInt));
             end else
@@ -7055,36 +7311,34 @@ begin
 
     Result := False;
     Exit;
+  done:
+    Result := True;
+    Exit;
   end;
   {$else}
   begin
-    Comparer := TEqualityComparer<TValue>.Default;
-    TMethod(ComparerEquals) := IntfMethod(Pointer(Comparer), 3);
+    Comparer := InterfaceDefaults.TDefaultEqualityComparer<TValue>.Create;
+    TMethod(ComparerEquals) := IntfMethod(Comparer, 3);
+    Result := False;
     for i := 1 to Self.FCount.Native do
     begin
-      if (ComparerEquals(Value, Item^)) then goto done;
+      Result := (ComparerEquals(Value, Item^));
+      if (Result) then Break;
       Inc(NativeUInt(Item), SizeOf(TItem));
     end;
     ClearMethod(ComparerEquals);
-    Result := False;
     Exit;
   end;
   {$endif}
-
-done:
-  {$ifNdef SMARTGENERICS}
-  ClearMethod(ComparerEquals);
-  {$endif}
-  Result := True;
 end;
 
-class function TCustomDictionary<TKey, TValue>.IntfMethod(Intf: Pointer; MethodNum: NativeUInt): TMethod;
+class function TCustomDictionary<TKey,TValue>.IntfMethod(Intf: Pointer; MethodNum: NativeUInt): TMethod;
 begin
   Result.Data := Intf;
   Result.Code := PPointer(PNativeUInt(Intf)^ + MethodNum * SizeOf(Pointer))^;
 end;
 
-class procedure TCustomDictionary<TKey, TValue>.ClearMethod(var Method);
+class procedure TCustomDictionary<TKey,TValue>.ClearMethod(var Method);
 begin
   {$ifdef WEAKREF}
     TMethod(Method).Data := nil;
@@ -7093,7 +7347,8 @@ end;
 
 procedure TCustomDictionary<TKey,TValue>.SetKeyNotify(const Value: TCollectionNotifyEvent<TKey>);
 begin
-  if (TMethod(FOnKeyNotify) <> TMethod(Value)) then
+  if (TMethod(FOnKeyNotify).Code <> TMethod(Value).Code) or
+    (TMethod(FOnKeyNotify).Data <> TMethod(Value).Data) then
   begin
     FOnKeyNotify := Value;
     SetNotifyMethods;
@@ -7102,7 +7357,8 @@ end;
 
 procedure TCustomDictionary<TKey,TValue>.SetValueNotify(const Value: TCollectionNotifyEvent<TValue>);
 begin
-  if (TMethod(FOnValueNotify) <> TMethod(Value)) then
+  if (TMethod(FOnValueNotify).Code <> TMethod(Value).Code) or
+    (TMethod(FOnValueNotify).Data <> TMethod(Value).Data) then
   begin
     FOnValueNotify := Value;
     SetNotifyMethods;
@@ -7234,7 +7490,7 @@ begin
   // comparer
   FComparer := AComparer;
   if (FComparer = nil) then
-    FComparer := TEqualityComparer<TKey>.Default;
+    Pointer(FComparer) := InterfaceDefaults.TDefaultEqualityComparer<TKey>.Create;
 
   // comparer methods
   TMethod(FComparerEquals) := IntfMethod(Pointer(FComparer), 3);
@@ -7244,12 +7500,12 @@ begin
   inherited Create(ACapacity);
 end;
 
-constructor TDictionary<TKey, TValue>.Create(const Collection: TEnumerable<TPair<TKey, TValue>>);
+constructor TDictionary<TKey,TValue>.Create(const Collection: TEnumerable<TPair<TKey,TValue>>);
 begin
   Create(Collection, nil);
 end;
 
-constructor TDictionary<TKey, TValue>.Create(const Collection: TEnumerable<TPair<TKey, TValue>>;
+constructor TDictionary<TKey,TValue>.Create(const Collection: TEnumerable<TPair<TKey,TValue>>;
   const AComparer: IEqualityComparer<TKey>);
 var
   Item: TPair<TKey,TValue>;
@@ -7267,11 +7523,10 @@ begin
   ClearMethod(FComparerGetHashCode);
 end;
 
-function TDictionary<TKey,TValue>.InternalFindItem(const Key: TKey; const FindMode: Integer): PItem;
-label
-  next_item, not_found;
+function TDictionary<TKey,TValue>.InternalFindItem(const Key: TKey; const FindMode: Integer): Pointer{PItem};
 var
-  Parent: ^PItem;
+  Parent: Pointer;
+  Item: TCustomDictionary<TKey,TValue>.PItem;
   HashCode, Mode: Integer;
   Stored: TInternalFindStored;
 begin
@@ -7279,89 +7534,93 @@ begin
   HashCode := Self.FComparerGetHashCode(Key);
 
   // parent
-  Pointer(Result{Parent}) := @FHashTable[NativeInt(Cardinal(HashCode)) and FHashTableMask];
-  Dec(NativeUInt(Result{Parent}), SizeOf(TKey) + SizeOf(TValue));
+  Pointer(Item{Parent}) := @FHashTable[NativeInt(Cardinal(HashCode)) and FHashTableMask];
+  Dec(NativeUInt(Item{Parent}), SizeOf(TKey) + SizeOf(TValue));
 
   // find
   Stored.HashCode := HashCode;
   repeat
-  next_item:
     // hash code item
     repeat
-      Parent := @Result.FNext;
-      Result := Result.FNext;
-      if (not Assigned(Result)) then goto not_found;
-    until (Stored.HashCode = Result.HashCode);
-    NativeUInt(Stored.Parent) := NativeUInt(Parent);
+      Parent := Pointer(@Item.FNext);
+      Item := Item.FNext;
+    until (Item = nil) or (Stored.HashCode = Item.HashCode);
 
-    // keys comparison
-    if (not Self.FComparerEquals(Key, Result.Key)) then goto next_item;
-
-    // found
-    Mode := FindMode;
-    if (Mode and FOUND_MASK = 0) then Exit;
-    Cardinal(Mode) := Cardinal(Mode) and FOUND_MASK;
-    if (Mode <> FOUND_EXCEPTION) then
+    if (Item <> nil) then
     begin
-      if (Mode = FOUND_DELETE) then
+      // hash code item found
+      Stored.Parent := Parent;
+
+      // keys comparison
+      if (not Self.FComparerEquals(Key, Item.Key)) then Continue;
+
+      // found
+      Mode := FindMode;
+      if (Mode and FOUND_MASK = 0) then Break;
+      Cardinal(Mode) := Cardinal(Mode) and FOUND_MASK;
+      if (Mode <> FOUND_EXCEPTION) then
       begin
-        Stored.Parent^ := Result.FNext;
-        if (not Assigned(Self.FInternalItemNotify)) then
+        if (Mode = FOUND_DELETE) then
         begin
-          Self.DisposeItem(Result);
+          Pointer(Stored.Parent^) := Item.FNext;
+          if (not Assigned(Self.FInternalItemNotify)) then
+          begin
+            Self.DisposeItem(Item);
+          end else
+          begin
+            Self.FInternalItemNotify(Item^, cnRemoved);
+            Self.DisposeItem(Item);
+          end;
         end else
+        // if (Mode = FOUND_REPLACE) then
         begin
-          Self.FInternalItemNotify(Result^, cnRemoved);
-          Self.DisposeItem(Result);
+          if (not Assigned(Self.FInternalValueNotify)) then
+          begin
+            Item.FValue := FInternalFindValue^;
+          end else
+          begin
+            Self.FInternalValueNotify(Self, Item.Value, cnRemoved);
+            Item.FValue := FInternalFindValue^;
+            Self.FInternalValueNotify(Self, Item.Value, cnAdded);
+          end;
         end;
       end else
-      // if (Mode = FOUND_REPLACE) then
       begin
-        if (not Assigned(Self.FInternalValueNotify)) then
-        begin
-          Result.FValue := FInternalFindValue^;
-        end else
-        begin
-          Self.FInternalValueNotify(Self, Result.Value, cnRemoved);
-          Result.FValue := FInternalFindValue^;
-          Self.FInternalValueNotify(Self, Result.Value, cnAdded);
-        end;
+        raise EListError.CreateRes(Pointer(@SGenericDuplicateItem));
       end;
-    end else
-    begin
-      raise EListError.CreateRes(Pointer(@SGenericDuplicateItem));
+      Break;
     end;
-    Exit;
 
-  // not found (Result = nil)
-  not_found:
+    // not found (Item = nil)
     Mode := FindMode;
-    if (Mode and EMPTY_MASK = 0) then Exit;
+    if (Mode and EMPTY_MASK = 0) then Break;
     if (Mode and EMPTY_EXCEPTION = 0) then
     begin
       // EMPTY_NEW
-      Result := Self.NewItem;
-      Result.FKey := Key;
-      Result.FHashCode := Stored.HashCode;
-      Parent := @Self.FHashTable[NativeInt(Cardinal(Stored.HashCode)) and Self.FHashTableMask];
-      Result.FNext := Parent^;
-      Parent^ := Result;
-      Result.FValue := FInternalFindValue^;
+      Item := Self.NewItem;
+      Item.FKey := Key;
+      Item.FHashCode := Stored.HashCode;
+      Parent := Pointer(@Self.FHashTable[NativeInt(Cardinal(Stored.HashCode)) and Self.FHashTableMask]);
+      Item.FNext := Pointer(Parent^);
+      Pointer(Parent^) := Item;
+      Item.FValue := FInternalFindValue^;
       if (Assigned(Self.FInternalItemNotify)) then
       begin
-        Self.FInternalItemNotify(Result^, cnAdded);
+        Self.FInternalItemNotify(Item^, cnAdded);
       end;
+      Break;
     end else
     begin
       raise EListError.CreateRes(Pointer(@SGenericItemNotFound));
     end;
-    Exit;
   until (False);
+
+  Result := Item;
 end;
 
 function TDictionary<TKey,TValue>.GetItem(const Key: TKey): TValue;
 begin
-  Result := Self.InternalFindItem(Key, FOUND_NONE + EMPTY_EXCEPTION).Value;
+  Result := TCustomDictionary<TKey,TValue>.PItem(Self.InternalFindItem(Key, FOUND_NONE + EMPTY_EXCEPTION)).Value;
 end;
 
 procedure TDictionary<TKey,TValue>.SetItem(const Key: TKey; const Value: TValue);
@@ -7370,12 +7629,12 @@ begin
   Self.InternalFindItem(Key, FOUND_REPLACE + EMPTY_EXCEPTION);
 end;
 
-function TDictionary<TKey,TValue>.Find(const Key: TKey): PItem;
+function TDictionary<TKey,TValue>.Find(const Key: TKey): Pointer{PItem};
 begin
   Result := Self.InternalFindItem(Key, FOUND_NONE + EMPTY_NONE);
 end;
 
-function TDictionary<TKey,TValue>.FindOrAdd(const Key: TKey): PItem;
+function TDictionary<TKey,TValue>.FindOrAdd(const Key: TKey): Pointer{PItem};
 begin
   Self.FInternalFindValue := @Self.FDefaultValue;
   Result := Self.InternalFindItem(Key, FOUND_NONE + EMPTY_NEW);
@@ -7394,8 +7653,8 @@ end;
 
 function TDictionary<TKey,TValue>.ExtractPair(const Key: TKey): TPair<TKey,TValue>;
 var
-  Parent: ^PItem;
-  Item, Current: PItem;
+  Parent: Pointer;
+  Item, Current: TCustomDictionary<TKey,TValue>.PItem;
 begin
   Result.Key := Key;
   Item := Self.InternalFindItem(Key, FOUND_NONE + EMPTY_NONE);
@@ -7406,13 +7665,13 @@ begin
   end;
 
   Result.Value := Item.Value;
-  Parent := @Self.FHashTable[NativeInt(Cardinal(Item.HashCode)) and Self.FHashTableMask];
+  Parent := Pointer(@Self.FHashTable[NativeInt(Cardinal(Item.HashCode)) and Self.FHashTableMask]);
   repeat
-    Current := Parent^;
+    Current := TCustomDictionary<TKey,TValue>.PItem(Parent^);
 
     if (Item = Current) then
     begin
-      Parent^ := Item.FNext;
+      TCustomDictionary<TKey,TValue>.PItem(Parent^) := Item.FNext;
 
       if (not Assigned(Self.FInternalItemNotify)) then
       begin
@@ -7426,7 +7685,7 @@ begin
       Exit;
     end;
 
-    Parent := @Current.FNext;
+    Parent := Pointer(@Current.FNext);
   until (False);
 end;
 
@@ -7461,12 +7720,16 @@ end;
 { TRapidDictionary<TKey,TValue> }
 
 constructor TRapidDictionary<TKey,TValue>.Create(ACapacity: Integer);
+{$if CompilerVersion <= 28}
+var
+  Comparer: Pointer;
+{$ifend}
 begin
-  {$ifNdef SMARTGENERICS}
-  FDefaultComparer := TEqualityComparer<TKey>.Default;
-  TMethod(FDefaultEquals) := IntfMethod(Pointer(FDefaultComparer), 3);
-  TMethod(FDefaultGetHashCode) := IntfMethod(Pointer(FDefaultComparer), 4);
-  {$endif}
+  {$if CompilerVersion <= 28}
+  Comparer := InterfaceDefaults.TDefaultEqualityComparer<TKey>.Create;
+  TMethod(FComparerEquals) := IntfMethod(Pointer(Comparer), 3);
+  TMethod(FComparerGetHashCode) := IntfMethod(Pointer(Comparer), 4);
+  {$ifend}
 
   inherited;
 end;
@@ -7484,34 +7747,27 @@ destructor TRapidDictionary<TKey,TValue>.Destroy;
 begin
   inherited;
 
-  {$ifNdef SMARTGENERICS}
-  ClearMethod(FDefaultEquals);
-  ClearMethod(FDefaultGetHashCode);
-  {$endif}
+  {$if CompilerVersion <= 28}
+  ClearMethod(FComparerEquals);
+  ClearMethod(FComparerGetHashCode);
+  {$ifend}
 end;
 
-function TRapidDictionary<TKey,TValue>.InternalFindItem(const Key: TKey; const FindMode: Integer): PItem;
+{$if CompilerVersion >= 29}
+function TRapidDictionary<TKey,TValue>.InternalFindItem(const Key: TKey; const FindMode: Integer): TCustomDictionary<TKey,TValue>.PItem;
 label
-  {$ifdef SMARTGENERICS}
   hash0, hash1, hash2, hash3, hash4, hash5, hash6, hash7, hash8, hash9, hash10,
   cmp0, cmp1, cmp2, cmp3, cmp4, cmp5, {$ifdef SMALLINT}cmp6, cmp7, cmp8, cmp9, cmp10,{$endif}
-  {$endif}
   hash_calculated, next_item, not_found;
-type
-  TData16 = TRAIIHelper.TData16;
-  PData16 = ^TData16;
 var
   Parent: ^PItem;
   HashCode, Mode, M: Integer;
   Stored: TInternalFindStored;
-  {$ifdef SMARTGENERICS}
   Left, Right: PByte;
   Count, Offset: NativeUInt;
   _Self1, _Self2: TRapidDictionary<TKey,TValue>;
-  {$endif}
 begin
   // stores, hash code
-  {$ifdef SMARTGENERICS}
   Stored.Self := Self;
   if (GetTypeKind(TKey) = tkVariant) then
   begin
@@ -7568,7 +7824,7 @@ begin
           Stored.ExtendedRec.HighInt * -1660269137 + Integer(Stored.ExtendedRec.Middle) * -1092754919;
       end;
     else
-      if (InterfaceDefaults.TDefaultEqualityComparer<TKey>.Instance.Size < 0) then
+      if (TRAIIHelper<TKey>.Options.ItemSize < 0) then
       begin
         HashCode := PPoint(@Key).X + PPoint(@Key).Y * 63689;
       end else
@@ -7675,7 +7931,7 @@ begin
         else
         // tkDynArray
           Dec(Left, SizeOf(NativeUInt));
-          Count := PNativeInt(Left)^ * InterfaceDefaults.TDefaultEqualityComparer<TKey>.Instance.Size;
+          Count := PNativeInt(Left)^ * TRAIIHelper<TKey>.Options.ItemSize;
           Inc(Left, SizeOf(NativeUInt));
         end;
       end;
@@ -7773,9 +8029,6 @@ begin
     Inc(HashCode, ((HashCode shr 8) * 63689) + ((HashCode shr 16) * -1660269137) +
       ((HashCode shr 24) * -1092754919));
   end;
-  {$else}
-    HashCode := Self.FDefaultGetHashCode(Key);
-  {$endif}
 hash_calculated:
 
   // parent
@@ -7788,14 +8041,13 @@ hash_calculated:
   next_item:
     // hash code item
     repeat
-      Parent := @Result.FNext;
+      Parent := Pointer(@Result.FNext);
       Result := Result.FNext;
       if (not Assigned(Result)) then goto not_found;
     until (Stored.HashCode = Result.HashCode);
     NativeUInt(Stored.Parent) := NativeUInt(Parent);
 
     // default keys comparison
-    {$ifdef SMARTGENERICS}
     if (GetTypeKind(TKey) = tkVariant) then
     begin
       if (not InterfaceDefaults.Equals_Var(nil, PVarData(@Key), PVarData(Result))) then goto next_item;
@@ -7836,7 +8088,7 @@ hash_calculated:
         if ((PPoint(@Key).X - PPoint(Result).X) or (PPoint(@Key).Y - PPoint(Result).Y) <> 0) then
       {$endif}
         begin
-          if (InterfaceDefaults.TDefaultEqualityComparer<TKey>.Instance.Size < 0) then goto next_item;
+          if (TRAIIHelper<TKey>.Options.ItemSize < 0) then goto next_item;
           if (PDouble(@Key)^ <> PDouble(Result)^) then goto next_item;
         end;
       end;
@@ -7937,7 +8189,7 @@ hash_calculated:
             Dec(Right, SizeOf(NativeUInt));
             Count := PNativeUInt(Left)^;
             if (Count <> PNativeUInt(Right)^) then goto next_item;
-            NativeInt(Count) := NativeInt(Count) * InterfaceDefaults.TDefaultEqualityComparer<TKey>.Instance.Size;
+            NativeInt(Count) := NativeInt(Count) * TRAIIHelper<TKey>.Options.ItemSize;
             Inc(Left, SizeOf(NativeUInt));
             Inc(Right, SizeOf(NativeUInt));
           end else
@@ -8090,9 +8342,6 @@ hash_calculated:
         cmp0:
       end;
     end;
-    {$else}
-      if (not Self.FDefaultEquals(Key, Result.Key)) then goto next_item;
-    {$endif}
 
     // found
     Mode := FindMode;
@@ -8102,12 +8351,10 @@ hash_calculated:
     begin
       if (Mode = FOUND_DELETE) then
       begin
-        Stored.Parent^ := Result.FNext;
+        Pointer(Stored.Parent^) := Result.FNext;
 
-        {$ifdef SMARTGENERICS}
         _Self1 := Stored.Self;
         with _Self1 do
-        {$endif}
         if (not Assigned(FInternalItemNotify)) then
         begin
           DisposeItem(Result);
@@ -8119,18 +8366,16 @@ hash_calculated:
       end else
       // if (Mode = FOUND_REPLACE) then
       begin
-        {$ifdef SMARTGENERICS}
         _Self1 := Stored.Self;
         with _Self1 do
-        {$endif}
         if (not Assigned(FInternalValueNotify)) then
         begin
           Result.FValue := FInternalFindValue^;
         end else
         begin
-          FInternalValueNotify({$ifdef SMARTGENERICS}_Self1{$else}Self{$endif}, Result.Value, cnRemoved);
+          FInternalValueNotify(_Self1, Result.Value, cnRemoved);
           Result.FValue := FInternalFindValue^;
-          FInternalValueNotify({$ifdef SMARTGENERICS}_Self1{$else}Self{$endif}, Result.Value, cnAdded);
+          FInternalValueNotify(_Self1, Result.Value, cnAdded);
         end;
       end;
     end else
@@ -8146,15 +8391,13 @@ hash_calculated:
     if (Mode and EMPTY_EXCEPTION = 0) then
     begin
       // EMPTY_NEW
-      {$ifdef SMARTGENERICS}
       _Self2 := Stored.Self;
       with _Self2 do
-      {$endif}
       begin
         Result := NewItem;
         Result.FKey := Key;
         Result.FHashCode := Stored.HashCode;
-        Parent := @FHashTable[NativeInt(Cardinal(Stored.HashCode)) and FHashTableMask];
+        Parent := Pointer(@FHashTable[NativeInt(Cardinal(Stored.HashCode)) and FHashTableMask]);
         Result.FNext := Parent^;
         Parent^ := Result;
         Result.FValue := FInternalFindValue^;
@@ -8170,10 +8413,106 @@ hash_calculated:
     Exit;
   until (False);
 end;
+{$else XE7-}
+function TRapidDictionary<TKey,TValue>.InternalFindItem(const Key: TKey; const FindMode: Integer): Pointer{PItem};
+var
+  Parent: Pointer;
+  Item: TCustomDictionary<TKey,TValue>.PItem;
+  HashCode, Mode: Integer;
+  Stored: TInternalFindStored;
+begin
+  // hash code
+  HashCode := Self.FComparerGetHashCode(Key);
+
+  // parent
+  Pointer(Item{Parent}) := @FHashTable[NativeInt(Cardinal(HashCode)) and FHashTableMask];
+  Dec(NativeUInt(Item{Parent}), SizeOf(TKey) + SizeOf(TValue));
+
+  // find
+  Stored.HashCode := HashCode;
+  repeat
+    // hash code item
+    repeat
+      Parent := Pointer(@Item.FNext);
+      Item := Item.FNext;
+    until (Item = nil) or (Stored.HashCode = Item.HashCode);
+
+    if (Item <> nil) then
+    begin
+      // hash code item found
+      Stored.Parent := Parent;
+
+      // keys comparison
+      if (not Self.FComparerEquals(Key, Item.Key)) then Continue;
+
+      // found
+      Mode := FindMode;
+      if (Mode and FOUND_MASK = 0) then Break;
+      Cardinal(Mode) := Cardinal(Mode) and FOUND_MASK;
+      if (Mode <> FOUND_EXCEPTION) then
+      begin
+        if (Mode = FOUND_DELETE) then
+        begin
+          Pointer(Stored.Parent^) := Item.FNext;
+          if (not Assigned(Self.FInternalItemNotify)) then
+          begin
+            Self.DisposeItem(Item);
+          end else
+          begin
+            Self.FInternalItemNotify(Item^, cnRemoved);
+            Self.DisposeItem(Item);
+          end;
+        end else
+        // if (Mode = FOUND_REPLACE) then
+        begin
+          if (not Assigned(Self.FInternalValueNotify)) then
+          begin
+            Item.FValue := FInternalFindValue^;
+          end else
+          begin
+            Self.FInternalValueNotify(Self, Item.Value, cnRemoved);
+            Item.FValue := FInternalFindValue^;
+            Self.FInternalValueNotify(Self, Item.Value, cnAdded);
+          end;
+        end;
+      end else
+      begin
+        raise EListError.CreateRes(Pointer(@SGenericDuplicateItem));
+      end;
+      Break;
+    end;
+
+    // not found (Item = nil)
+    Mode := FindMode;
+    if (Mode and EMPTY_MASK = 0) then Break;
+    if (Mode and EMPTY_EXCEPTION = 0) then
+    begin
+      // EMPTY_NEW
+      Item := Self.NewItem;
+      Item.FKey := Key;
+      Item.FHashCode := Stored.HashCode;
+      Parent := Pointer(@Self.FHashTable[NativeInt(Cardinal(Stored.HashCode)) and Self.FHashTableMask]);
+      Item.FNext := Pointer(Parent^);
+      Pointer(Parent^) := Item;
+      Item.FValue := FInternalFindValue^;
+      if (Assigned(Self.FInternalItemNotify)) then
+      begin
+        Self.FInternalItemNotify(Item^, cnAdded);
+      end;
+      Break;
+    end else
+    begin
+      raise EListError.CreateRes(Pointer(@SGenericItemNotFound));
+    end;
+  until (False);
+
+  Result := Item;
+end;
+{$ifend}
 
 function TRapidDictionary<TKey,TValue>.GetItem(const Key: TKey): TValue;
 begin
-  Result := Self.InternalFindItem(Key, FOUND_NONE + EMPTY_EXCEPTION).Value;
+  Result := TCustomDictionary<TKey,TValue>.PItem(Self.InternalFindItem(Key, FOUND_NONE + EMPTY_EXCEPTION)).Value;
 end;
 
 procedure TRapidDictionary<TKey,TValue>.SetItem(const Key: TKey; const Value: TValue);
@@ -8182,12 +8521,12 @@ begin
   Self.InternalFindItem(Key, FOUND_REPLACE + EMPTY_EXCEPTION);
 end;
 
-function TRapidDictionary<TKey,TValue>.Find(const Key: TKey): PItem;
+function TRapidDictionary<TKey,TValue>.Find(const Key: TKey): Pointer{PItem};
 begin
   Result := Self.InternalFindItem(Key, FOUND_NONE + EMPTY_NONE);
 end;
 
-function TRapidDictionary<TKey,TValue>.FindOrAdd(const Key: TKey): PItem;
+function TRapidDictionary<TKey,TValue>.FindOrAdd(const Key: TKey): Pointer{PItem};
 begin
   Self.FInternalFindValue := @Self.FDefaultValue;
   Result := Self.InternalFindItem(Key, FOUND_NONE + EMPTY_NEW);
@@ -8206,8 +8545,8 @@ end;
 
 function TRapidDictionary<TKey,TValue>.ExtractPair(const Key: TKey): TPair<TKey,TValue>;
 var
-  Parent: ^PItem;
-  Item, Current: PItem;
+  Parent: Pointer;
+  Item, Current: TCustomDictionary<TKey,TValue>.PItem;
 begin
   Result.Key := Key;
   Item := Self.InternalFindItem(Key, FOUND_NONE + EMPTY_NONE);
@@ -8218,13 +8557,13 @@ begin
   end;
 
   Result.Value := Item.Value;
-  Parent := @Self.FHashTable[NativeInt(Cardinal(Item.HashCode)) and Self.FHashTableMask];
+  Parent := Pointer(@Self.FHashTable[NativeInt(Cardinal(Item.HashCode)) and Self.FHashTableMask]);
   repeat
-    Current := Parent^;
+    Current := TCustomDictionary<TKey,TValue>.PItem(Parent^);
 
     if (Item = Current) then
     begin
-      Parent^ := Item.FNext;
+      TCustomDictionary<TKey,TValue>.PItem(Parent^) := Item.FNext;
 
       if (not Assigned(Self.FInternalItemNotify)) then
       begin
@@ -8238,7 +8577,7 @@ begin
       Exit;
     end;
 
-    Parent := @Current.FNext;
+    Parent := Pointer(@Current.FNext);
   until (False);
 end;
 
@@ -8632,8 +8971,6 @@ begin
 end;
 
 class procedure TArray.Reverse<T>(const Values: Pointer; const Count: NativeInt);
-type
-  P = ^T;
 var
   X, Y: Pointer;
   Index: NativeInt;
@@ -8645,7 +8982,7 @@ begin
   if (Count > 1) then
   begin
     X := Values;
-    Y := P(Values) + Count - 1;
+    Y := TRAIIHelper<T>.P(Values) + Count - 1;
 
     repeat
       if (SizeOf(T) <= 16) then
@@ -8720,7 +9057,7 @@ end;
 
 procedure TArray.TSortHelper<T>.Init;
 begin
-  Self.Inst := @InterfaceDefaults.TDefaultComparer<T>.Instance;
+  Self.Inst := InterfaceDefaults.TDefaultComparer<T>.Create;
   Self.Compare := InterfaceDefaults.TDefaultComparer<T>.Instance.Compare;
 end;
 
@@ -8741,7 +9078,8 @@ end;
 class procedure TArray.Copy<T>(const Source: array of T; var Destination: array of T; SourceIndex, DestIndex, Count: NativeInt);
 begin
   CheckArrays(Pointer(@Source[0]), Pointer(@Destination[0]), SourceIndex, Length(Source), DestIndex, Length(Destination), Count);
-  if IsManagedType(T) then
+  TRAIIHelper<T>.Create;
+  if TRAIIHelper<T>.IsManaged then
     System.CopyArray(Pointer(@Destination[DestIndex]), Pointer(@Source[SourceIndex]), TypeInfo(T), Count)
   else
     System.Move(Pointer(@Source[SourceIndex])^, Pointer(@Destination[DestIndex])^, Count * SizeOf(T));
@@ -8753,10 +9091,6 @@ begin
 end;
 
 class function TArray.SortItemPivot<T>(const I, J: Pointer): Pointer;
-type
-  P = ^T;
-  TItemList = TItemList<T>;
-  PItemList = ^TItemList;
 var
   Index: NativeInt;
 begin
@@ -8781,7 +9115,7 @@ begin
     Index := NativeInt(Round((NativeInt(J) - NativeInt(I)) * (1 / SizeOf(T)))) shr 1;
   end;
 
-  Result := P(I) + Index;
+  Result := TRAIIHelper<T>.P(I) + Index;
 end;
 
 class function TArray.SortItemNext<T>(const StackItem, I, J: Pointer): Pointer;
@@ -8795,37 +9129,37 @@ begin
   // next "recursion" iteration
   // if (i < last) qs(s_arr, i, last);
   // if (first < j) qs(s_arr, first, j);
-  DiffI := NativeInt(Item.Last) - NativeInt(I);
-  DiffJ := NativeInt(J) - NativeInt(Item.First);
+  DiffI := NativeInt(Item^.Last) - NativeInt(I);
+  DiffJ := NativeInt(J) - NativeInt(Item^.First);
   if (DiffI > 0) then
   begin
     if (DiffJ <= 0) then
     begin
-      Item.First := I;
+      Item^.First := I;
       // Item.Last := Item.Last;
     end else
     if (DiffI >= DiffJ) then
     begin
       // i..last, first..j
-      Buf := Item.First;
-      Item.First := I;
+      Buf := Item^.First;
+      Item^.First := I;
       Inc(Item);
-      Item.First := Buf;
-      Item.Last := J;
+      Item^.First := Buf;
+      Item^.Last := J;
     end else
     begin
       // first..j, i..last
-      Buf := Item.Last;
-      Item.Last := J;
+      Buf := Item^.Last;
+      Item^.Last := J;
       Inc(Item);
-      Item.First := I;
-      Item.Last := Buf;
+      Item^.First := I;
+      Item^.Last := Buf;
     end;
   end else
   if (DiffJ > 0) then
   begin
     // Item.First := Item.First;
-    Item.Last := J;
+    Item^.Last := J;
   end else
   begin
     Inc(NativeInt(Item), HIGH_NATIVE_BIT);
@@ -8933,58 +9267,26 @@ begin
   end;
 end;
 
-class function TArray.SortBinaryComparer<T>(const Pivot, Binary: Pointer): Integer;
-begin
-  if (GetTypeKind(T) = tkString) then
-  begin
-    Result := InterfaceDefaults.Compare_OStr(nil, Pivot, Binary);
-  end else
-  if (SizeOf(T) <= SizeOf(Cardinal)) then
-  begin
-    Result := 0;
-  end else
-  {$ifdef LARGEINT}
-  if (SizeOf(T) = SizeOf(Int64)) then
-  begin
-    Result := InterfaceDefaults.Compare_Bin8(nil, PInt64(Pivot)^, PInt64(Binary)^);
-  end else
-  {$endif}
-  begin
-    Result := InterfaceDefaults.Compare_Bin(InterfaceDefaults.TDefaultComparer<T>.Instance, Pivot, Binary);
-  end;
-end;
-
 class procedure TArray.RadixSort<T>(const Values: Pointer; const Count, Flags: NativeInt);
 label
   clean_radixes;
-type
-  PItem = ^T;
-  TRadixes = array[Byte] of Word;
-  PRadixes = ^TRadixes;
 var
   i, Mask, Index, TargetIndex: NativeInt;
   Source, TopSourceFirst, TopSource: PByte;
   Radixes: PRadixes;
   Radix, TopRadix: PWord;
   Target: NativeInt;
-  Buffers: record
-    Radixes: TRadixes;
-    Data: array[0..RADIX_BUFFER_SIZE - 1] of T;
-    Index: NativeInt;
-    Ptr: array[0..1] of Pointer;
-    Mask: NativeInt;
-    SingleRadix: Word;
-  end;
+  Stored: TInternalRadixStored<T>;
 begin
-  Buffers.SingleRadix := Count * SizeOf(T);
-  Buffers.Ptr[0] := Values;
-  Buffers.Ptr[1] := @Buffers.Data;
-  Buffers.Index := 0;
+  Stored.SingleRadix := Count * SizeOf(T);
+  Stored.Ptr[0] := Values;
+  Stored.Ptr[1] := @Stored.Data;
+  Stored.Index := 0;
 
   i := 0;
   repeat
     // clear radixes
-    FillChar(Buffers.Radixes, SizeOf(Buffers.Radixes), #0);
+    FillChar(Stored.Radixes, SizeOf(Stored.Radixes), #0);
   clean_radixes:
 
     // xor mask
@@ -8993,13 +9295,13 @@ begin
     Mask := Byte(Mask);
 
     // fill radixes basics
-    Source := Pointer(Buffers.Ptr[Buffers.Index]);
+    Source := Pointer(Stored.Ptr[Stored.Index]);
     Inc(Source, i);
-    TopSourceFirst := Pointer(PItem(Source) + Count);
+    TopSourceFirst := Pointer(TRAIIHelper<T>.P(Source) + Count);
     repeat
       Index := Source^;
       Index := Index xor Mask;
-      Radixes := @Buffers.Radixes;
+      Radixes := @Stored.Radixes;
       Inc(Radixes[Index], SizeOf(T));
       Inc(Source, SizeOf(T));
     until (Source = TopSourceFirst);
@@ -9008,18 +9310,18 @@ begin
     Dec(Source, SizeOf(T));
     Index := Source^;
     Index := Index xor Mask;
-    if (Buffers.Radixes[Index] = Buffers.SingleRadix) then
+    if (Stored.Radixes[Index] = Stored.SingleRadix) then
     begin
       Inc(i);
       if (i = SizeOf(T)) then Break;
 
-      Buffers.Radixes[Index] := 0;
+      Stored.Radixes[Index] := 0;
       goto clean_radixes;
     end;
-    Buffers.Mask := Mask;
+    Stored.Mask := Mask;
 
     // calculate offsets
-    Radix := @Buffers.Radixes[0];
+    Radix := @Stored.Radixes[0];
     TopRadix := Radix + 256;
     Index := 0;
     repeat
@@ -9039,24 +9341,24 @@ begin
     until (False);
 
     // fill target
-    Source := Pointer(Buffers.Ptr[Buffers.Index]);
+    Source := Pointer(Stored.Ptr[Stored.Index]);
     Inc(Source, i);
-    Buffers.Index := Buffers.Index xor 1;
-    TopSource := Pointer(PItem(Source) + Count);
-    Target := NativeInt(Buffers.Ptr[Buffers.Index]) - SizeOf(T);
-    case Buffers.Mask of
+    Stored.Index := Stored.Index xor 1;
+    TopSource := Pointer(TRAIIHelper<T>.P(Source) + Count);
+    Target := NativeInt(Stored.Ptr[Stored.Index]) - SizeOf(T);
+    case Stored.Mask of
       $80:
       begin
         repeat
           Index := Source^;
           Index := Index xor $80;
 
-          Radixes := @Buffers.Radixes;
+          Radixes := @Stored.Radixes;
           TargetIndex := Radixes[Index];
           Inc(TargetIndex, SizeOf(T));
           Radixes[Index] := TargetIndex;
 
-          PItem(TargetIndex + Target)^ := PItem(Source - i)^;
+          TRAIIHelper<T>.P(TargetIndex + Target)^ := TRAIIHelper<T>.P(Source - i)^;
           Inc(Source, SizeOf(T));
         until (Source = TopSource);
       end;
@@ -9066,12 +9368,12 @@ begin
           Index := Source^;
           Index := Index xor $ff;
 
-          Radixes := @Buffers.Radixes;
+          Radixes := @Stored.Radixes;
           TargetIndex := Radixes[Index];
           Inc(TargetIndex, SizeOf(T));
           Radixes[Index] := TargetIndex;
 
-          PItem(TargetIndex + Target)^ := PItem(Source - i)^;
+          TRAIIHelper<T>.P(TargetIndex + Target)^ := TRAIIHelper<T>.P(Source - i)^;
           Inc(Source, SizeOf(T));
         until (Source = TopSource);
       end;
@@ -9081,12 +9383,12 @@ begin
           Index := Source^;
           Index := Index xor $7f;
 
-          Radixes := @Buffers.Radixes;
+          Radixes := @Stored.Radixes;
           TargetIndex := Radixes[Index];
           Inc(TargetIndex, SizeOf(T));
           Radixes[Index] := TargetIndex;
 
-          PItem(TargetIndex + Target)^ := PItem(Source - i)^;
+          TRAIIHelper<T>.P(TargetIndex + Target)^ := TRAIIHelper<T>.P(Source - i)^;
           Inc(Source, SizeOf(T));
         until (Source = TopSource);
       end;
@@ -9095,12 +9397,12 @@ begin
       repeat
         Index := Source^;
 
-        Radixes := @Buffers.Radixes;
+        Radixes := @Stored.Radixes;
         TargetIndex := Radixes[Index];
         Inc(TargetIndex, SizeOf(T));
         Radixes[Index] := TargetIndex;
 
-        PItem(TargetIndex + Target)^ := PItem(Source - i)^;
+        TRAIIHelper<T>.P(TargetIndex + Target)^ := TRAIIHelper<T>.P(Source - i)^;
         Inc(Source, SizeOf(T));
       until (Source = TopSource);
     end;
@@ -9110,8 +9412,8 @@ begin
   until (i = SizeOf(T));
 
   // ValuesArray guarantee
-  if (Buffers.Index <> 0) then
-    Move(Buffers.Data, Buffers.Ptr[0]^, Count * SizeOf(T));
+  if (Stored.Index <> 0) then
+    Move(Stored.Data, Stored.Ptr[0]^, Count * SizeOf(T));
 end;
 
 class function TArray.RadixSortSigneds<T>(var StackItem: TSortStackItem<T>): Pointer;
@@ -9210,7 +9512,11 @@ sign_sorted:
   begin
     if (Count <= ((SizeOf(T) div 4) * 125 - (SizeOf(T) div 10) * 1050)) then
     begin
-      TArray.SortFloats<T>(StackItem.First, Count);
+      {$if CompilerVersion = 28}
+        TArray.Sort<T>(StackItem.First^, Count);
+      {$else}
+        TArray.SortFloats<T>(StackItem.First, Count);
+      {$ifend}
     end else
     case SizeOf(T) of
       4: TArray.RadixSort<Integer>(StackItem.First, Count, not $0000);
@@ -9225,7 +9531,11 @@ sign_sorted:
   begin
     if (Count <= ((SizeOf(T) div 4) * 125 - (SizeOf(T) div 10) * 1050)) then
     begin
-      TArray.SortFloats<T>(I, Count);
+      {$if CompilerVersion = 28}
+        TArray.Sort<T>(TRAIIHelper<T>.P(I)^, Count);
+      {$else}
+        TArray.SortFloats<T>(I, Count);
+      {$ifend}
     end else
     case SizeOf(T) of
       4: TArray.RadixSort<Integer>(I, Count, $0000);
@@ -9282,7 +9592,11 @@ sign_sorted:
   begin
     if (Count <= ((SizeOf(T) div 4) * 125 - (SizeOf(T) div 10) * 1050)) then
     begin
-      TArray.SortDescendingFloats<T>(StackItem.First, Count);
+      {$if CompilerVersion = 28}
+        TArray.SortDescending<T>(StackItem.First^, Count);
+      {$else}
+        TArray.SortDescendingFloats<T>(StackItem.First, Count);
+      {$ifend}
     end else
     case SizeOf(T) of
       4: TArray.RadixSort<Integer>(StackItem.First, Count, not $0000);
@@ -9297,7 +9611,11 @@ sign_sorted:
   begin
     if (Count <= ((SizeOf(T) div 4) * 125 - (SizeOf(T) div 10) * 1050)) then
     begin
-      TArray.SortDescendingFloats<T>(I, Count);
+      {$if CompilerVersion = 28}
+        TArray.SortDescending<T>(TRAIIHelper<T>.P(I)^, Count);
+      {$else}
+        TArray.SortDescendingFloats<T>(I, Count);
+      {$ifend}
     end else
     case SizeOf(T) of
       4: TArray.RadixSort<Integer>(I, Count, $0000);
@@ -9313,12 +9631,6 @@ end;
 class procedure TArray.SortSigneds<T>(const Values: Pointer; const Count: NativeInt);
 label
   proc_loop, proc_loop_current, insertion_init, swap_loop;
-type
-  P = ^T;
-  P1 = ^ShortInt;
-  P2 = ^SmallInt;
-  P4 = ^Integer;
-  P8 = ^Int64;
 var
   Pivot4: Integer;
   {$ifdef LARGEINT}
@@ -9336,14 +9648,14 @@ var
   Stack: TSortStack<T>;
 begin
   Stack[0].First := Values;
-  Stack[0].Last := P(Values) + Count - 1;
-  StackItem := @Stack[1];
+  Stack[0].Last := TRAIIHelper<T>.P(Values) + Count - 1;
+  StackItem := Pointer(@Stack[1]);
 
 proc_loop:
   Dec(StackItem);
 proc_loop_current:
-  I := StackItem.First;
-  J := StackItem.Last;
+  I := StackItem^.First;
+  J := StackItem^.Last;
 
   // insertion/radix sort
   Size := NativeInt(J) - NativeInt(I) + SizeOf(T);
@@ -9355,19 +9667,19 @@ proc_loop_current:
   begin
     if (Size <= INSERTION_SORT_LIMIT * SizeOf(T)) then
     begin
-      PStop := StackItem.First;
+      PStop := StackItem^.First;
       goto insertion_init;
       repeat
         if (J = PStop) then Break;
         Dec(J);
 
         case SizeOf(T) of
-          1: if (Pivot4 <= P1(J)^) then Continue;
-          2: if (Pivot4 <= P2(J)^) then Continue;
-          4: if (Pivot4 <= P4(J)^) then Continue;
+          1: if (Pivot4 <= PS1(J)^) then Continue;
+          2: if (Pivot4 <= PS2(J)^) then Continue;
+          4: if (Pivot4 <= PS4(J)^) then Continue;
         else
           {$ifdef LARGEINT}
-            if (Pivot8 <= P8(J)^) then Continue;
+            if (Pivot8 <= PS8(J)^) then Continue;
           {$else .SMALLINT}
             Buffer8High := PPoint(J).Y;
             if (Pivot8High < Buffer8High) or
@@ -9378,12 +9690,12 @@ proc_loop_current:
       insertion_init:
         I := J;
         case SizeOf(T) of
-          1: Pivot4 := P1(J)^;
-          2: Pivot4 := P2(J)^;
-          4: Pivot4 := P4(J)^;
+          1: Pivot4 := PS1(J)^;
+          2: Pivot4 := PS2(J)^;
+          4: Pivot4 := PS4(J)^;
         else
           {$ifdef LARGEINT}
-            Pivot8 := P8(J)^;
+            Pivot8 := PS8(J)^;
           {$else .SMALLINT}
             with PPoint(J)^ do
             begin
@@ -9395,12 +9707,12 @@ proc_loop_current:
       until (False);
       I^ := J^;
       case SizeOf(T) of
-        1: P1(J)^ := Pivot4;
-        2: P2(J)^ := Pivot4;
-        4: P4(J)^ := Pivot4;
+        1: PS1(J)^ := Pivot4;
+        2: PS2(J)^ := Pivot4;
+        4: PS4(J)^ := Pivot4;
       else
         {$ifdef LARGEINT}
-          P8(J)^ := Pivot8;
+          PS8(J)^ := Pivot8;
         {$else .SMALLINT}
           with PPoint(J)^ do
           begin
@@ -9410,18 +9722,18 @@ proc_loop_current:
         {$endif}
       end;
 
-      PStop := StackItem.Last;
+      PStop := StackItem^.Last;
       repeat
         Inc(J);
         if (J = PStop) then Break;
 
         case SizeOf(T) of
-          1: Pivot4 := P1(J + 1)^;
-          2: Pivot4 := P2(J + 1)^;
-          4: Pivot4 := P4(J + 1)^;
+          1: Pivot4 := PS1(J + 1)^;
+          2: Pivot4 := PS2(J + 1)^;
+          4: Pivot4 := PS4(J + 1)^;
         else
           {$ifdef LARGEINT}
-            Pivot8 := P8(J + 1)^;
+            Pivot8 := PS8(J + 1)^;
           {$else .SMALLINT}
             with PPoint(J + 1)^ do
             begin
@@ -9431,12 +9743,12 @@ proc_loop_current:
           {$endif}
         end;
         case SizeOf(T) of
-          1: if (P1(J)^ <= Pivot4) then Continue;
-          2: if (P2(J)^ <= Pivot4) then Continue;
-          4: if (P4(J)^ <= Pivot4) then Continue;
+          1: if (PS1(J)^ <= Pivot4) then Continue;
+          2: if (PS2(J)^ <= Pivot4) then Continue;
+          4: if (PS4(J)^ <= Pivot4) then Continue;
         else
           {$ifdef LARGEINT}
-            if (P8(J)^ <= Pivot8)  then Continue;
+            if (PS8(J)^ <= Pivot8)  then Continue;
           {$else .SMALLINT}
             Buffer8High := PPoint(J).Y;
             if (Buffer8High < Pivot8High) or
@@ -9449,12 +9761,12 @@ proc_loop_current:
           (I + 1)^ := I^;
           Dec(I);
           case SizeOf(T) of
-            1: if (P1(I)^ <= Pivot4) then Break;
-            2: if (P2(I)^ <= Pivot4) then Break;
-            4: if (P4(I)^ <= Pivot4) then Break;
+            1: if (PS1(I)^ <= Pivot4) then Break;
+            2: if (PS2(I)^ <= Pivot4) then Break;
+            4: if (PS4(I)^ <= Pivot4) then Break;
           else
             {$ifdef LARGEINT}
-              if (P8(I)^ <= Pivot8)  then Break;
+              if (PS8(I)^ <= Pivot8)  then Break;
             {$else .SMALLINT}
               Buffer8High := PPoint(I).Y;
               if (Buffer8High < Pivot8High) or
@@ -9464,12 +9776,12 @@ proc_loop_current:
         until (False);
 
         case SizeOf(T) of
-          1: P1(I + 1)^ := Pivot4;
-          2: P2(I + 1)^ := Pivot4;
-          4: P4(I + 1)^ := Pivot4;
+          1: PS1(I + 1)^ := Pivot4;
+          2: PS2(I + 1)^ := Pivot4;
+          4: PS4(I + 1)^ := Pivot4;
         else
           {$ifdef LARGEINT}
-            P8(I + 1)^ := Pivot8;
+            PS8(I + 1)^ := Pivot8;
           {$else .SMALLINT}
             with PPoint(I + 1)^ do
             begin
@@ -9480,24 +9792,24 @@ proc_loop_current:
         end;
       until (False);
 
-      if (StackItem <> @STACK[0]) then goto proc_loop;
+      if (StackItem <> Pointer(@Stack[0])) then goto proc_loop;
       Exit;
     end else
     begin
       StackItem := TArray.RadixSortSigneds<T>(StackItem^);
-      if (StackItem <> @STACK[0]) then goto proc_loop;
+      if (StackItem <> Pointer(@Stack[0])) then goto proc_loop;
       Exit;
     end;
   end;
 
   // pivot
   case SizeOf(T) of
-    1: Pivot4 := P1(SortItemPivot<T>(I, J))^;
-    2: Pivot4 := P2(SortItemPivot<T>(I, J))^;
-    4: Pivot4 := P4(SortItemPivot<T>(I, J))^;
+    1: Pivot4 := PS1(SortItemPivot<T>(I, J))^;
+    2: Pivot4 := PS2(SortItemPivot<T>(I, J))^;
+    4: Pivot4 := PS4(SortItemPivot<T>(I, J))^;
   else
     {$ifdef LARGEINT}
-      Pivot8 := P8(SortItemPivot<T>(I, J))^;
+      Pivot8 := PS8(SortItemPivot<T>(I, J))^;
     {$else .SMALLINT}
       with PPoint(I + ((NativeInt(J) - NativeInt(I)) shr 4))^ do
       begin
@@ -9517,12 +9829,12 @@ proc_loop_current:
     repeat
       Inc(I);
       case SizeOf(T) of
-        1: if (Pivot4 <= P1(I)^) then Break;
-        2: if (Pivot4 <= P2(I)^) then Break;
-        4: if (Pivot4 <= P4(I)^) then Break;
+        1: if (Pivot4 <= PS1(I)^) then Break;
+        2: if (Pivot4 <= PS2(I)^) then Break;
+        4: if (Pivot4 <= PS4(I)^) then Break;
       else
         {$ifdef LARGEINT}
-          if (Pivot8 <= P8(I)^) then Break;
+          if (Pivot8 <= PS8(I)^) then Break;
         {$else .SMALLINT}
           Buffer8High := PPoint(I).Y;
           if (Pivot8High < Buffer8High) or
@@ -9534,12 +9846,12 @@ proc_loop_current:
     repeat
       Dec(J);
       case SizeOf(T) of
-        1: if (P1(J)^ <= Pivot4) then Break;
-        2: if (P2(J)^ <= Pivot4) then Break;
-        4: if (P4(J)^ <= Pivot4) then Break;
+        1: if (PS1(J)^ <= Pivot4) then Break;
+        2: if (PS2(J)^ <= Pivot4) then Break;
+        4: if (PS4(J)^ <= Pivot4) then Break;
       else
         {$ifdef LARGEINT}
-          if (P8(J)^ <= Pivot8)  then Break;
+          if (PS8(J)^ <= Pivot8)  then Break;
         {$else .SMALLINT}
           Buffer8High := PPoint(J).Y;
           if (Buffer8High < Pivot8High) or
@@ -9578,18 +9890,12 @@ proc_loop_current:
   StackItem := SortItemNext<T>(StackItem, I, J);
   if (NativeInt(StackItem) >= 0) then goto proc_loop_current;
   Dec(NativeInt(StackItem), HIGH_NATIVE_BIT);
-  if (StackItem <> @Stack[0]) then goto proc_loop;
+  if (StackItem <> Pointer(@Stack[0])) then goto proc_loop;
 end;
 
 class procedure TArray.SortDescendingSigneds<T>(const Values: Pointer; const Count: NativeInt);
 label
   proc_loop, proc_loop_current, insertion_init, swap_loop;
-type
-  P = ^T;
-  P1 = ^ShortInt;
-  P2 = ^SmallInt;
-  P4 = ^Integer;
-  P8 = ^Int64;
 var
   Pivot4: Integer;
   {$ifdef LARGEINT}
@@ -9607,14 +9913,14 @@ var
   Stack: TSortStack<T>;
 begin
   Stack[0].First := Values;
-  Stack[0].Last := P(Values) + Count - 1;
-  StackItem := @Stack[1];
+  Stack[0].Last := TRAIIHelper<T>.P(Values) + Count - 1;
+  StackItem := Pointer(@Stack[1]);
 
 proc_loop:
   Dec(StackItem);
 proc_loop_current:
-  I := StackItem.First;
-  J := StackItem.Last;
+  I := StackItem^.First;
+  J := StackItem^.Last;
 
   // insertion/radix sort
   Size := NativeInt(J) - NativeInt(I) + SizeOf(T);
@@ -9626,19 +9932,19 @@ proc_loop_current:
   begin
     if (Size <= INSERTION_SORT_LIMIT * SizeOf(T)) then
     begin
-      PStop := StackItem.First;
+      PStop := StackItem^.First;
       goto insertion_init;
       repeat
         if (J = PStop) then Break;
         Dec(J);
 
         case SizeOf(T) of
-          1: if (Pivot4 >= P1(J)^) then Continue;
-          2: if (Pivot4 >= P2(J)^) then Continue;
-          4: if (Pivot4 >= P4(J)^) then Continue;
+          1: if (Pivot4 >= PS1(J)^) then Continue;
+          2: if (Pivot4 >= PS2(J)^) then Continue;
+          4: if (Pivot4 >= PS4(J)^) then Continue;
         else
           {$ifdef LARGEINT}
-            if (Pivot8 >= P8(J)^) then Continue;
+            if (Pivot8 >= PS8(J)^) then Continue;
           {$else .SMALLINT}
             Buffer8High := PPoint(J).Y;
             if (Pivot8High > Buffer8High) or
@@ -9649,12 +9955,12 @@ proc_loop_current:
       insertion_init:
         I := J;
         case SizeOf(T) of
-          1: Pivot4 := P1(J)^;
-          2: Pivot4 := P2(J)^;
-          4: Pivot4 := P4(J)^;
+          1: Pivot4 := PS1(J)^;
+          2: Pivot4 := PS2(J)^;
+          4: Pivot4 := PS4(J)^;
         else
           {$ifdef LARGEINT}
-            Pivot8 := P8(J)^;
+            Pivot8 := PS8(J)^;
           {$else .SMALLINT}
             with PPoint(J)^ do
             begin
@@ -9666,12 +9972,12 @@ proc_loop_current:
       until (False);
       I^ := J^;
       case SizeOf(T) of
-        1: P1(J)^ := Pivot4;
-        2: P2(J)^ := Pivot4;
-        4: P4(J)^ := Pivot4;
+        1: PS1(J)^ := Pivot4;
+        2: PS2(J)^ := Pivot4;
+        4: PS4(J)^ := Pivot4;
       else
         {$ifdef LARGEINT}
-          P8(J)^ := Pivot8;
+          PS8(J)^ := Pivot8;
         {$else .SMALLINT}
           with PPoint(J)^ do
           begin
@@ -9681,18 +9987,18 @@ proc_loop_current:
         {$endif}
       end;
 
-      PStop := StackItem.Last;
+      PStop := StackItem^.Last;
       repeat
         Inc(J);
         if (J = PStop) then Break;
 
         case SizeOf(T) of
-          1: Pivot4 := P1(J + 1)^;
-          2: Pivot4 := P2(J + 1)^;
-          4: Pivot4 := P4(J + 1)^;
+          1: Pivot4 := PS1(J + 1)^;
+          2: Pivot4 := PS2(J + 1)^;
+          4: Pivot4 := PS4(J + 1)^;
         else
           {$ifdef LARGEINT}
-            Pivot8 := P8(J + 1)^;
+            Pivot8 := PS8(J + 1)^;
           {$else .SMALLINT}
             with PPoint(J + 1)^ do
             begin
@@ -9702,12 +10008,12 @@ proc_loop_current:
           {$endif}
         end;
         case SizeOf(T) of
-          1: if (P1(J)^ >= Pivot4) then Continue;
-          2: if (P2(J)^ >= Pivot4) then Continue;
-          4: if (P4(J)^ >= Pivot4) then Continue;
+          1: if (PS1(J)^ >= Pivot4) then Continue;
+          2: if (PS2(J)^ >= Pivot4) then Continue;
+          4: if (PS4(J)^ >= Pivot4) then Continue;
         else
           {$ifdef LARGEINT}
-            if (P8(J)^ >= Pivot8)  then Continue;
+            if (PS8(J)^ >= Pivot8)  then Continue;
           {$else .SMALLINT}
             Buffer8High := PPoint(J).Y;
             if (Buffer8High > Pivot8High) or
@@ -9720,12 +10026,12 @@ proc_loop_current:
           (I + 1)^ := I^;
           Dec(I);
           case SizeOf(T) of
-            1: if (P1(I)^ >= Pivot4) then Break;
-            2: if (P2(I)^ >= Pivot4) then Break;
-            4: if (P4(I)^ >= Pivot4) then Break;
+            1: if (PS1(I)^ >= Pivot4) then Break;
+            2: if (PS2(I)^ >= Pivot4) then Break;
+            4: if (PS4(I)^ >= Pivot4) then Break;
           else
             {$ifdef LARGEINT}
-              if (P8(I)^ >= Pivot8)  then Break;
+              if (PS8(I)^ >= Pivot8)  then Break;
             {$else .SMALLINT}
               Buffer8High := PPoint(I).Y;
               if (Buffer8High > Pivot8High) or
@@ -9735,12 +10041,12 @@ proc_loop_current:
         until (False);
 
         case SizeOf(T) of
-          1: P1(I + 1)^ := Pivot4;
-          2: P2(I + 1)^ := Pivot4;
-          4: P4(I + 1)^ := Pivot4;
+          1: PS1(I + 1)^ := Pivot4;
+          2: PS2(I + 1)^ := Pivot4;
+          4: PS4(I + 1)^ := Pivot4;
         else
           {$ifdef LARGEINT}
-            P8(I + 1)^ := Pivot8;
+            PS8(I + 1)^ := Pivot8;
           {$else .SMALLINT}
             with PPoint(I + 1)^ do
             begin
@@ -9751,24 +10057,24 @@ proc_loop_current:
         end;
       until (False);
 
-      if (StackItem <> @STACK[0]) then goto proc_loop;
+      if (StackItem <> Pointer(@Stack[0])) then goto proc_loop;
       Exit;
     end else
     begin
       StackItem := TArray.RadixSortDescendingSigneds<T>(StackItem^);
-      if (StackItem <> @STACK[0]) then goto proc_loop;
+      if (StackItem <> Pointer(@Stack[0])) then goto proc_loop;
       Exit;
     end;
   end;
 
   // pivot
   case SizeOf(T) of
-    1: Pivot4 := P1(SortItemPivot<T>(I, J))^;
-    2: Pivot4 := P2(SortItemPivot<T>(I, J))^;
-    4: Pivot4 := P4(SortItemPivot<T>(I, J))^;
+    1: Pivot4 := PS1(SortItemPivot<T>(I, J))^;
+    2: Pivot4 := PS2(SortItemPivot<T>(I, J))^;
+    4: Pivot4 := PS4(SortItemPivot<T>(I, J))^;
   else
     {$ifdef LARGEINT}
-      Pivot8 := P8(SortItemPivot<T>(I, J))^;
+      Pivot8 := PS8(SortItemPivot<T>(I, J))^;
     {$else .SMALLINT}
       with PPoint(I + ((NativeInt(J) - NativeInt(I)) shr 4))^ do
       begin
@@ -9788,12 +10094,12 @@ proc_loop_current:
     repeat
       Inc(I);
       case SizeOf(T) of
-        1: if (Pivot4 >= P1(I)^) then Break;
-        2: if (Pivot4 >= P2(I)^) then Break;
-        4: if (Pivot4 >= P4(I)^) then Break;
+        1: if (Pivot4 >= PS1(I)^) then Break;
+        2: if (Pivot4 >= PS2(I)^) then Break;
+        4: if (Pivot4 >= PS4(I)^) then Break;
       else
         {$ifdef LARGEINT}
-          if (Pivot8 >= P8(I)^) then Break;
+          if (Pivot8 >= PS8(I)^) then Break;
         {$else .SMALLINT}
           Buffer8High := PPoint(I).Y;
           if (Pivot8High > Buffer8High) or
@@ -9805,12 +10111,12 @@ proc_loop_current:
     repeat
       Dec(J);
       case SizeOf(T) of
-        1: if (P1(J)^ >= Pivot4) then Break;
-        2: if (P2(J)^ >= Pivot4) then Break;
-        4: if (P4(J)^ >= Pivot4) then Break;
+        1: if (PS1(J)^ >= Pivot4) then Break;
+        2: if (PS2(J)^ >= Pivot4) then Break;
+        4: if (PS4(J)^ >= Pivot4) then Break;
       else
         {$ifdef LARGEINT}
-          if (P8(J)^ >= Pivot8)  then Break;
+          if (PS8(J)^ >= Pivot8)  then Break;
         {$else .SMALLINT}
           Buffer8High := PPoint(J).Y;
           if (Buffer8High > Pivot8High) or
@@ -9849,18 +10155,12 @@ proc_loop_current:
   StackItem := SortItemNext<T>(StackItem, I, J);
   if (NativeInt(StackItem) >= 0) then goto proc_loop_current;
   Dec(NativeInt(StackItem), HIGH_NATIVE_BIT);
-  if (StackItem <> @Stack[0]) then goto proc_loop;
+  if (StackItem <> Pointer(@Stack[0])) then goto proc_loop;
 end;
 
 class procedure TArray.SortUnsigneds<T>(const Values: Pointer; const Count: NativeInt);
 label
   proc_loop, proc_loop_current, insertion_init, swap_loop;
-type
-  P = ^T;
-  P1 = ^Byte;
-  P2 = ^Word;
-  P4 = ^Cardinal;
-  P8 = ^UInt64;
 var
   Pivot4: Cardinal;
   {$ifdef LARGEINT}
@@ -9878,14 +10178,14 @@ var
   Stack: TSortStack<T>;
 begin
   Stack[0].First := Values;
-  Stack[0].Last := P(Values) + Count - 1;
-  StackItem := @Stack[1];
+  Stack[0].Last := TRAIIHelper<T>.P(Values) + Count - 1;
+  StackItem := Pointer(@Stack[1]);
 
 proc_loop:
   Dec(StackItem);
 proc_loop_current:
-  I := StackItem.First;
-  J := StackItem.Last;
+  I := StackItem^.First;
+  J := StackItem^.Last;
 
   // insertion/radix sort
   Size := NativeInt(J) - NativeInt(I) + SizeOf(T);
@@ -9897,19 +10197,19 @@ proc_loop_current:
   begin
     if (Size <= INSERTION_SORT_LIMIT * SizeOf(T)) then
     begin
-      PStop := StackItem.First;
+      PStop := StackItem^.First;
       goto insertion_init;
       repeat
         if (J = PStop) then Break;
         Dec(J);
 
         case SizeOf(T) of
-          1: if (Pivot4 <= P1(J)^) then Continue;
-          2: if (Pivot4 <= P2(J)^) then Continue;
-          4: if (Pivot4 <= P4(J)^) then Continue;
+          1: if (Pivot4 <= PU1(J)^) then Continue;
+          2: if (Pivot4 <= PU2(J)^) then Continue;
+          4: if (Pivot4 <= PU4(J)^) then Continue;
         else
           {$ifdef LARGEINT}
-            if (Pivot8 <= P8(J)^) then Continue;
+            if (Pivot8 <= PU8(J)^) then Continue;
           {$else .SMALLINT}
             Buffer8High := PPoint(J).Y;
             if (Pivot8High < Buffer8High) or
@@ -9920,12 +10220,12 @@ proc_loop_current:
       insertion_init:
         I := J;
         case SizeOf(T) of
-          1: Pivot4 := P1(J)^;
-          2: Pivot4 := P2(J)^;
-          4: Pivot4 := P4(J)^;
+          1: Pivot4 := PU1(J)^;
+          2: Pivot4 := PU2(J)^;
+          4: Pivot4 := PU4(J)^;
         else
           {$ifdef LARGEINT}
-            Pivot8 := P8(J)^;
+            Pivot8 := PU8(J)^;
           {$else .SMALLINT}
             with PPoint(J)^ do
             begin
@@ -9937,12 +10237,12 @@ proc_loop_current:
       until (False);
       I^ := J^;
       case SizeOf(T) of
-        1: P1(J)^ := Pivot4;
-        2: P2(J)^ := Pivot4;
-        4: P4(J)^ := Pivot4;
+        1: PU1(J)^ := Pivot4;
+        2: PU2(J)^ := Pivot4;
+        4: PU4(J)^ := Pivot4;
       else
         {$ifdef LARGEINT}
-          P8(J)^ := Pivot8;
+          PU8(J)^ := Pivot8;
         {$else .SMALLINT}
           with PPoint(J)^ do
           begin
@@ -9952,18 +10252,18 @@ proc_loop_current:
         {$endif}
       end;
 
-      PStop := StackItem.Last;
+      PStop := StackItem^.Last;
       repeat
         Inc(J);
         if (J = PStop) then Break;
 
         case SizeOf(T) of
-          1: Pivot4 := P1(J + 1)^;
-          2: Pivot4 := P2(J + 1)^;
-          4: Pivot4 := P4(J + 1)^;
+          1: Pivot4 := PU1(J + 1)^;
+          2: Pivot4 := PU2(J + 1)^;
+          4: Pivot4 := PU4(J + 1)^;
         else
           {$ifdef LARGEINT}
-            Pivot8 := P8(J + 1)^;
+            Pivot8 := PU8(J + 1)^;
           {$else .SMALLINT}
             with PPoint(J + 1)^ do
             begin
@@ -9973,12 +10273,12 @@ proc_loop_current:
           {$endif}
         end;
         case SizeOf(T) of
-          1: if (P1(J)^ <= Pivot4) then Continue;
-          2: if (P2(J)^ <= Pivot4) then Continue;
-          4: if (P4(J)^ <= Pivot4) then Continue;
+          1: if (PU1(J)^ <= Pivot4) then Continue;
+          2: if (PU2(J)^ <= Pivot4) then Continue;
+          4: if (PU4(J)^ <= Pivot4) then Continue;
         else
           {$ifdef LARGEINT}
-            if (P8(J)^ <= Pivot8)  then Continue;
+            if (PU8(J)^ <= Pivot8)  then Continue;
           {$else .SMALLINT}
             Buffer8High := PPoint(J).Y;
             if (Buffer8High < Pivot8High) or
@@ -9991,12 +10291,12 @@ proc_loop_current:
           (I + 1)^ := I^;
           Dec(I);
           case SizeOf(T) of
-            1: if (P1(I)^ <= Pivot4) then Break;
-            2: if (P2(I)^ <= Pivot4) then Break;
-            4: if (P4(I)^ <= Pivot4) then Break;
+            1: if (PU1(I)^ <= Pivot4) then Break;
+            2: if (PU2(I)^ <= Pivot4) then Break;
+            4: if (PU4(I)^ <= Pivot4) then Break;
           else
             {$ifdef LARGEINT}
-              if (P8(I)^ <= Pivot8)  then Break;
+              if (PU8(I)^ <= Pivot8)  then Break;
             {$else .SMALLINT}
               Buffer8High := PPoint(I).Y;
               if (Buffer8High < Pivot8High) or
@@ -10006,12 +10306,12 @@ proc_loop_current:
         until (False);
 
         case SizeOf(T) of
-          1: P1(I + 1)^ := Pivot4;
-          2: P2(I + 1)^ := Pivot4;
-          4: P4(I + 1)^ := Pivot4;
+          1: PU1(I + 1)^ := Pivot4;
+          2: PU2(I + 1)^ := Pivot4;
+          4: PU4(I + 1)^ := Pivot4;
         else
           {$ifdef LARGEINT}
-            P8(I + 1)^ := Pivot8;
+            PU8(I + 1)^ := Pivot8;
           {$else .SMALLINT}
             with PPoint(I + 1)^ do
             begin
@@ -10022,24 +10322,24 @@ proc_loop_current:
         end;
       until (False);
 
-      if (StackItem <> @STACK[0]) then goto proc_loop;
+      if (StackItem <> Pointer(@Stack[0])) then goto proc_loop;
       Exit;
     end else
     begin
       StackItem := TArray.RadixSortUnsigneds<T>(StackItem^);
-      if (StackItem <> @STACK[0]) then goto proc_loop;
+      if (StackItem <> Pointer(@Stack[0])) then goto proc_loop;
       Exit;
     end;
   end;
 
   // pivot
   case SizeOf(T) of
-    1: Pivot4 := P1(SortItemPivot<T>(I, J))^;
-    2: Pivot4 := P2(SortItemPivot<T>(I, J))^;
-    4: Pivot4 := P4(SortItemPivot<T>(I, J))^;
+    1: Pivot4 := PU1(SortItemPivot<T>(I, J))^;
+    2: Pivot4 := PU2(SortItemPivot<T>(I, J))^;
+    4: Pivot4 := PU4(SortItemPivot<T>(I, J))^;
   else
     {$ifdef LARGEINT}
-      Pivot8 := P8(SortItemPivot<T>(I, J))^;
+      Pivot8 := PU8(SortItemPivot<T>(I, J))^;
     {$else .SMALLINT}
       with PPoint(I + ((NativeInt(J) - NativeInt(I)) shr 4))^ do
       begin
@@ -10059,12 +10359,12 @@ proc_loop_current:
     repeat
       Inc(I);
       case SizeOf(T) of
-        1: if (Pivot4 <= P1(I)^) then Break;
-        2: if (Pivot4 <= P2(I)^) then Break;
-        4: if (Pivot4 <= P4(I)^) then Break;
+        1: if (Pivot4 <= PU1(I)^) then Break;
+        2: if (Pivot4 <= PU2(I)^) then Break;
+        4: if (Pivot4 <= PU4(I)^) then Break;
       else
         {$ifdef LARGEINT}
-          if (Pivot8 <= P8(I)^) then Break;
+          if (Pivot8 <= PU8(I)^) then Break;
         {$else .SMALLINT}
           Buffer8High := PPoint(I).Y;
           if (Pivot8High < Buffer8High) or
@@ -10076,12 +10376,12 @@ proc_loop_current:
     repeat
       Dec(J);
       case SizeOf(T) of
-        1: if (P1(J)^ <= Pivot4) then Break;
-        2: if (P2(J)^ <= Pivot4) then Break;
-        4: if (P4(J)^ <= Pivot4) then Break;
+        1: if (PU1(J)^ <= Pivot4) then Break;
+        2: if (PU2(J)^ <= Pivot4) then Break;
+        4: if (PU4(J)^ <= Pivot4) then Break;
       else
         {$ifdef LARGEINT}
-          if (P8(J)^ <= Pivot8)  then Break;
+          if (PU8(J)^ <= Pivot8)  then Break;
         {$else .SMALLINT}
           Buffer8High := PPoint(J).Y;
           if (Buffer8High < Pivot8High) or
@@ -10120,18 +10420,12 @@ proc_loop_current:
   StackItem := SortItemNext<T>(StackItem, I, J);
   if (NativeInt(StackItem) >= 0) then goto proc_loop_current;
   Dec(NativeInt(StackItem), HIGH_NATIVE_BIT);
-  if (StackItem <> @Stack[0]) then goto proc_loop;
+  if (StackItem <> Pointer(@Stack[0])) then goto proc_loop;
 end;
 
 class procedure TArray.SortDescendingUnsigneds<T>(const Values: Pointer; const Count: NativeInt);
 label
   proc_loop, proc_loop_current, insertion_init, swap_loop;
-type
-  P = ^T;
-  P1 = ^Byte;
-  P2 = ^Word;
-  P4 = ^Cardinal;
-  P8 = ^UInt64;
 var
   Pivot4: Cardinal;
   {$ifdef LARGEINT}
@@ -10149,14 +10443,14 @@ var
   Stack: TSortStack<T>;
 begin
   Stack[0].First := Values;
-  Stack[0].Last := P(Values) + Count - 1;
-  StackItem := @Stack[1];
+  Stack[0].Last := TRAIIHelper<T>.P(Values) + Count - 1;
+  StackItem := Pointer(@Stack[1]);
 
 proc_loop:
   Dec(StackItem);
 proc_loop_current:
-  I := StackItem.First;
-  J := StackItem.Last;
+  I := StackItem^.First;
+  J := StackItem^.Last;
 
   // insertion/radix sort
   Size := NativeInt(J) - NativeInt(I) + SizeOf(T);
@@ -10168,19 +10462,19 @@ proc_loop_current:
   begin
     if (Size <= INSERTION_SORT_LIMIT * SizeOf(T)) then
     begin
-      PStop := StackItem.First;
+      PStop := StackItem^.First;
       goto insertion_init;
       repeat
         if (J = PStop) then Break;
         Dec(J);
 
         case SizeOf(T) of
-          1: if (Pivot4 >= P1(J)^) then Continue;
-          2: if (Pivot4 >= P2(J)^) then Continue;
-          4: if (Pivot4 >= P4(J)^) then Continue;
+          1: if (Pivot4 >= PU1(J)^) then Continue;
+          2: if (Pivot4 >= PU2(J)^) then Continue;
+          4: if (Pivot4 >= PU4(J)^) then Continue;
         else
           {$ifdef LARGEINT}
-            if (Pivot8 >= P8(J)^) then Continue;
+            if (Pivot8 >= PU8(J)^) then Continue;
           {$else .SMALLINT}
             Buffer8High := PPoint(J).Y;
             if (Pivot8High > Buffer8High) or
@@ -10191,12 +10485,12 @@ proc_loop_current:
       insertion_init:
         I := J;
         case SizeOf(T) of
-          1: Pivot4 := P1(J)^;
-          2: Pivot4 := P2(J)^;
-          4: Pivot4 := P4(J)^;
+          1: Pivot4 := PU1(J)^;
+          2: Pivot4 := PU2(J)^;
+          4: Pivot4 := PU4(J)^;
         else
           {$ifdef LARGEINT}
-            Pivot8 := P8(J)^;
+            Pivot8 := PU8(J)^;
           {$else .SMALLINT}
             with PPoint(J)^ do
             begin
@@ -10208,12 +10502,12 @@ proc_loop_current:
       until (False);
       I^ := J^;
       case SizeOf(T) of
-        1: P1(J)^ := Pivot4;
-        2: P2(J)^ := Pivot4;
-        4: P4(J)^ := Pivot4;
+        1: PU1(J)^ := Pivot4;
+        2: PU2(J)^ := Pivot4;
+        4: PU4(J)^ := Pivot4;
       else
         {$ifdef LARGEINT}
-          P8(J)^ := Pivot8;
+          PU8(J)^ := Pivot8;
         {$else .SMALLINT}
           with PPoint(J)^ do
           begin
@@ -10223,18 +10517,18 @@ proc_loop_current:
         {$endif}
       end;
 
-      PStop := StackItem.Last;
+      PStop := StackItem^.Last;
       repeat
         Inc(J);
         if (J = PStop) then Break;
 
         case SizeOf(T) of
-          1: Pivot4 := P1(J + 1)^;
-          2: Pivot4 := P2(J + 1)^;
-          4: Pivot4 := P4(J + 1)^;
+          1: Pivot4 := PU1(J + 1)^;
+          2: Pivot4 := PU2(J + 1)^;
+          4: Pivot4 := PU4(J + 1)^;
         else
           {$ifdef LARGEINT}
-            Pivot8 := P8(J + 1)^;
+            Pivot8 := PU8(J + 1)^;
           {$else .SMALLINT}
             with PPoint(J + 1)^ do
             begin
@@ -10244,12 +10538,12 @@ proc_loop_current:
           {$endif}
         end;
         case SizeOf(T) of
-          1: if (P1(J)^ >= Pivot4) then Continue;
-          2: if (P2(J)^ >= Pivot4) then Continue;
-          4: if (P4(J)^ >= Pivot4) then Continue;
+          1: if (PU1(J)^ >= Pivot4) then Continue;
+          2: if (PU2(J)^ >= Pivot4) then Continue;
+          4: if (PU4(J)^ >= Pivot4) then Continue;
         else
           {$ifdef LARGEINT}
-            if (P8(J)^ >= Pivot8)  then Continue;
+            if (PU8(J)^ >= Pivot8)  then Continue;
           {$else .SMALLINT}
             Buffer8High := PPoint(J).Y;
             if (Buffer8High > Pivot8High) or
@@ -10262,12 +10556,12 @@ proc_loop_current:
           (I + 1)^ := I^;
           Dec(I);
           case SizeOf(T) of
-            1: if (P1(I)^ >= Pivot4) then Break;
-            2: if (P2(I)^ >= Pivot4) then Break;
-            4: if (P4(I)^ >= Pivot4) then Break;
+            1: if (PU1(I)^ >= Pivot4) then Break;
+            2: if (PU2(I)^ >= Pivot4) then Break;
+            4: if (PU4(I)^ >= Pivot4) then Break;
           else
             {$ifdef LARGEINT}
-              if (P8(I)^ >= Pivot8)  then Break;
+              if (PU8(I)^ >= Pivot8)  then Break;
             {$else .SMALLINT}
               Buffer8High := PPoint(I).Y;
               if (Buffer8High > Pivot8High) or
@@ -10277,12 +10571,12 @@ proc_loop_current:
         until (False);
 
         case SizeOf(T) of
-          1: P1(I + 1)^ := Pivot4;
-          2: P2(I + 1)^ := Pivot4;
-          4: P4(I + 1)^ := Pivot4;
+          1: PU1(I + 1)^ := Pivot4;
+          2: PU2(I + 1)^ := Pivot4;
+          4: PU4(I + 1)^ := Pivot4;
         else
           {$ifdef LARGEINT}
-            P8(I + 1)^ := Pivot8;
+            PU8(I + 1)^ := Pivot8;
           {$else .SMALLINT}
             with PPoint(I + 1)^ do
             begin
@@ -10293,24 +10587,24 @@ proc_loop_current:
         end;
       until (False);
 
-      if (StackItem <> @STACK[0]) then goto proc_loop;
+      if (StackItem <> Pointer(@Stack[0])) then goto proc_loop;
       Exit;
     end else
     begin
       StackItem := TArray.RadixSortDescendingUnsigneds<T>(StackItem^);
-      if (StackItem <> @STACK[0]) then goto proc_loop;
+      if (StackItem <> Pointer(@Stack[0])) then goto proc_loop;
       Exit;
     end;
   end;
 
   // pivot
   case SizeOf(T) of
-    1: Pivot4 := P1(SortItemPivot<T>(I, J))^;
-    2: Pivot4 := P2(SortItemPivot<T>(I, J))^;
-    4: Pivot4 := P4(SortItemPivot<T>(I, J))^;
+    1: Pivot4 := PU1(SortItemPivot<T>(I, J))^;
+    2: Pivot4 := PU2(SortItemPivot<T>(I, J))^;
+    4: Pivot4 := PU4(SortItemPivot<T>(I, J))^;
   else
     {$ifdef LARGEINT}
-      Pivot8 := P8(SortItemPivot<T>(I, J))^;
+      Pivot8 := PU8(SortItemPivot<T>(I, J))^;
     {$else .SMALLINT}
       with PPoint(I + ((NativeInt(J) - NativeInt(I)) shr 4))^ do
       begin
@@ -10330,12 +10624,12 @@ proc_loop_current:
     repeat
       Inc(I);
       case SizeOf(T) of
-        1: if (Pivot4 >= P1(I)^) then Break;
-        2: if (Pivot4 >= P2(I)^) then Break;
-        4: if (Pivot4 >= P4(I)^) then Break;
+        1: if (Pivot4 >= PU1(I)^) then Break;
+        2: if (Pivot4 >= PU2(I)^) then Break;
+        4: if (Pivot4 >= PU4(I)^) then Break;
       else
         {$ifdef LARGEINT}
-          if (Pivot8 >= P8(I)^) then Break;
+          if (Pivot8 >= PU8(I)^) then Break;
         {$else .SMALLINT}
           Buffer8High := PPoint(I).Y;
           if (Pivot8High > Buffer8High) or
@@ -10347,12 +10641,12 @@ proc_loop_current:
     repeat
       Dec(J);
       case SizeOf(T) of
-        1: if (P1(J)^ >= Pivot4) then Break;
-        2: if (P2(J)^ >= Pivot4) then Break;
-        4: if (P4(J)^ >= Pivot4) then Break;
+        1: if (PU1(J)^ >= Pivot4) then Break;
+        2: if (PU2(J)^ >= Pivot4) then Break;
+        4: if (PU4(J)^ >= Pivot4) then Break;
       else
         {$ifdef LARGEINT}
-          if (P8(J)^ >= Pivot8)  then Break;
+          if (PU8(J)^ >= Pivot8)  then Break;
         {$else .SMALLINT}
           Buffer8High := PPoint(J).Y;
           if (Buffer8High > Pivot8High) or
@@ -10391,17 +10685,12 @@ proc_loop_current:
   StackItem := SortItemNext<T>(StackItem, I, J);
   if (NativeInt(StackItem) >= 0) then goto proc_loop_current;
   Dec(NativeInt(StackItem), HIGH_NATIVE_BIT);
-  if (StackItem <> @Stack[0]) then goto proc_loop;
+  if (StackItem <> Pointer(@Stack[0])) then goto proc_loop;
 end;
 
 class procedure TArray.SortFloats<T>(const Values: Pointer; const Count: NativeInt);
 label
   proc_loop, proc_loop_current, insertion_init, swap_loop;
-type
-  P = ^T;
-  P4 = ^Single;
-  P8 = ^Double;
-  PE = ^Extended;
 var
   Pivot4: Single;
   Pivot8: Double;
@@ -10414,14 +10703,14 @@ var
   Stack: TSortStack<T>;
 begin
   Stack[0].First := Values;
-  Stack[0].Last := P(Values) + Count - 1;
-  StackItem := @Stack[1];
+  Stack[0].Last := TRAIIHelper<T>.P(Values) + Count - 1;
+  StackItem := Pointer(@Stack[1]);
 
 proc_loop:
   Dec(StackItem);
 proc_loop_current:
-  I := StackItem.First;
-  J := StackItem.Last;
+  I := StackItem^.First;
+  J := StackItem^.Last;
 
   // insertion/radix sort
   Size := NativeInt(J) - NativeInt(I) + SizeOf(T);
@@ -10433,52 +10722,52 @@ proc_loop_current:
   begin
     if (Size <= INSERTION_SORT_LIMIT * SizeOf(T)) then
     begin
-      PStop := StackItem.First;
+      PStop := StackItem^.First;
       goto insertion_init;
       repeat
         if (J = PStop) then Break;
         Dec(J);
 
         case SizeOf(T) of
-          4: if (Pivot4 <= P4(J)^) then Continue;
-          8: if (Pivot8 <= P8(J)^) then Continue;
+          4: if (Pivot4 <= PF4(J)^) then Continue;
+          8: if (Pivot8 <= PF8(J)^) then Continue;
         else
-          if (PivotE <= PE(J)^) then Continue;
+          if (PivotE <= PFE(J)^) then Continue;
         end;
 
       insertion_init:
         I := J;
         case SizeOf(T) of
-          4: Pivot4 := P4(J)^;
-          8: Pivot8 := P8(J)^;
+          4: Pivot4 := PF4(J)^;
+          8: Pivot8 := PF8(J)^;
         else
-          PivotE := PE(J)^;
+          PivotE := PFE(J)^;
         end;
       until (False);
       I^ := J^;
       case SizeOf(T) of
-        4: P4(J)^ := Pivot4;
-        8: P8(J)^ := Pivot8;
+        4: PF4(J)^ := Pivot4;
+        8: PF8(J)^ := Pivot8;
       else
-        PE(J)^ := PivotE;
+        PFE(J)^ := PivotE;
       end;
 
-      PStop := StackItem.Last;
+      PStop := StackItem^.Last;
       repeat
         Inc(J);
         if (J = PStop) then Break;
 
         case SizeOf(T) of
-          4: Pivot4 := P4(J + 1)^;
-          8: Pivot8 := P8(J + 1)^;
+          4: Pivot4 := PF4(J + 1)^;
+          8: Pivot8 := PF8(J + 1)^;
         else
-          PivotE := PE(J + 1)^;
+          PivotE := PFE(J + 1)^;
         end;
         case SizeOf(T) of
-          4: if (P4(J)^ <= Pivot4) then Continue;
-          8: if (P8(J)^ <= Pivot8) then Continue;
+          4: if (PF4(J)^ <= Pivot4) then Continue;
+          8: if (PF8(J)^ <= Pivot8) then Continue;
         else
-          if (PE(J)^ <= PivotE)  then Continue;
+          if (PFE(J)^ <= PivotE)  then Continue;
         end;
 
         I := J;
@@ -10486,37 +10775,37 @@ proc_loop_current:
           (I + 1)^ := I^;
           Dec(I);
           case SizeOf(T) of
-            4: if (P4(I)^ <= Pivot4) then Break;
-            8: if (P8(I)^ <= Pivot8) then Break;
+            4: if (PF4(I)^ <= Pivot4) then Break;
+            8: if (PF8(I)^ <= Pivot8) then Break;
           else
-            if (PE(I)^ <= PivotE)  then Break;
+            if (PFE(I)^ <= PivotE)  then Break;
           end;
         until (False);
 
         case SizeOf(T) of
-          4: P4(I + 1)^ := Pivot4;
-          8: P8(I + 1)^ := Pivot8;
+          4: PF4(I + 1)^ := Pivot4;
+          8: PF8(I + 1)^ := Pivot8;
         else
-          PE(I + 1)^ := PivotE;
+          PFE(I + 1)^ := PivotE;
         end;
       until (False);
 
-      if (StackItem <> @STACK[0]) then goto proc_loop;
+      if (StackItem <> Pointer(@Stack[0])) then goto proc_loop;
       Exit;
     end else
     begin
       StackItem := TArray.RadixSortFloats<T>(StackItem^);
-      if (StackItem <> @STACK[0]) then goto proc_loop;
+      if (StackItem <> Pointer(@Stack[0])) then goto proc_loop;
       Exit;
     end;
   end;
 
   // pivot
   case SizeOf(T) of
-    4: Pivot4 := P4(SortItemPivot<T>(I, J))^;
-    8: Pivot8 := P8(SortItemPivot<T>(I, J))^;
+    4: Pivot4 := PF4(SortItemPivot<T>(I, J))^;
+    8: Pivot8 := PF8(SortItemPivot<T>(I, J))^;
   else
-    PivotE := PE(SortItemPivot<T>(I, J))^;
+    PivotE := PFE(SortItemPivot<T>(I, J))^;
   end;
 
   // quick sort
@@ -10529,20 +10818,20 @@ proc_loop_current:
     repeat
       Inc(I);
       case SizeOf(T) of
-        4: if (Pivot4 <= P4(I)^) then Break;
-        8: if (Pivot8 <= P8(I)^) then Break;
+        4: if (Pivot4 <= PF4(I)^) then Break;
+        8: if (Pivot8 <= PF8(I)^) then Break;
       else
-        if (PivotE <= PE(I)^) then Break;
+        if (PivotE <= PFE(I)^) then Break;
       end;
     until (False);
 
     repeat
       Dec(J);
       case SizeOf(T) of
-        4: if (P4(J)^ <= Pivot4) then Break;
-        8: if (P8(J)^ <= Pivot8) then Break;
+        4: if (PF4(J)^ <= Pivot4) then Break;
+        8: if (PF8(J)^ <= Pivot8) then Break;
       else
-        if (PE(J)^ <= PivotE)  then Break;
+        if (PFE(J)^ <= PivotE)  then Break;
       end;
     until (False);
 
@@ -10585,17 +10874,12 @@ proc_loop_current:
   StackItem := SortItemNext<T>(StackItem, I, J);
   if (NativeInt(StackItem) >= 0) then goto proc_loop_current;
   Dec(NativeInt(StackItem), HIGH_NATIVE_BIT);
-  if (StackItem <> @Stack[0]) then goto proc_loop;
+  if (StackItem <> Pointer(@Stack[0])) then goto proc_loop;
 end;
 
 class procedure TArray.SortDescendingFloats<T>(const Values: Pointer; const Count: NativeInt);
 label
   proc_loop, proc_loop_current, insertion_init, swap_loop;
-type
-  P = ^T;
-  P4 = ^Single;
-  P8 = ^Double;
-  PE = ^Extended;
 var
   Pivot4: Single;
   Pivot8: Double;
@@ -10608,14 +10892,14 @@ var
   Stack: TSortStack<T>;
 begin
   Stack[0].First := Values;
-  Stack[0].Last := P(Values) + Count - 1;
-  StackItem := @Stack[1];
+  Stack[0].Last := TRAIIHelper<T>.P(Values) + Count - 1;
+  StackItem := Pointer(@Stack[1]);
 
 proc_loop:
   Dec(StackItem);
 proc_loop_current:
-  I := StackItem.First;
-  J := StackItem.Last;
+  I := StackItem^.First;
+  J := StackItem^.Last;
 
   // insertion/radix sort
   Size := NativeInt(J) - NativeInt(I) + SizeOf(T);
@@ -10627,52 +10911,52 @@ proc_loop_current:
   begin
     if (Size <= INSERTION_SORT_LIMIT * SizeOf(T)) then
     begin
-      PStop := StackItem.First;
+      PStop := StackItem^.First;
       goto insertion_init;
       repeat
         if (J = PStop) then Break;
         Dec(J);
 
         case SizeOf(T) of
-          4: if (Pivot4 >= P4(J)^) then Continue;
-          8: if (Pivot8 >= P8(J)^) then Continue;
+          4: if (Pivot4 >= PF4(J)^) then Continue;
+          8: if (Pivot8 >= PF8(J)^) then Continue;
         else
-          if (PivotE >= PE(J)^) then Continue;
+          if (PivotE >= PFE(J)^) then Continue;
         end;
 
       insertion_init:
         I := J;
         case SizeOf(T) of
-          4: Pivot4 := P4(J)^;
-          8: Pivot8 := P8(J)^;
+          4: Pivot4 := PF4(J)^;
+          8: Pivot8 := PF8(J)^;
         else
-          PivotE := PE(J)^;
+          PivotE := PFE(J)^;
         end;
       until (False);
       I^ := J^;
       case SizeOf(T) of
-        4: P4(J)^ := Pivot4;
-        8: P8(J)^ := Pivot8;
+        4: PF4(J)^ := Pivot4;
+        8: PF8(J)^ := Pivot8;
       else
-        PE(J)^ := PivotE;
+        PFE(J)^ := PivotE;
       end;
 
-      PStop := StackItem.Last;
+      PStop := StackItem^.Last;
       repeat
         Inc(J);
         if (J = PStop) then Break;
 
         case SizeOf(T) of
-          4: Pivot4 := P4(J + 1)^;
-          8: Pivot8 := P8(J + 1)^;
+          4: Pivot4 := PF4(J + 1)^;
+          8: Pivot8 := PF8(J + 1)^;
         else
-          PivotE := PE(J + 1)^;
+          PivotE := PFE(J + 1)^;
         end;
         case SizeOf(T) of
-          4: if (P4(J)^ >= Pivot4) then Continue;
-          8: if (P8(J)^ >= Pivot8) then Continue;
+          4: if (PF4(J)^ >= Pivot4) then Continue;
+          8: if (PF8(J)^ >= Pivot8) then Continue;
         else
-          if (PE(J)^ >= PivotE)  then Continue;
+          if (PFE(J)^ >= PivotE)  then Continue;
         end;
 
         I := J;
@@ -10680,37 +10964,37 @@ proc_loop_current:
           (I + 1)^ := I^;
           Dec(I);
           case SizeOf(T) of
-            4: if (P4(I)^ >= Pivot4) then Break;
-            8: if (P8(I)^ >= Pivot8) then Break;
+            4: if (PF4(I)^ >= Pivot4) then Break;
+            8: if (PF8(I)^ >= Pivot8) then Break;
           else
-            if (PE(I)^ >= PivotE)  then Break;
+            if (PFE(I)^ >= PivotE)  then Break;
           end;
         until (False);
 
         case SizeOf(T) of
-          4: P4(I + 1)^ := Pivot4;
-          8: P8(I + 1)^ := Pivot8;
+          4: PF4(I + 1)^ := Pivot4;
+          8: PF8(I + 1)^ := Pivot8;
         else
-          PE(I + 1)^ := PivotE;
+          PFE(I + 1)^ := PivotE;
         end;
       until (False);
 
-      if (StackItem <> @STACK[0]) then goto proc_loop;
+      if (StackItem <> Pointer(@Stack[0])) then goto proc_loop;
       Exit;
     end else
     begin
       StackItem := TArray.RadixSortDescendingFloats<T>(StackItem^);
-      if (StackItem <> @STACK[0]) then goto proc_loop;
+      if (StackItem <> Pointer(@Stack[0])) then goto proc_loop;
       Exit;
     end;
   end;
 
   // pivot
   case SizeOf(T) of
-    4: Pivot4 := P4(SortItemPivot<T>(I, J))^;
-    8: Pivot8 := P8(SortItemPivot<T>(I, J))^;
+    4: Pivot4 := PF4(SortItemPivot<T>(I, J))^;
+    8: Pivot8 := PF8(SortItemPivot<T>(I, J))^;
   else
-    PivotE := PE(SortItemPivot<T>(I, J))^;
+    PivotE := PFE(SortItemPivot<T>(I, J))^;
   end;
 
   // quick sort
@@ -10723,20 +11007,20 @@ proc_loop_current:
     repeat
       Inc(I);
       case SizeOf(T) of
-        4: if (Pivot4 >= P4(I)^) then Break;
-        8: if (Pivot8 >= P8(I)^) then Break;
+        4: if (Pivot4 >= PF4(I)^) then Break;
+        8: if (Pivot8 >= PF8(I)^) then Break;
       else
-        if (PivotE >= PE(I)^) then Break;
+        if (PivotE >= PFE(I)^) then Break;
       end;
     until (False);
 
     repeat
       Dec(J);
       case SizeOf(T) of
-        4: if (P4(J)^ >= Pivot4) then Break;
-        8: if (P8(J)^ >= Pivot8) then Break;
+        4: if (PF4(J)^ >= Pivot4) then Break;
+        8: if (PF8(J)^ >= Pivot8) then Break;
       else
-        if (PE(J)^ >= PivotE)  then Break;
+        if (PFE(J)^ >= PivotE)  then Break;
       end;
     until (False);
 
@@ -10779,14 +11063,12 @@ proc_loop_current:
   StackItem := SortItemNext<T>(StackItem, I, J);
   if (NativeInt(StackItem) >= 0) then goto proc_loop_current;
   Dec(NativeInt(StackItem), HIGH_NATIVE_BIT);
-  if (StackItem <> @Stack[0]) then goto proc_loop;
+  if (StackItem <> Pointer(@Stack[0])) then goto proc_loop;
 end;
 
 class procedure TArray.SortBinaries<T>(const Values: Pointer; const Count: NativeInt; var PivotBig: T);
 label
   proc_loop, proc_loop_current, insertion_init, swap_loop;
-type
-  P = ^T;
 var
   Index: NativeInt;
   Temp1: Byte;
@@ -10795,31 +11077,27 @@ var
   TempNative: NativeUInt;
 
   I, J, PStop: ^T;
-  Pivot: packed record
-  case Integer of
-    0: (Ptr: Pointer);
-    1: (Data: array[0..BUFFER_SIZE - 1] of Byte);
-  end;
+  Pivot: TSortPivot;
   X, Y: NativeUInt;
   Buffer: Pointer;
   StackItem: ^TSortStackItem<T>;
   Stack: TSortStack<T>;
 begin
   Stack[0].First := Values;
-  Stack[0].Last := P(Values) + Count - 1;
-  StackItem := @Stack[1];
+  Stack[0].Last := TRAIIHelper<T>.P(Values) + Count - 1;
+  StackItem := Pointer(@Stack[1]);
 
 proc_loop:
   Dec(StackItem);
 proc_loop_current:
-  I := StackItem.First;
-  J := StackItem.Last;
+  I := StackItem^.First;
+  J := StackItem^.Last;
 
   // insertion sort
   if (SizeOf(T) <= SizeOf(Pivot)) then
   if ((NativeUInt(J) - NativeUInt(I)) < INSERTION_SORT_LIMIT * SizeOf(T)) then
   begin
-    PStop := StackItem.First;
+    PStop := StackItem^.First;
     goto insertion_init;
     repeat
       if (J = PStop) then Break;
@@ -10834,20 +11112,35 @@ proc_loop_current:
         begin
           if (NativeUInt(Pivot.Ptr) <= NativeUInt(Pointer(J)^)) then Continue;
         end else
-        if (GetTypeKind(T) in [tkLString, tkWString, tkUString, tkDynArray]) then
-        begin
-          Buffer := Pointer(Pointer(J)^);
-          if (Pivot.Ptr = Buffer) then Continue;
-          case GetTypeKind(T) of
-            tkLString: if (InterfaceDefaults.Compare_LStr(nil, Pivot.Ptr, Buffer) <= 0) then Continue;
-            tkWString: if (InterfaceDefaults.Compare_WStr(nil, Pivot.Ptr, Buffer) <= 0) then Continue;
-            tkUString: if (InterfaceDefaults.Compare_UStr(nil, Pivot.Ptr, Buffer) <= 0) then Continue;
-           tkDynArray: if (InterfaceDefaults.Compare_Dyn(InterfaceDefaults.TDefaultComparer<T>.Instance, Pivot.Ptr, Buffer) <= 0) then Continue;
+        {$if CompilerVersion = 28}
+          if (IComparer<T>(@InterfaceDefaults.TDefaultComparer<T>.Instance).Compare(
+            TRAIIHelper<T>.P(@Pivot)^, J^) <= 0) then Continue;
+        {$else}
+          if (GetTypeKind(T) = tkString) then
+          begin
+            if (InterfaceDefaults.Compare_OStr(nil, Pointer(@Pivot), Pointer(J)) <= 0) then Continue;
+          end else
+          if (GetTypeKind(T) in [tkLString, tkWString, tkUString, tkDynArray]) then
+          begin
+            Buffer := Pointer(Pointer(J)^);
+            if (Pivot.Ptr = Buffer) then Continue;
+            case GetTypeKind(T) of
+              tkLString: if (InterfaceDefaults.Compare_LStr(nil, Pivot.Ptr, Buffer) <= 0) then Continue;
+              tkWString: if (InterfaceDefaults.Compare_WStr(nil, Pivot.Ptr, Buffer) <= 0) then Continue;
+              tkUString: if (InterfaceDefaults.Compare_UStr(nil, Pivot.Ptr, Buffer) <= 0) then Continue;
+             tkDynArray: if (InterfaceDefaults.Compare_Dyn(InterfaceDefaults.TDefaultComparer<T>.Instance, Pivot.Ptr, Buffer) <= 0) then Continue;
+            end;
+          end else
+          case SizeOf(T) of
+            0..SizeOf(Cardinal): Continue;
+            {$ifdef LARGEINT}
+            SizeOf(Int64): if (InterfaceDefaults.Compare_Bin8(nil, PInt64(@Pivot)^, PInt64(J)^) <= 0) then Continue;
+            {$endif}
+          else
+            if (InterfaceDefaults.Compare_Bin(InterfaceDefaults.TDefaultComparer<T>.Instance,
+              Pointer(@Pivot), Pointer(J)) <= 0) then Continue;
           end;
-        end else
-        begin
-          if (SortBinaryComparer<T>(@Pivot, J) <= 0) then Continue;
-        end;
+        {$ifend}
       end;
     insertion_init:
       I := J;
@@ -10878,7 +11171,7 @@ proc_loop_current:
       TArray.CopyMemory<T>(J, @Pivot);
     end;
 
-    PStop := StackItem.Last;
+    PStop := StackItem^.Last;
     repeat
       Inc(J);
       if (J = PStop) then Break;
@@ -10902,20 +11195,35 @@ proc_loop_current:
         begin
           if (NativeUInt(Pointer(J)^) <= NativeUInt(Pivot.Ptr)) then Continue;
         end else
-        if (GetTypeKind(T) in [tkLString, tkWString, tkUString, tkDynArray]) then
-        begin
-          Buffer := Pointer(Pointer(J)^);
-          if (Buffer = Pivot.Ptr) then Continue;
-          case GetTypeKind(T) of
-            tkLString: if (InterfaceDefaults.Compare_LStr(nil, Buffer, Pivot.Ptr) <= 0) then Continue;
-            tkWString: if (InterfaceDefaults.Compare_WStr(nil, Buffer, Pivot.Ptr) <= 0) then Continue;
-            tkUString: if (InterfaceDefaults.Compare_UStr(nil, Buffer, Pivot.Ptr) <= 0) then Continue;
-           tkDynArray: if (InterfaceDefaults.Compare_Dyn(InterfaceDefaults.TDefaultComparer<T>.Instance, Buffer, Pivot.Ptr) <= 0) then Continue;
+        {$if CompilerVersion = 28}
+          if (IComparer<T>(@InterfaceDefaults.TDefaultComparer<T>.Instance).Compare(
+            J^, TRAIIHelper<T>.P(@Pivot)^) <= 0) then Continue;
+        {$else}
+          if (GetTypeKind(T) = tkString) then
+          begin
+            if (InterfaceDefaults.Compare_OStr(nil, Pointer(J), Pointer(@Pivot)) <= 0) then Continue;
+          end else
+          if (GetTypeKind(T) in [tkLString, tkWString, tkUString, tkDynArray]) then
+          begin
+            Buffer := Pointer(Pointer(J)^);
+            if (Buffer = Pivot.Ptr) then Continue;
+            case GetTypeKind(T) of
+              tkLString: if (InterfaceDefaults.Compare_LStr(nil, Buffer, Pivot.Ptr) <= 0) then Continue;
+              tkWString: if (InterfaceDefaults.Compare_WStr(nil, Buffer, Pivot.Ptr) <= 0) then Continue;
+              tkUString: if (InterfaceDefaults.Compare_UStr(nil, Buffer, Pivot.Ptr) <= 0) then Continue;
+             tkDynArray: if (InterfaceDefaults.Compare_Dyn(InterfaceDefaults.TDefaultComparer<T>.Instance, Buffer, Pivot.Ptr) <= 0) then Continue;
+            end;
+          end else
+          case SizeOf(T) of
+            0..SizeOf(Cardinal): Continue;
+            {$ifdef LARGEINT}
+            SizeOf(Int64): if (InterfaceDefaults.Compare_Bin8(nil, PInt64(J)^, PInt64(@Pivot)^) <= 0) then Continue;
+            {$endif}
+          else
+            if (InterfaceDefaults.Compare_Bin(InterfaceDefaults.TDefaultComparer<T>.Instance,
+              Pointer(J), Pointer(@Pivot)) <= 0) then Continue;
           end;
-        end else
-        begin
-          if (SortBinaryComparer<T>(J, @Pivot) <= 0) then Continue;
-        end;
+        {$ifend}
       end;
 
       I := J;
@@ -10939,20 +11247,35 @@ proc_loop_current:
           begin
             if (NativeUInt(Pointer(I)^) <= NativeUInt(Pivot.Ptr)) then Break;
           end else
-          if (GetTypeKind(T) in [tkLString, tkWString, tkUString, tkDynArray]) then
-          begin
-            Buffer := Pointer(Pointer(I)^);
-            if (Buffer = Pivot.Ptr) then Break;
-            case GetTypeKind(T) of
-              tkLString: if (InterfaceDefaults.Compare_LStr(nil, Buffer, Pivot.Ptr) <= 0) then Break;
-              tkWString: if (InterfaceDefaults.Compare_WStr(nil, Buffer, Pivot.Ptr) <= 0) then Break;
-              tkUString: if (InterfaceDefaults.Compare_UStr(nil, Buffer, Pivot.Ptr) <= 0) then Break;
-             tkDynArray: if (InterfaceDefaults.Compare_Dyn(InterfaceDefaults.TDefaultComparer<T>.Instance, Buffer, Pivot.Ptr) <= 0) then Break;
+          {$if CompilerVersion = 28}
+            if (IComparer<T>(@InterfaceDefaults.TDefaultComparer<T>.Instance).Compare(
+              I^, TRAIIHelper<T>.P(@Pivot)^) <= 0) then Break;
+          {$else}
+            if (GetTypeKind(T) = tkString) then
+            begin
+              if (InterfaceDefaults.Compare_OStr(nil, Pointer(I), Pointer(@Pivot)) <= 0) then Break;
+            end else
+            if (GetTypeKind(T) in [tkLString, tkWString, tkUString, tkDynArray]) then
+            begin
+              Buffer := Pointer(Pointer(I)^);
+              if (Buffer = Pivot.Ptr) then Break;
+              case GetTypeKind(T) of
+                tkLString: if (InterfaceDefaults.Compare_LStr(nil, Buffer, Pivot.Ptr) <= 0) then Break;
+                tkWString: if (InterfaceDefaults.Compare_WStr(nil, Buffer, Pivot.Ptr) <= 0) then Break;
+                tkUString: if (InterfaceDefaults.Compare_UStr(nil, Buffer, Pivot.Ptr) <= 0) then Break;
+               tkDynArray: if (InterfaceDefaults.Compare_Dyn(InterfaceDefaults.TDefaultComparer<T>.Instance, Buffer, Pivot.Ptr) <= 0) then Break;
+              end;
+            end else
+            case SizeOf(T) of
+              0..SizeOf(Cardinal): Break;
+              {$ifdef LARGEINT}
+              SizeOf(Int64): if (InterfaceDefaults.Compare_Bin8(nil, PInt64(I)^, PInt64(@Pivot)^) <= 0) then Break;
+              {$endif}
+            else
+              if (InterfaceDefaults.Compare_Bin(InterfaceDefaults.TDefaultComparer<T>.Instance,
+                Pointer(I), Pointer(@Pivot)) <= 0) then Break;
             end;
-          end else
-          begin
-            if (SortBinaryComparer<T>(I, @Pivot) <= 0) then Break;
-          end;
+          {$ifend}
         end;
       until (False);
 
@@ -10966,7 +11289,7 @@ proc_loop_current:
       end;
     until (False);
 
-    if (StackItem <> @STACK[0]) then goto proc_loop;
+    if (StackItem <> Pointer(@Stack[0])) then goto proc_loop;
     Exit;
   end;
 
@@ -11008,23 +11331,44 @@ proc_loop_current:
           begin
             if (NativeUInt(Pivot.Ptr) <= NativeUInt(Pointer(I)^)) then Break;
           end else
-          if (GetTypeKind(T) in [tkLString, tkWString, tkUString, tkDynArray]) then
-          begin
-            Buffer := Pointer(Pointer(I)^);
-            if (Pivot.Ptr = Buffer) then Break;
-            case GetTypeKind(T) of
-              tkLString: if (InterfaceDefaults.Compare_LStr(nil, Pivot.Ptr, Buffer) <= 0) then Break;
-              tkWString: if (InterfaceDefaults.Compare_WStr(nil, Pivot.Ptr, Buffer) <= 0) then Break;
-              tkUString: if (InterfaceDefaults.Compare_UStr(nil, Pivot.Ptr, Buffer) <= 0) then Break;
-             tkDynArray: if (InterfaceDefaults.Compare_Dyn(InterfaceDefaults.TDefaultComparer<T>.Instance, Pivot.Ptr, Buffer) <= 0) then Break;
+          {$if CompilerVersion = 28}
+            if (IComparer<T>(@InterfaceDefaults.TDefaultComparer<T>.Instance).Compare(
+              TRAIIHelper<T>.P(@Pivot)^, I^) <= 0) then Break;
+          {$else}
+            if (GetTypeKind(T) = tkString) then
+            begin
+              if (InterfaceDefaults.Compare_OStr(nil, Pointer(@Pivot), Pointer(I)) <= 0) then Break;
+            end else
+            if (GetTypeKind(T) in [tkLString, tkWString, tkUString, tkDynArray]) then
+            begin
+              Buffer := Pointer(Pointer(I)^);
+              if (Pivot.Ptr = Buffer) then Break;
+              case GetTypeKind(T) of
+                tkLString: if (InterfaceDefaults.Compare_LStr(nil, Pivot.Ptr, Buffer) <= 0) then Break;
+                tkWString: if (InterfaceDefaults.Compare_WStr(nil, Pivot.Ptr, Buffer) <= 0) then Break;
+                tkUString: if (InterfaceDefaults.Compare_UStr(nil, Pivot.Ptr, Buffer) <= 0) then Break;
+               tkDynArray: if (InterfaceDefaults.Compare_Dyn(InterfaceDefaults.TDefaultComparer<T>.Instance, Pivot.Ptr, Buffer) <= 0) then Break;
+              end;
+            end else
+            case SizeOf(T) of
+              0..SizeOf(Cardinal): Break;
+              {$ifdef LARGEINT}
+              SizeOf(Int64): if (InterfaceDefaults.Compare_Bin8(nil, PInt64(@Pivot)^, PInt64(I)^) <= 0) then Break;
+              {$endif}
+            else
+              if (InterfaceDefaults.Compare_Bin(InterfaceDefaults.TDefaultComparer<T>.Instance,
+                Pointer(@Pivot), Pointer(I)) <= 0) then Break;
             end;
-          end else
-          begin
-            if (SortBinaryComparer<T>(@Pivot, I) <= 0) then Break;
-          end;
+          {$ifend}
         end else
         begin
-          if (SortBinaryComparer<T>(@PivotBig, I) <= 0) then Break;
+          {$if CompilerVersion = 28}
+            if (IComparer<T>(@InterfaceDefaults.TDefaultComparer<T>.Instance).Compare(
+              TRAIIHelper<T>.P(@PivotBig)^, I^) <= 0) then Break;
+          {$else}
+            if (InterfaceDefaults.Compare_Bin(InterfaceDefaults.TDefaultComparer<T>.Instance,
+              Pointer(@PivotBig), Pointer(I)) <= 0) then Break;
+          {$ifend}
         end;
       end;
     until (False);
@@ -11043,23 +11387,44 @@ proc_loop_current:
           begin
             if (NativeUInt(Pointer(J)^) <= NativeUInt(Pivot.Ptr)) then Break;
           end else
-          if (GetTypeKind(T) in [tkLString, tkWString, tkUString, tkDynArray]) then
-          begin
-            Buffer := Pointer(Pointer(J)^);
-            if (Buffer = Pivot.Ptr) then Break;
-            case GetTypeKind(T) of
-              tkLString: if (InterfaceDefaults.Compare_LStr(nil, Buffer, Pivot.Ptr) <= 0) then Break;
-              tkWString: if (InterfaceDefaults.Compare_WStr(nil, Buffer, Pivot.Ptr) <= 0) then Break;
-              tkUString: if (InterfaceDefaults.Compare_UStr(nil, Buffer, Pivot.Ptr) <= 0) then Break;
-             tkDynArray: if (InterfaceDefaults.Compare_Dyn(InterfaceDefaults.TDefaultComparer<T>.Instance, Buffer, Pivot.Ptr) <= 0) then Break;
+          {$if CompilerVersion = 28}
+            if (IComparer<T>(@InterfaceDefaults.TDefaultComparer<T>.Instance).Compare(
+              J^, TRAIIHelper<T>.P(@Pivot)^) <= 0) then Break;
+          {$else}
+            if (GetTypeKind(T) = tkString) then
+            begin
+              if (InterfaceDefaults.Compare_OStr(nil, Pointer(J), Pointer(@Pivot)) <= 0) then Break;
+            end else
+            if (GetTypeKind(T) in [tkLString, tkWString, tkUString, tkDynArray]) then
+            begin
+              Buffer := Pointer(Pointer(J)^);
+              if (Buffer = Pivot.Ptr) then Break;
+              case GetTypeKind(T) of
+                tkLString: if (InterfaceDefaults.Compare_LStr(nil, Buffer, Pivot.Ptr) <= 0) then Break;
+                tkWString: if (InterfaceDefaults.Compare_WStr(nil, Buffer, Pivot.Ptr) <= 0) then Break;
+                tkUString: if (InterfaceDefaults.Compare_UStr(nil, Buffer, Pivot.Ptr) <= 0) then Break;
+               tkDynArray: if (InterfaceDefaults.Compare_Dyn(InterfaceDefaults.TDefaultComparer<T>.Instance, Buffer, Pivot.Ptr) <= 0) then Break;
+              end;
+            end else
+            case SizeOf(T) of
+              0..SizeOf(Cardinal): Break;
+              {$ifdef LARGEINT}
+              SizeOf(Int64): if (InterfaceDefaults.Compare_Bin8(nil, PInt64(J)^, PInt64(@Pivot)^) <= 0) then Break;
+              {$endif}
+            else
+              if (InterfaceDefaults.Compare_Bin(InterfaceDefaults.TDefaultComparer<T>.Instance,
+                Pointer(J), Pointer(@Pivot)) <= 0) then Break;
             end;
-          end else
-          begin
-            if (SortBinaryComparer<T>(J, @Pivot) <= 0) then Break;
-          end;
+          {$ifend}
         end else
         begin
-          if (SortBinaryComparer<T>(J, @PivotBig) <= 0) then Break;
+          {$if CompilerVersion = 28}
+            if (IComparer<T>(@InterfaceDefaults.TDefaultComparer<T>.Instance).Compare(
+              J^, TRAIIHelper<T>.P(@PivotBig)^) <= 0) then Break;
+          {$else}
+            if (InterfaceDefaults.Compare_Bin(InterfaceDefaults.TDefaultComparer<T>.Instance,
+              Pointer(J), Pointer(@PivotBig)) <= 0) then Break;
+          {$ifend}
         end;
       end;
     until (False);
@@ -11257,14 +11622,12 @@ proc_loop_current:
   StackItem := SortItemNext<T>(StackItem, I, J);
   if (NativeInt(StackItem) >= 0) then goto proc_loop_current;
   Dec(NativeInt(StackItem), HIGH_NATIVE_BIT);
-  if (StackItem <> @Stack[0]) then goto proc_loop;
+  if (StackItem <> Pointer(@Stack[0])) then goto proc_loop;
 end;
 
 class procedure TArray.SortDescendingBinaries<T>(const Values: Pointer; const Count: NativeInt; var PivotBig: T);
 label
   proc_loop, proc_loop_current, insertion_init, swap_loop;
-type
-  P = ^T;
 var
   Index: NativeInt;
   Temp1: Byte;
@@ -11273,31 +11636,27 @@ var
   TempNative: NativeUInt;
 
   I, J, PStop: ^T;
-  Pivot: packed record
-  case Integer of
-    0: (Ptr: Pointer);
-    1: (Data: array[0..BUFFER_SIZE - 1] of Byte);
-  end;
+  Pivot: TSortPivot;
   X, Y: NativeUInt;
   Buffer: Pointer;
   StackItem: ^TSortStackItem<T>;
   Stack: TSortStack<T>;
 begin
   Stack[0].First := Values;
-  Stack[0].Last := P(Values) + Count - 1;
-  StackItem := @Stack[1];
+  Stack[0].Last := TRAIIHelper<T>.P(Values) + Count - 1;
+  StackItem := Pointer(@Stack[1]);
 
 proc_loop:
   Dec(StackItem);
 proc_loop_current:
-  I := StackItem.First;
-  J := StackItem.Last;
+  I := StackItem^.First;
+  J := StackItem^.Last;
 
   // insertion sort
   if (SizeOf(T) <= SizeOf(Pivot)) then
   if ((NativeUInt(J) - NativeUInt(I)) < INSERTION_SORT_LIMIT * SizeOf(T)) then
   begin
-    PStop := StackItem.First;
+    PStop := StackItem^.First;
     goto insertion_init;
     repeat
       if (J = PStop) then Break;
@@ -11312,20 +11671,35 @@ proc_loop_current:
         begin
           if (NativeUInt(Pivot.Ptr) >= NativeUInt(Pointer(J)^)) then Continue;
         end else
-        if (GetTypeKind(T) in [tkLString, tkWString, tkUString, tkDynArray]) then
-        begin
-          Buffer := Pointer(Pointer(J)^);
-          if (Pivot.Ptr = Buffer) then Continue;
-          case GetTypeKind(T) of
-            tkLString: if (InterfaceDefaults.Compare_LStr(nil, Pivot.Ptr, Buffer) >= 0) then Continue;
-            tkWString: if (InterfaceDefaults.Compare_WStr(nil, Pivot.Ptr, Buffer) >= 0) then Continue;
-            tkUString: if (InterfaceDefaults.Compare_UStr(nil, Pivot.Ptr, Buffer) >= 0) then Continue;
-           tkDynArray: if (InterfaceDefaults.Compare_Dyn(InterfaceDefaults.TDefaultComparer<T>.Instance, Pivot.Ptr, Buffer) >= 0) then Continue;
+        {$if CompilerVersion = 28}
+          if (IComparer<T>(@InterfaceDefaults.TDefaultComparer<T>.Instance).Compare(
+            TRAIIHelper<T>.P(@Pivot)^, J^) >= 0) then Continue;
+        {$else}
+          if (GetTypeKind(T) = tkString) then
+          begin
+            if (InterfaceDefaults.Compare_OStr(nil, Pointer(@Pivot), Pointer(J)) >= 0) then Continue;
+          end else
+          if (GetTypeKind(T) in [tkLString, tkWString, tkUString, tkDynArray]) then
+          begin
+            Buffer := Pointer(Pointer(J)^);
+            if (Pivot.Ptr = Buffer) then Continue;
+            case GetTypeKind(T) of
+              tkLString: if (InterfaceDefaults.Compare_LStr(nil, Pivot.Ptr, Buffer) >= 0) then Continue;
+              tkWString: if (InterfaceDefaults.Compare_WStr(nil, Pivot.Ptr, Buffer) >= 0) then Continue;
+              tkUString: if (InterfaceDefaults.Compare_UStr(nil, Pivot.Ptr, Buffer) >= 0) then Continue;
+             tkDynArray: if (InterfaceDefaults.Compare_Dyn(InterfaceDefaults.TDefaultComparer<T>.Instance, Pivot.Ptr, Buffer) >= 0) then Continue;
+            end;
+          end else
+          case SizeOf(T) of
+            0..SizeOf(Cardinal): Continue;
+            {$ifdef LARGEINT}
+            SizeOf(Int64): if (InterfaceDefaults.Compare_Bin8(nil, PInt64(@Pivot)^, PInt64(J)^) >= 0) then Continue;
+            {$endif}
+          else
+            if (InterfaceDefaults.Compare_Bin(InterfaceDefaults.TDefaultComparer<T>.Instance,
+              Pointer(@Pivot), Pointer(J)) >= 0) then Continue;
           end;
-        end else
-        begin
-          if (SortBinaryComparer<T>(@Pivot, J) >= 0) then Continue;
-        end;
+        {$ifend}
       end;
     insertion_init:
       I := J;
@@ -11356,7 +11730,7 @@ proc_loop_current:
       TArray.CopyMemory<T>(J, @Pivot);
     end;
 
-    PStop := StackItem.Last;
+    PStop := StackItem^.Last;
     repeat
       Inc(J);
       if (J = PStop) then Break;
@@ -11380,20 +11754,35 @@ proc_loop_current:
         begin
           if (NativeUInt(Pointer(J)^) >= NativeUInt(Pivot.Ptr)) then Continue;
         end else
-        if (GetTypeKind(T) in [tkLString, tkWString, tkUString, tkDynArray]) then
-        begin
-          Buffer := Pointer(Pointer(J)^);
-          if (Buffer = Pivot.Ptr) then Continue;
-          case GetTypeKind(T) of
-            tkLString: if (InterfaceDefaults.Compare_LStr(nil, Buffer, Pivot.Ptr) >= 0) then Continue;
-            tkWString: if (InterfaceDefaults.Compare_WStr(nil, Buffer, Pivot.Ptr) >= 0) then Continue;
-            tkUString: if (InterfaceDefaults.Compare_UStr(nil, Buffer, Pivot.Ptr) >= 0) then Continue;
-           tkDynArray: if (InterfaceDefaults.Compare_Dyn(InterfaceDefaults.TDefaultComparer<T>.Instance, Buffer, Pivot.Ptr) >= 0) then Continue;
+        {$if CompilerVersion = 28}
+          if (IComparer<T>(@InterfaceDefaults.TDefaultComparer<T>.Instance).Compare(
+            J^, TRAIIHelper<T>.P(@Pivot)^) >= 0) then Continue;
+        {$else}
+          if (GetTypeKind(T) = tkString) then
+          begin
+            if (InterfaceDefaults.Compare_OStr(nil, Pointer(J), Pointer(@Pivot)) >= 0) then Continue;
+          end else
+          if (GetTypeKind(T) in [tkLString, tkWString, tkUString, tkDynArray]) then
+          begin
+            Buffer := Pointer(Pointer(J)^);
+            if (Buffer = Pivot.Ptr) then Continue;
+            case GetTypeKind(T) of
+              tkLString: if (InterfaceDefaults.Compare_LStr(nil, Buffer, Pivot.Ptr) >= 0) then Continue;
+              tkWString: if (InterfaceDefaults.Compare_WStr(nil, Buffer, Pivot.Ptr) >= 0) then Continue;
+              tkUString: if (InterfaceDefaults.Compare_UStr(nil, Buffer, Pivot.Ptr) >= 0) then Continue;
+             tkDynArray: if (InterfaceDefaults.Compare_Dyn(InterfaceDefaults.TDefaultComparer<T>.Instance, Buffer, Pivot.Ptr) >= 0) then Continue;
+            end;
+          end else
+          case SizeOf(T) of
+            0..SizeOf(Cardinal): Continue;
+            {$ifdef LARGEINT}
+            SizeOf(Int64): if (InterfaceDefaults.Compare_Bin8(nil, PInt64(J)^, PInt64(@Pivot)^) >= 0) then Continue;
+            {$endif}
+          else
+            if (InterfaceDefaults.Compare_Bin(InterfaceDefaults.TDefaultComparer<T>.Instance,
+              Pointer(J), Pointer(@Pivot)) >= 0) then Continue;
           end;
-        end else
-        begin
-          if (SortBinaryComparer<T>(J, @Pivot) >= 0) then Continue;
-        end;
+        {$ifend}
       end;
 
       I := J;
@@ -11417,20 +11806,35 @@ proc_loop_current:
           begin
             if (NativeUInt(Pointer(I)^) >= NativeUInt(Pivot.Ptr)) then Break;
           end else
-          if (GetTypeKind(T) in [tkLString, tkWString, tkUString, tkDynArray]) then
-          begin
-            Buffer := Pointer(Pointer(I)^);
-            if (Buffer = Pivot.Ptr) then Break;
-            case GetTypeKind(T) of
-              tkLString: if (InterfaceDefaults.Compare_LStr(nil, Buffer, Pivot.Ptr) >= 0) then Break;
-              tkWString: if (InterfaceDefaults.Compare_WStr(nil, Buffer, Pivot.Ptr) >= 0) then Break;
-              tkUString: if (InterfaceDefaults.Compare_UStr(nil, Buffer, Pivot.Ptr) >= 0) then Break;
-             tkDynArray: if (InterfaceDefaults.Compare_Dyn(InterfaceDefaults.TDefaultComparer<T>.Instance, Buffer, Pivot.Ptr) >= 0) then Break;
+          {$if CompilerVersion = 28}
+            if (IComparer<T>(@InterfaceDefaults.TDefaultComparer<T>.Instance).Compare(
+              I^, TRAIIHelper<T>.P(@Pivot)^) >= 0) then Break;
+          {$else}
+            if (GetTypeKind(T) = tkString) then
+            begin
+              if (InterfaceDefaults.Compare_OStr(nil, Pointer(I), Pointer(@Pivot)) >= 0) then Break;
+            end else
+            if (GetTypeKind(T) in [tkLString, tkWString, tkUString, tkDynArray]) then
+            begin
+              Buffer := Pointer(Pointer(I)^);
+              if (Buffer = Pivot.Ptr) then Break;
+              case GetTypeKind(T) of
+                tkLString: if (InterfaceDefaults.Compare_LStr(nil, Buffer, Pivot.Ptr) >= 0) then Break;
+                tkWString: if (InterfaceDefaults.Compare_WStr(nil, Buffer, Pivot.Ptr) >= 0) then Break;
+                tkUString: if (InterfaceDefaults.Compare_UStr(nil, Buffer, Pivot.Ptr) >= 0) then Break;
+               tkDynArray: if (InterfaceDefaults.Compare_Dyn(InterfaceDefaults.TDefaultComparer<T>.Instance, Buffer, Pivot.Ptr) >= 0) then Break;
+              end;
+            end else
+            case SizeOf(T) of
+              0..SizeOf(Cardinal): Break;
+              {$ifdef LARGEINT}
+              SizeOf(Int64): if (InterfaceDefaults.Compare_Bin8(nil, PInt64(I)^, PInt64(@Pivot)^) >= 0) then Break;
+              {$endif}
+            else
+              if (InterfaceDefaults.Compare_Bin(InterfaceDefaults.TDefaultComparer<T>.Instance,
+                Pointer(I), Pointer(@Pivot)) >= 0) then Break;
             end;
-          end else
-          begin
-            if (SortBinaryComparer<T>(I, @Pivot) >= 0) then Break;
-          end;
+          {$ifend}
         end;
       until (False);
 
@@ -11444,7 +11848,7 @@ proc_loop_current:
       end;
     until (False);
 
-    if (StackItem <> @STACK[0]) then goto proc_loop;
+    if (StackItem <> Pointer(@Stack[0])) then goto proc_loop;
     Exit;
   end;
 
@@ -11486,23 +11890,44 @@ proc_loop_current:
           begin
             if (NativeUInt(Pivot.Ptr) >= NativeUInt(Pointer(I)^)) then Break;
           end else
-          if (GetTypeKind(T) in [tkLString, tkWString, tkUString, tkDynArray]) then
-          begin
-            Buffer := Pointer(Pointer(I)^);
-            if (Pivot.Ptr = Buffer) then Break;
-            case GetTypeKind(T) of
-              tkLString: if (InterfaceDefaults.Compare_LStr(nil, Pivot.Ptr, Buffer) >= 0) then Break;
-              tkWString: if (InterfaceDefaults.Compare_WStr(nil, Pivot.Ptr, Buffer) >= 0) then Break;
-              tkUString: if (InterfaceDefaults.Compare_UStr(nil, Pivot.Ptr, Buffer) >= 0) then Break;
-             tkDynArray: if (InterfaceDefaults.Compare_Dyn(InterfaceDefaults.TDefaultComparer<T>.Instance, Pivot.Ptr, Buffer) >= 0) then Break;
+          {$if CompilerVersion = 28}
+            if (IComparer<T>(@InterfaceDefaults.TDefaultComparer<T>.Instance).Compare(
+              TRAIIHelper<T>.P(@Pivot)^, I^) >= 0) then Break;
+          {$else}
+            if (GetTypeKind(T) = tkString) then
+            begin
+              if (InterfaceDefaults.Compare_OStr(nil, Pointer(@Pivot), Pointer(I)) >= 0) then Break;
+            end else
+            if (GetTypeKind(T) in [tkLString, tkWString, tkUString, tkDynArray]) then
+            begin
+              Buffer := Pointer(Pointer(I)^);
+              if (Pivot.Ptr = Buffer) then Break;
+              case GetTypeKind(T) of
+                tkLString: if (InterfaceDefaults.Compare_LStr(nil, Pivot.Ptr, Buffer) >= 0) then Break;
+                tkWString: if (InterfaceDefaults.Compare_WStr(nil, Pivot.Ptr, Buffer) >= 0) then Break;
+                tkUString: if (InterfaceDefaults.Compare_UStr(nil, Pivot.Ptr, Buffer) >= 0) then Break;
+               tkDynArray: if (InterfaceDefaults.Compare_Dyn(InterfaceDefaults.TDefaultComparer<T>.Instance, Pivot.Ptr, Buffer) >= 0) then Break;
+              end;
+            end else
+            case SizeOf(T) of
+              0..SizeOf(Cardinal): Break;
+              {$ifdef LARGEINT}
+              SizeOf(Int64): if (InterfaceDefaults.Compare_Bin8(nil, PInt64(@Pivot)^, PInt64(I)^) >= 0) then Break;
+              {$endif}
+            else
+              if (InterfaceDefaults.Compare_Bin(InterfaceDefaults.TDefaultComparer<T>.Instance,
+                Pointer(@Pivot), Pointer(I)) >= 0) then Break;
             end;
-          end else
-          begin
-            if (SortBinaryComparer<T>(@Pivot, I) >= 0) then Break;
-          end;
+          {$ifend}
         end else
         begin
-          if (SortBinaryComparer<T>(@PivotBig, I) >= 0) then Break;
+          {$if CompilerVersion = 28}
+            if (IComparer<T>(@InterfaceDefaults.TDefaultComparer<T>.Instance).Compare(
+              TRAIIHelper<T>.P(@PivotBig)^, I^) >= 0) then Break;
+          {$else}
+            if (InterfaceDefaults.Compare_Bin(InterfaceDefaults.TDefaultComparer<T>.Instance,
+              Pointer(@PivotBig), Pointer(I)) >= 0) then Break;
+          {$ifend}
         end;
       end;
     until (False);
@@ -11521,23 +11946,44 @@ proc_loop_current:
           begin
             if (NativeUInt(Pointer(J)^) >= NativeUInt(Pivot.Ptr)) then Break;
           end else
-          if (GetTypeKind(T) in [tkLString, tkWString, tkUString, tkDynArray]) then
-          begin
-            Buffer := Pointer(Pointer(J)^);
-            if (Buffer = Pivot.Ptr) then Break;
-            case GetTypeKind(T) of
-              tkLString: if (InterfaceDefaults.Compare_LStr(nil, Buffer, Pivot.Ptr) >= 0) then Break;
-              tkWString: if (InterfaceDefaults.Compare_WStr(nil, Buffer, Pivot.Ptr) >= 0) then Break;
-              tkUString: if (InterfaceDefaults.Compare_UStr(nil, Buffer, Pivot.Ptr) >= 0) then Break;
-             tkDynArray: if (InterfaceDefaults.Compare_Dyn(InterfaceDefaults.TDefaultComparer<T>.Instance, Buffer, Pivot.Ptr) >= 0) then Break;
+          {$if CompilerVersion = 28}
+            if (IComparer<T>(@InterfaceDefaults.TDefaultComparer<T>.Instance).Compare(
+              J^, TRAIIHelper<T>.P(@Pivot)^) >= 0) then Break;
+          {$else}
+            if (GetTypeKind(T) = tkString) then
+            begin
+              if (InterfaceDefaults.Compare_OStr(nil, Pointer(J), Pointer(@Pivot)) >= 0) then Break;
+            end else
+            if (GetTypeKind(T) in [tkLString, tkWString, tkUString, tkDynArray]) then
+            begin
+              Buffer := Pointer(Pointer(J)^);
+              if (Buffer = Pivot.Ptr) then Break;
+              case GetTypeKind(T) of
+                tkLString: if (InterfaceDefaults.Compare_LStr(nil, Buffer, Pivot.Ptr) >= 0) then Break;
+                tkWString: if (InterfaceDefaults.Compare_WStr(nil, Buffer, Pivot.Ptr) >= 0) then Break;
+                tkUString: if (InterfaceDefaults.Compare_UStr(nil, Buffer, Pivot.Ptr) >= 0) then Break;
+               tkDynArray: if (InterfaceDefaults.Compare_Dyn(InterfaceDefaults.TDefaultComparer<T>.Instance, Buffer, Pivot.Ptr) >= 0) then Break;
+              end;
+            end else
+            case SizeOf(T) of
+              0..SizeOf(Cardinal): Break;
+              {$ifdef LARGEINT}
+              SizeOf(Int64): if (InterfaceDefaults.Compare_Bin8(nil, PInt64(J)^, PInt64(@Pivot)^) >= 0) then Break;
+              {$endif}
+            else
+              if (InterfaceDefaults.Compare_Bin(InterfaceDefaults.TDefaultComparer<T>.Instance,
+                Pointer(J), Pointer(@Pivot)) >= 0) then Break;
             end;
-          end else
-          begin
-            if (SortBinaryComparer<T>(J, @Pivot) >= 0) then Break;
-          end;
+          {$ifend}
         end else
         begin
-          if (SortBinaryComparer<T>(J, @PivotBig) >= 0) then Break;
+          {$if CompilerVersion = 28}
+            if (IComparer<T>(@InterfaceDefaults.TDefaultComparer<T>.Instance).Compare(
+              J^, TRAIIHelper<T>.P(@PivotBig)^) >= 0) then Break;
+          {$else}
+            if (InterfaceDefaults.Compare_Bin(InterfaceDefaults.TDefaultComparer<T>.Instance,
+              Pointer(J), Pointer(@PivotBig)) >= 0) then Break;
+          {$ifend}
         end;
       end;
     until (False);
@@ -11735,15 +12181,11 @@ proc_loop_current:
   StackItem := SortItemNext<T>(StackItem, I, J);
   if (NativeInt(StackItem) >= 0) then goto proc_loop_current;
   Dec(NativeInt(StackItem), HIGH_NATIVE_BIT);
-  if (StackItem <> @Stack[0]) then goto proc_loop;
+  if (StackItem <> Pointer(@Stack[0])) then goto proc_loop;
 end;
 {$endif .SMARTGENERICS}
 
 class procedure TArray.SortUniversals<T>(const Values: Pointer; const Count: NativeInt; var Helper: TSortHelper<T>);
-label
-  proc_loop, proc_loop_current, insertion_init, swap_loop;
-type
-  P = ^T;
 var
   Index: NativeInt;
   Temp1: Byte;
@@ -11756,275 +12198,321 @@ var
   Stack: TSortStack<T>;
 begin
   Stack[0].First := Values;
-  Stack[0].Last := P(Values) + Count - 1;
-  StackItem := @Stack[1];
+  Stack[0].Last := TRAIIHelper<T>.P(Values) + Count - 1;
+  StackItem := Pointer(@Stack[1]);
 
-proc_loop:
-  Dec(StackItem);
-proc_loop_current:
-  I := StackItem.First;
-  J := StackItem.Last;
+  repeat
+    Dec(StackItem);
+    I := StackItem^.First;
+    J := StackItem^.Last;
 
-  // insertion sort
-  if ((NativeUInt(J) - NativeUInt(I)) < INSERTION_SORT_LIMIT * SizeOf(T)) then
-  begin
-    PStop := StackItem.First;
-    goto insertion_init;
-    repeat
-      if (J = PStop) then Break;
-      Dec(J);
+    // insertion sort
+    if ((NativeUInt(J) - NativeUInt(I)) < INSERTION_SORT_LIMIT * SizeOf(T)) then
+    begin
+      PStop := StackItem^.First;
 
-      if (Helper.Compare(Helper.Inst, Helper.Pivot, J^) <= 0) then Continue;
-    insertion_init:
+      case SizeOf(T) of
+        1: TRAIIHelper.T1(Pointer(@Helper.Pivot)^) := TRAIIHelper.T1(Pointer(J)^);
+        2: TRAIIHelper.T2(Pointer(@Helper.Pivot)^) := TRAIIHelper.T2(Pointer(J)^);
+        3: TRAIIHelper.T3(Pointer(@Helper.Pivot)^) := TRAIIHelper.T3(Pointer(J)^);
+        4: TRAIIHelper.T4(Pointer(@Helper.Pivot)^) := TRAIIHelper.T4(Pointer(J)^);
+        5: TRAIIHelper.T5(Pointer(@Helper.Pivot)^) := TRAIIHelper.T5(Pointer(J)^);
+        6: TRAIIHelper.T6(Pointer(@Helper.Pivot)^) := TRAIIHelper.T6(Pointer(J)^);
+        7: TRAIIHelper.T7(Pointer(@Helper.Pivot)^) := TRAIIHelper.T7(Pointer(J)^);
+        8: TRAIIHelper.T8(Pointer(@Helper.Pivot)^) := TRAIIHelper.T8(Pointer(J)^);
+        9: TRAIIHelper.T9(Pointer(@Helper.Pivot)^) := TRAIIHelper.T9(Pointer(J)^);
+       10: TRAIIHelper.T10(Pointer(@Helper.Pivot)^) := TRAIIHelper.T10(Pointer(J)^);
+       11: TRAIIHelper.T11(Pointer(@Helper.Pivot)^) := TRAIIHelper.T11(Pointer(J)^);
+       12: TRAIIHelper.T12(Pointer(@Helper.Pivot)^) := TRAIIHelper.T12(Pointer(J)^);
+       13: TRAIIHelper.T13(Pointer(@Helper.Pivot)^) := TRAIIHelper.T13(Pointer(J)^);
+       14: TRAIIHelper.T14(Pointer(@Helper.Pivot)^) := TRAIIHelper.T14(Pointer(J)^);
+       15: TRAIIHelper.T15(Pointer(@Helper.Pivot)^) := TRAIIHelper.T15(Pointer(J)^);
+       16: TRAIIHelper.T16(Pointer(@Helper.Pivot)^) := TRAIIHelper.T16(Pointer(J)^);
+       17: TRAIIHelper.T17(Pointer(@Helper.Pivot)^) := TRAIIHelper.T17(Pointer(J)^);
+       18: TRAIIHelper.T18(Pointer(@Helper.Pivot)^) := TRAIIHelper.T18(Pointer(J)^);
+       19: TRAIIHelper.T19(Pointer(@Helper.Pivot)^) := TRAIIHelper.T19(Pointer(J)^);
+       20: TRAIIHelper.T20(Pointer(@Helper.Pivot)^) := TRAIIHelper.T20(Pointer(J)^);
+       21: TRAIIHelper.T21(Pointer(@Helper.Pivot)^) := TRAIIHelper.T21(Pointer(J)^);
+       22: TRAIIHelper.T22(Pointer(@Helper.Pivot)^) := TRAIIHelper.T22(Pointer(J)^);
+       23: TRAIIHelper.T23(Pointer(@Helper.Pivot)^) := TRAIIHelper.T23(Pointer(J)^);
+       24: TRAIIHelper.T24(Pointer(@Helper.Pivot)^) := TRAIIHelper.T24(Pointer(J)^);
+       25: TRAIIHelper.T25(Pointer(@Helper.Pivot)^) := TRAIIHelper.T25(Pointer(J)^);
+       26: TRAIIHelper.T26(Pointer(@Helper.Pivot)^) := TRAIIHelper.T26(Pointer(J)^);
+       27: TRAIIHelper.T27(Pointer(@Helper.Pivot)^) := TRAIIHelper.T27(Pointer(J)^);
+       28: TRAIIHelper.T28(Pointer(@Helper.Pivot)^) := TRAIIHelper.T28(Pointer(J)^);
+       29: TRAIIHelper.T29(Pointer(@Helper.Pivot)^) := TRAIIHelper.T29(Pointer(J)^);
+       30: TRAIIHelper.T30(Pointer(@Helper.Pivot)^) := TRAIIHelper.T30(Pointer(J)^);
+       31: TRAIIHelper.T31(Pointer(@Helper.Pivot)^) := TRAIIHelper.T31(Pointer(J)^);
+       32: TRAIIHelper.T32(Pointer(@Helper.Pivot)^) := TRAIIHelper.T32(Pointer(J)^);
+       33: TRAIIHelper.T33(Pointer(@Helper.Pivot)^) := TRAIIHelper.T33(Pointer(J)^);
+       34: TRAIIHelper.T34(Pointer(@Helper.Pivot)^) := TRAIIHelper.T34(Pointer(J)^);
+       35: TRAIIHelper.T35(Pointer(@Helper.Pivot)^) := TRAIIHelper.T35(Pointer(J)^);
+       36: TRAIIHelper.T36(Pointer(@Helper.Pivot)^) := TRAIIHelper.T36(Pointer(J)^);
+       37: TRAIIHelper.T37(Pointer(@Helper.Pivot)^) := TRAIIHelper.T37(Pointer(J)^);
+       38: TRAIIHelper.T38(Pointer(@Helper.Pivot)^) := TRAIIHelper.T38(Pointer(J)^);
+       39: TRAIIHelper.T39(Pointer(@Helper.Pivot)^) := TRAIIHelper.T39(Pointer(J)^);
+       40: TRAIIHelper.T40(Pointer(@Helper.Pivot)^) := TRAIIHelper.T40(Pointer(J)^);
+      else
+        System.Move(J^, Helper.Pivot, SizeOf(T));
+      end;
       I := J;
-      TArray.CopyMemory<T>(@Helper.Pivot, J);
-    until (False);
-    TArray.CopyMemory<T>(I, J);
-    TArray.CopyMemory<T>(J, @Helper.Pivot);
 
-    PStop := StackItem.Last;
-    repeat
-      Inc(J);
-      if (J = PStop) then Break;
-
-      TArray.CopyMemory<T>(@Helper.Pivot, J + 1);
-      if (Helper.Compare(Helper.Inst, J^, Helper.Pivot) <= 0) then Continue;
-
-      I := J;
       repeat
-        TArray.CopyMemory<T>(I + 1, I);
-        Dec(I);
-        if (Helper.Compare(Helper.Inst, I^, Helper.Pivot) <= 0) then Break;
+        if (J = PStop) then Break;
+        Dec(J);
+
+        if (Helper.Compare(Helper.Inst, Helper.Pivot, J^) <= 0) then Continue;
+        I := J;
+        TArray.CopyMemory<T>(@Helper.Pivot, J);
+      until (False);
+      TArray.CopyMemory<T>(I, J);
+      TArray.CopyMemory<T>(J, @Helper.Pivot);
+
+      PStop := StackItem^.Last;
+      repeat
+        Inc(J);
+        if (J = PStop) then Break;
+
+        TArray.CopyMemory<T>(@Helper.Pivot, J + 1);
+        if (Helper.Compare(Helper.Inst, J^, Helper.Pivot) <= 0) then Continue;
+
+        I := J;
+        repeat
+          TArray.CopyMemory<T>(I + 1, I);
+          Dec(I);
+          if (Helper.Compare(Helper.Inst, I^, Helper.Pivot) <= 0) then Break;
+        until (False);
+
+        TArray.CopyMemory<T>(I + 1, @Helper.Pivot);
       until (False);
 
-      TArray.CopyMemory<T>(I + 1, @Helper.Pivot);
-    until (False);
-
-    if (StackItem <> @STACK[0]) then goto proc_loop;
-    Exit;
-  end;
-
-  // pivot
-  TArray.CopyMemory<T>(@Helper.Pivot, SortItemPivot<T>(I, J));
-
-  // quick sort
-  Dec(J);
-  Dec(I);
-  swap_loop:
-  begin
-    Inc(J, 2);
-
-    repeat
-      Inc(I);
-      if (Helper.Compare(Helper.Inst, Helper.Pivot, I^) <= 0) then Break;
-    until (False);
-
-    repeat
-      Dec(J);
-      if (Helper.Compare(Helper.Inst, J^, Helper.Pivot) <= 0) then Break;
-    until (False);
-
-    if (I <= J) then
-    begin
-      // TArray.Exchange<T>(I, J);
-      case SizeOf(T) of
-        0: ;
-        1:
-        begin
-          Temp1 := PLMemory(I).LBytes[0];
-          PLMemory(I).LBytes[0] := PRMemory(J).RBytes[0];
-          PRMemory(J).RBytes[0] := Temp1;
-        end;
-        2:
-        begin
-          Temp2 := PLMemory(I).LWords[0];
-          PLMemory(I).LWords[0] := PRMemory(J).RWords[0];
-          PRMemory(J).RWords[0] := Temp2;
-        end;
-        3:
-        begin
-          Temp2 := PLMemory(I).LWords[0];
-          PLMemory(I).LWords[0] := PRMemory(J).RWords[0];
-          PRMemory(J).RWords[0] := Temp2;
-
-          Temp1 := PLMemory(I).LBytes[2];
-          PLMemory(I).LBytes[2] := PRMemory(J).RBytes[2];
-          PRMemory(J).RBytes[2] := Temp1;
-        end;
-        4..7:
-        begin
-          Temp4 := PLMemory(I).LCardinals[0];
-          PLMemory(I).LCardinals[0] := PRMemory(J).RCardinals[0];
-          PRMemory(J).RCardinals[0] := Temp4;
-
-          case SizeOf(T) of
-            5:
-            begin
-              Temp1 := PLMemory(I).LBytes[4];
-              PLMemory(I).LBytes[4] := PRMemory(J).RBytes[4];
-              PRMemory(J).RBytes[4] := Temp1;
-            end;
-            6:
-            begin
-              Temp2 := PLMemory(I).LWords[2];
-              PLMemory(I).LWords[2] := PRMemory(J).RWords[2];
-              PRMemory(J).RWords[2] := Temp2;
-            end;
-            7:
-            begin
-              Temp2 := PLMemory(I).LWords[2];
-              PLMemory(I).LWords[2] := PRMemory(J).RWords[2];
-              PRMemory(J).RWords[2] := Temp2;
-              Temp1 := PLMemory(I).LBytes[6];
-              PLMemory(I).LBytes[6] := PRMemory(J).RBytes[6];
-              PRMemory(J).RBytes[6] := Temp1;
-            end;
-          end;
-        end;
-        8..16:
-        begin
-          TempNative := PLMemory(I).LNatives[0];
-          PLMemory(I).LNatives[0] := PRMemory(J).RNatives[0];
-          PRMemory(J).RNatives[0] := TempNative;
-
-          if (SizeOf(T) >= SizeOf(NativeUInt) * 2) then
-          begin
-            TempNative := PLMemory(I).LNatives[1];
-            PLMemory(I).LNatives[1] := PRMemory(J).RNatives[1];
-            PRMemory(J).RNatives[1] := TempNative;
-          end;
-
-          if (SizeOf(T) >= SizeOf(NativeUInt) * 3) then
-          begin
-            TempNative := PLMemory(I).LNatives[2];
-            PLMemory(I).LNatives[2] := PRMemory(J).RNatives[2];
-            PRMemory(J).RNatives[2] := TempNative;
-          end;
-
-          if (SizeOf(T)  = SizeOf(NativeUInt) * 4) then
-          begin
-            TempNative := PLMemory(I).LNatives[3];
-            PLMemory(I).LNatives[3] := PRMemory(J).RNatives[3];
-            PRMemory(J).RNatives[3] := TempNative;
-          end;
-
-          {$ifdef LARGEINT}
-          case SizeOf(T) of
-            12, 13, 14, 15:
-            begin
-              Temp4 := PLMemory(I).LCardinals[2];
-              PLMemory(I).LCardinals[2] := PRMemory(J).RCardinals[2];
-              PRMemory(J).RCardinals[2] := Temp4;
-            end;
-          end;
-          {$endif}
-
-          case SizeOf(T) of
-            9:
-            begin
-              Temp1 := PLMemory(I).LBytes[8];
-              PLMemory(I).LBytes[8] := PRMemory(J).RBytes[8];
-              PRMemory(J).RBytes[8] := Temp1;
-            end;
-            10:
-            begin
-              Temp2 := PLMemory(I).LWords[4];
-              PLMemory(I).LWords[4] := PRMemory(J).RWords[4];
-              PRMemory(J).RWords[4] := Temp2;
-            end;
-            11:
-            begin
-              Temp2 := PLMemory(I).LWords[4];
-              PLMemory(I).LWords[4] := PRMemory(J).RWords[4];
-              PRMemory(J).RWords[4] := Temp2;
-              Temp1 := PLMemory(I).LBytes[10];
-              PLMemory(I).LBytes[10] := PRMemory(J).RBytes[10];
-              PRMemory(J).RBytes[10] := Temp1;
-            end;
-            13:
-            begin
-              Temp2 := PLMemory(I).LWords[5];
-              PLMemory(I).LWords[5] := PRMemory(J).RWords[5];
-              PRMemory(J).RWords[5] := Temp2;
-              Temp1 := PLMemory(I).LBytes[12];
-              PLMemory(I).LBytes[12] := PRMemory(J).RBytes[12];
-              PRMemory(J).RBytes[12] := Temp1;
-            end;
-            14:
-            begin
-              Temp2 := PLMemory(I).LWords[6];
-              PLMemory(I).LWords[6] := PRMemory(J).RWords[6];
-              PRMemory(J).RWords[6] := Temp2;
-            end;
-            15:
-            begin
-              Temp2 := PLMemory(I).LWords[6];
-              PLMemory(I).LWords[6] := PRMemory(J).RWords[6];
-              PRMemory(J).RWords[6] := Temp2;
-              Temp1 := PLMemory(I).LBytes[14];
-              PLMemory(I).LBytes[14] := PRMemory(J).RBytes[14];
-              PRMemory(J).RBytes[14] := Temp1;
-            end;
-          end;
-        end;
-      else
-        Index := 0;
-        repeat
-          TempNative := PLMemory(I).LNatives[Index];
-          PLMemory(I).LNatives[Index] := PRMemory(J).RNatives[Index];
-          PRMemory(J).RNatives[Index] := TempNative;
-          Inc(Index);
-        until (Index = SizeOf(T) div SizeOf(NativeUInt));
-
-        if (SizeOf(T) and (SizeOf(NativeUInt) - 1) <> 0) then
-        begin
-          {$ifdef LARGEINT}
-          if (SizeOf(T) and 4 <> 0) then
-          begin
-            Index := SizeOf(T) div SizeOf(Cardinal) - 1;
-            Temp4 := PLMemory(I).LCardinals[Index];
-            PLMemory(I).LCardinals[Index] := PRMemory(J).RCardinals[Index];
-            PRMemory(J).RCardinals[Index] := Temp4;
-          end;
-          {$endif}
-
-          if (SizeOf(T) and 2 <> 0) then
-          begin
-            Index := SizeOf(T) div SizeOf(Word) - 1;
-            Temp2 := PLMemory(I).LWords[Index];
-            PLMemory(I).LWords[Index] := PRMemory(J).RWords[Index];
-            PRMemory(J).RWords[Index] := Temp2;
-          end;
-
-          if (SizeOf(T) and 1 <> 0) then
-          begin
-            Index := SizeOf(T) div SizeOf(Byte) - 1;
-            Temp1 := PLMemory(I).LBytes[Index];
-            PLMemory(I).LBytes[Index] := PRMemory(J).RBytes[Index];
-            PRMemory(J).RBytes[Index] := Temp1;
-          end;
-        end;
-      end;
-
-      Dec(J, 2);
-      if (I <= J) then goto swap_loop;
-      Inc(I);
-      Inc(J);
+      if (StackItem <> Pointer(@Stack[0])) then Continue;
+      Exit;
     end;
-  end;
 
-  // next iteration
-  StackItem := SortItemNext<T>(StackItem, I, J);
-  if (NativeInt(StackItem) >= 0) then goto proc_loop_current;
-  Dec(NativeInt(StackItem), HIGH_NATIVE_BIT);
-  if (StackItem <> @Stack[0]) then goto proc_loop;
+    // pivot
+    TArray.CopyMemory<T>(@Helper.Pivot, SortItemPivot<T>(I, J));
+
+    // quick sort
+    Dec(J);
+    Dec(I);
+    repeat
+      Inc(J, 2);
+
+      repeat
+        Inc(I);
+        if (Helper.Compare(Helper.Inst, Helper.Pivot, I^) <= 0) then Break;
+      until (False);
+
+      repeat
+        Dec(J);
+        if (Helper.Compare(Helper.Inst, J^, Helper.Pivot) <= 0) then Break;
+      until (False);
+
+      if (I <= J) then
+      begin
+        // TArray.Exchange<T>(I, J);
+        case SizeOf(T) of
+          0: ;
+          1:
+          begin
+            Temp1 := PLMemory(I).LBytes[0];
+            PLMemory(I).LBytes[0] := PRMemory(J).RBytes[0];
+            PRMemory(J).RBytes[0] := Temp1;
+          end;
+          2:
+          begin
+            Temp2 := PLMemory(I).LWords[0];
+            PLMemory(I).LWords[0] := PRMemory(J).RWords[0];
+            PRMemory(J).RWords[0] := Temp2;
+          end;
+          3:
+          begin
+            Temp2 := PLMemory(I).LWords[0];
+            PLMemory(I).LWords[0] := PRMemory(J).RWords[0];
+            PRMemory(J).RWords[0] := Temp2;
+
+            Temp1 := PLMemory(I).LBytes[2];
+            PLMemory(I).LBytes[2] := PRMemory(J).RBytes[2];
+            PRMemory(J).RBytes[2] := Temp1;
+          end;
+          4..7:
+          begin
+            Temp4 := PLMemory(I).LCardinals[0];
+            PLMemory(I).LCardinals[0] := PRMemory(J).RCardinals[0];
+            PRMemory(J).RCardinals[0] := Temp4;
+
+            case SizeOf(T) of
+              5:
+              begin
+                Temp1 := PLMemory(I).LBytes[4];
+                PLMemory(I).LBytes[4] := PRMemory(J).RBytes[4];
+                PRMemory(J).RBytes[4] := Temp1;
+              end;
+              6:
+              begin
+                Temp2 := PLMemory(I).LWords[2];
+                PLMemory(I).LWords[2] := PRMemory(J).RWords[2];
+                PRMemory(J).RWords[2] := Temp2;
+              end;
+              7:
+              begin
+                Temp2 := PLMemory(I).LWords[2];
+                PLMemory(I).LWords[2] := PRMemory(J).RWords[2];
+                PRMemory(J).RWords[2] := Temp2;
+                Temp1 := PLMemory(I).LBytes[6];
+                PLMemory(I).LBytes[6] := PRMemory(J).RBytes[6];
+                PRMemory(J).RBytes[6] := Temp1;
+              end;
+            end;
+          end;
+          8..16:
+          begin
+            TempNative := PLMemory(I).LNatives[0];
+            PLMemory(I).LNatives[0] := PRMemory(J).RNatives[0];
+            PRMemory(J).RNatives[0] := TempNative;
+
+            if (SizeOf(T) >= SizeOf(NativeUInt) * 2) then
+            begin
+              TempNative := PLMemory(I).LNatives[1];
+              PLMemory(I).LNatives[1] := PRMemory(J).RNatives[1];
+              PRMemory(J).RNatives[1] := TempNative;
+            end;
+
+            if (SizeOf(T) >= SizeOf(NativeUInt) * 3) then
+            begin
+              TempNative := PLMemory(I).LNatives[2];
+              PLMemory(I).LNatives[2] := PRMemory(J).RNatives[2];
+              PRMemory(J).RNatives[2] := TempNative;
+            end;
+
+            if (SizeOf(T)  = SizeOf(NativeUInt) * 4) then
+            begin
+              TempNative := PLMemory(I).LNatives[3];
+              PLMemory(I).LNatives[3] := PRMemory(J).RNatives[3];
+              PRMemory(J).RNatives[3] := TempNative;
+            end;
+
+            {$ifdef LARGEINT}
+            case SizeOf(T) of
+              12, 13, 14, 15:
+              begin
+                Temp4 := PLMemory(I).LCardinals[2];
+                PLMemory(I).LCardinals[2] := PRMemory(J).RCardinals[2];
+                PRMemory(J).RCardinals[2] := Temp4;
+              end;
+            end;
+            {$endif}
+
+            case SizeOf(T) of
+              9:
+              begin
+                Temp1 := PLMemory(I).LBytes[8];
+                PLMemory(I).LBytes[8] := PRMemory(J).RBytes[8];
+                PRMemory(J).RBytes[8] := Temp1;
+              end;
+              10:
+              begin
+                Temp2 := PLMemory(I).LWords[4];
+                PLMemory(I).LWords[4] := PRMemory(J).RWords[4];
+                PRMemory(J).RWords[4] := Temp2;
+              end;
+              11:
+              begin
+                Temp2 := PLMemory(I).LWords[4];
+                PLMemory(I).LWords[4] := PRMemory(J).RWords[4];
+                PRMemory(J).RWords[4] := Temp2;
+                Temp1 := PLMemory(I).LBytes[10];
+                PLMemory(I).LBytes[10] := PRMemory(J).RBytes[10];
+                PRMemory(J).RBytes[10] := Temp1;
+              end;
+              13:
+              begin
+                Temp2 := PLMemory(I).LWords[5];
+                PLMemory(I).LWords[5] := PRMemory(J).RWords[5];
+                PRMemory(J).RWords[5] := Temp2;
+                Temp1 := PLMemory(I).LBytes[12];
+                PLMemory(I).LBytes[12] := PRMemory(J).RBytes[12];
+                PRMemory(J).RBytes[12] := Temp1;
+              end;
+              14:
+              begin
+                Temp2 := PLMemory(I).LWords[6];
+                PLMemory(I).LWords[6] := PRMemory(J).RWords[6];
+                PRMemory(J).RWords[6] := Temp2;
+              end;
+              15:
+              begin
+                Temp2 := PLMemory(I).LWords[6];
+                PLMemory(I).LWords[6] := PRMemory(J).RWords[6];
+                PRMemory(J).RWords[6] := Temp2;
+                Temp1 := PLMemory(I).LBytes[14];
+                PLMemory(I).LBytes[14] := PRMemory(J).RBytes[14];
+                PRMemory(J).RBytes[14] := Temp1;
+              end;
+            end;
+          end;
+        else
+          Index := 0;
+          repeat
+            TempNative := PLMemory(I).LNatives[Index];
+            PLMemory(I).LNatives[Index] := PRMemory(J).RNatives[Index];
+            PRMemory(J).RNatives[Index] := TempNative;
+            Inc(Index);
+          until (Index = SizeOf(T) div SizeOf(NativeUInt));
+
+          if (SizeOf(T) and (SizeOf(NativeUInt) - 1) <> 0) then
+          begin
+            {$ifdef LARGEINT}
+            if (SizeOf(T) and 4 <> 0) then
+            begin
+              Index := SizeOf(T) div SizeOf(Cardinal) - 1;
+              Temp4 := PLMemory(I).LCardinals[Index];
+              PLMemory(I).LCardinals[Index] := PRMemory(J).RCardinals[Index];
+              PRMemory(J).RCardinals[Index] := Temp4;
+            end;
+            {$endif}
+
+            if (SizeOf(T) and 2 <> 0) then
+            begin
+              Index := SizeOf(T) div SizeOf(Word) - 1;
+              Temp2 := PLMemory(I).LWords[Index];
+              PLMemory(I).LWords[Index] := PRMemory(J).RWords[Index];
+              PRMemory(J).RWords[Index] := Temp2;
+            end;
+
+            if (SizeOf(T) and 1 <> 0) then
+            begin
+              Index := SizeOf(T) div SizeOf(Byte) - 1;
+              Temp1 := PLMemory(I).LBytes[Index];
+              PLMemory(I).LBytes[Index] := PRMemory(J).RBytes[Index];
+              PRMemory(J).RBytes[Index] := Temp1;
+            end;
+          end;
+        end;
+
+        Dec(J, 2);
+        if (I <= J) then Continue;
+        Inc(I);
+        Inc(J);
+      end;
+      Break;
+    until (False);
+
+    // next iteration
+    StackItem := SortItemNext<T>(StackItem, I, J);
+    if (NativeInt(StackItem) >= 0) then
+    begin
+      Inc(StackItem);
+      Continue;
+    end;
+    Dec(NativeInt(StackItem), HIGH_NATIVE_BIT);
+    if (StackItem <> Pointer(@Stack[0])) then Continue;
+    Break;
+  until (False);
 end;
 
 class procedure TArray.SortDescendingUniversals<T>(const Values: Pointer; const Count: NativeInt; var Helper: TSortHelper<T>);
-label
-  proc_loop, proc_loop_current, insertion_init, swap_loop;
-type
-  P = ^T;
 var
   Index: NativeInt;
   Temp1: Byte;
@@ -12037,268 +12525,318 @@ var
   Stack: TSortStack<T>;
 begin
   Stack[0].First := Values;
-  Stack[0].Last := P(Values) + Count - 1;
-  StackItem := @Stack[1];
+  Stack[0].Last := TRAIIHelper<T>.P(Values) + Count - 1;
+  StackItem := Pointer(@Stack[1]);
 
-proc_loop:
-  Dec(StackItem);
-proc_loop_current:
-  I := StackItem.First;
-  J := StackItem.Last;
+  repeat
+    Dec(StackItem);
+    I := StackItem^.First;
+    J := StackItem^.Last;
 
-  // insertion sort
-  if ((NativeUInt(J) - NativeUInt(I)) < INSERTION_SORT_LIMIT * SizeOf(T)) then
-  begin
-    PStop := StackItem.First;
-    goto insertion_init;
-    repeat
-      if (J = PStop) then Break;
-      Dec(J);
+    // insertion sort
+    if ((NativeUInt(J) - NativeUInt(I)) < INSERTION_SORT_LIMIT * SizeOf(T)) then
+    begin
+      PStop := StackItem^.First;
 
-      if (Helper.Compare(Helper.Inst, Helper.Pivot, J^) >= 0) then Continue;
-    insertion_init:
+      case SizeOf(T) of
+        1: TRAIIHelper.T1(Pointer(@Helper.Pivot)^) := TRAIIHelper.T1(Pointer(J)^);
+        2: TRAIIHelper.T2(Pointer(@Helper.Pivot)^) := TRAIIHelper.T2(Pointer(J)^);
+        3: TRAIIHelper.T3(Pointer(@Helper.Pivot)^) := TRAIIHelper.T3(Pointer(J)^);
+        4: TRAIIHelper.T4(Pointer(@Helper.Pivot)^) := TRAIIHelper.T4(Pointer(J)^);
+        5: TRAIIHelper.T5(Pointer(@Helper.Pivot)^) := TRAIIHelper.T5(Pointer(J)^);
+        6: TRAIIHelper.T6(Pointer(@Helper.Pivot)^) := TRAIIHelper.T6(Pointer(J)^);
+        7: TRAIIHelper.T7(Pointer(@Helper.Pivot)^) := TRAIIHelper.T7(Pointer(J)^);
+        8: TRAIIHelper.T8(Pointer(@Helper.Pivot)^) := TRAIIHelper.T8(Pointer(J)^);
+        9: TRAIIHelper.T9(Pointer(@Helper.Pivot)^) := TRAIIHelper.T9(Pointer(J)^);
+       10: TRAIIHelper.T10(Pointer(@Helper.Pivot)^) := TRAIIHelper.T10(Pointer(J)^);
+       11: TRAIIHelper.T11(Pointer(@Helper.Pivot)^) := TRAIIHelper.T11(Pointer(J)^);
+       12: TRAIIHelper.T12(Pointer(@Helper.Pivot)^) := TRAIIHelper.T12(Pointer(J)^);
+       13: TRAIIHelper.T13(Pointer(@Helper.Pivot)^) := TRAIIHelper.T13(Pointer(J)^);
+       14: TRAIIHelper.T14(Pointer(@Helper.Pivot)^) := TRAIIHelper.T14(Pointer(J)^);
+       15: TRAIIHelper.T15(Pointer(@Helper.Pivot)^) := TRAIIHelper.T15(Pointer(J)^);
+       16: TRAIIHelper.T16(Pointer(@Helper.Pivot)^) := TRAIIHelper.T16(Pointer(J)^);
+       17: TRAIIHelper.T17(Pointer(@Helper.Pivot)^) := TRAIIHelper.T17(Pointer(J)^);
+       18: TRAIIHelper.T18(Pointer(@Helper.Pivot)^) := TRAIIHelper.T18(Pointer(J)^);
+       19: TRAIIHelper.T19(Pointer(@Helper.Pivot)^) := TRAIIHelper.T19(Pointer(J)^);
+       20: TRAIIHelper.T20(Pointer(@Helper.Pivot)^) := TRAIIHelper.T20(Pointer(J)^);
+       21: TRAIIHelper.T21(Pointer(@Helper.Pivot)^) := TRAIIHelper.T21(Pointer(J)^);
+       22: TRAIIHelper.T22(Pointer(@Helper.Pivot)^) := TRAIIHelper.T22(Pointer(J)^);
+       23: TRAIIHelper.T23(Pointer(@Helper.Pivot)^) := TRAIIHelper.T23(Pointer(J)^);
+       24: TRAIIHelper.T24(Pointer(@Helper.Pivot)^) := TRAIIHelper.T24(Pointer(J)^);
+       25: TRAIIHelper.T25(Pointer(@Helper.Pivot)^) := TRAIIHelper.T25(Pointer(J)^);
+       26: TRAIIHelper.T26(Pointer(@Helper.Pivot)^) := TRAIIHelper.T26(Pointer(J)^);
+       27: TRAIIHelper.T27(Pointer(@Helper.Pivot)^) := TRAIIHelper.T27(Pointer(J)^);
+       28: TRAIIHelper.T28(Pointer(@Helper.Pivot)^) := TRAIIHelper.T28(Pointer(J)^);
+       29: TRAIIHelper.T29(Pointer(@Helper.Pivot)^) := TRAIIHelper.T29(Pointer(J)^);
+       30: TRAIIHelper.T30(Pointer(@Helper.Pivot)^) := TRAIIHelper.T30(Pointer(J)^);
+       31: TRAIIHelper.T31(Pointer(@Helper.Pivot)^) := TRAIIHelper.T31(Pointer(J)^);
+       32: TRAIIHelper.T32(Pointer(@Helper.Pivot)^) := TRAIIHelper.T32(Pointer(J)^);
+       33: TRAIIHelper.T33(Pointer(@Helper.Pivot)^) := TRAIIHelper.T33(Pointer(J)^);
+       34: TRAIIHelper.T34(Pointer(@Helper.Pivot)^) := TRAIIHelper.T34(Pointer(J)^);
+       35: TRAIIHelper.T35(Pointer(@Helper.Pivot)^) := TRAIIHelper.T35(Pointer(J)^);
+       36: TRAIIHelper.T36(Pointer(@Helper.Pivot)^) := TRAIIHelper.T36(Pointer(J)^);
+       37: TRAIIHelper.T37(Pointer(@Helper.Pivot)^) := TRAIIHelper.T37(Pointer(J)^);
+       38: TRAIIHelper.T38(Pointer(@Helper.Pivot)^) := TRAIIHelper.T38(Pointer(J)^);
+       39: TRAIIHelper.T39(Pointer(@Helper.Pivot)^) := TRAIIHelper.T39(Pointer(J)^);
+       40: TRAIIHelper.T40(Pointer(@Helper.Pivot)^) := TRAIIHelper.T40(Pointer(J)^);
+      else
+        System.Move(J^, Helper.Pivot, SizeOf(T));
+      end;
       I := J;
-      TArray.CopyMemory<T>(@Helper.Pivot, J);
-    until (False);
-    TArray.CopyMemory<T>(I, J);
-    TArray.CopyMemory<T>(J, @Helper.Pivot);
 
-    PStop := StackItem.Last;
-    repeat
-      Inc(J);
-      if (J = PStop) then Break;
-
-      TArray.CopyMemory<T>(@Helper.Pivot, J + 1);
-      if (Helper.Compare(Helper.Inst, J^, Helper.Pivot) >= 0) then Continue;
-
-      I := J;
       repeat
-        TArray.CopyMemory<T>(I + 1, I);
-        Dec(I);
-        if (Helper.Compare(Helper.Inst, I^, Helper.Pivot) >= 0) then Break;
+        if (J = PStop) then Break;
+        Dec(J);
+
+        if (Helper.Compare(Helper.Inst, Helper.Pivot, J^) >= 0) then Continue;
+        I := J;
+        TArray.CopyMemory<T>(@Helper.Pivot, J);
+      until (False);
+      TArray.CopyMemory<T>(I, J);
+      TArray.CopyMemory<T>(J, @Helper.Pivot);
+
+      PStop := StackItem^.Last;
+      repeat
+        Inc(J);
+        if (J = PStop) then Break;
+
+        TArray.CopyMemory<T>(@Helper.Pivot, J + 1);
+        if (Helper.Compare(Helper.Inst, J^, Helper.Pivot) >= 0) then Continue;
+
+        I := J;
+        repeat
+          TArray.CopyMemory<T>(I + 1, I);
+          Dec(I);
+          if (Helper.Compare(Helper.Inst, I^, Helper.Pivot) >= 0) then Break;
+        until (False);
+
+        TArray.CopyMemory<T>(I + 1, @Helper.Pivot);
       until (False);
 
-      TArray.CopyMemory<T>(I + 1, @Helper.Pivot);
-    until (False);
-
-    if (StackItem <> @STACK[0]) then goto proc_loop;
-    Exit;
-  end;
-
-  // pivot
-  TArray.CopyMemory<T>(@Helper.Pivot, SortItemPivot<T>(I, J));
-
-  // quick sort
-  Dec(J);
-  Dec(I);
-  swap_loop:
-  begin
-    Inc(J, 2);
-
-    repeat
-      Inc(I);
-      if (Helper.Compare(Helper.Inst, Helper.Pivot, I^) >= 0) then Break;
-    until (False);
-
-    repeat
-      Dec(J);
-      if (Helper.Compare(Helper.Inst, J^, Helper.Pivot) >= 0) then Break;
-    until (False);
-
-    if (I <= J) then
-    begin
-      // TArray.Exchange<T>(I, J);
-      case SizeOf(T) of
-        0: ;
-        1:
-        begin
-          Temp1 := PLMemory(I).LBytes[0];
-          PLMemory(I).LBytes[0] := PRMemory(J).RBytes[0];
-          PRMemory(J).RBytes[0] := Temp1;
-        end;
-        2:
-        begin
-          Temp2 := PLMemory(I).LWords[0];
-          PLMemory(I).LWords[0] := PRMemory(J).RWords[0];
-          PRMemory(J).RWords[0] := Temp2;
-        end;
-        3:
-        begin
-          Temp2 := PLMemory(I).LWords[0];
-          PLMemory(I).LWords[0] := PRMemory(J).RWords[0];
-          PRMemory(J).RWords[0] := Temp2;
-
-          Temp1 := PLMemory(I).LBytes[2];
-          PLMemory(I).LBytes[2] := PRMemory(J).RBytes[2];
-          PRMemory(J).RBytes[2] := Temp1;
-        end;
-        4..7:
-        begin
-          Temp4 := PLMemory(I).LCardinals[0];
-          PLMemory(I).LCardinals[0] := PRMemory(J).RCardinals[0];
-          PRMemory(J).RCardinals[0] := Temp4;
-
-          case SizeOf(T) of
-            5:
-            begin
-              Temp1 := PLMemory(I).LBytes[4];
-              PLMemory(I).LBytes[4] := PRMemory(J).RBytes[4];
-              PRMemory(J).RBytes[4] := Temp1;
-            end;
-            6:
-            begin
-              Temp2 := PLMemory(I).LWords[2];
-              PLMemory(I).LWords[2] := PRMemory(J).RWords[2];
-              PRMemory(J).RWords[2] := Temp2;
-            end;
-            7:
-            begin
-              Temp2 := PLMemory(I).LWords[2];
-              PLMemory(I).LWords[2] := PRMemory(J).RWords[2];
-              PRMemory(J).RWords[2] := Temp2;
-              Temp1 := PLMemory(I).LBytes[6];
-              PLMemory(I).LBytes[6] := PRMemory(J).RBytes[6];
-              PRMemory(J).RBytes[6] := Temp1;
-            end;
-          end;
-        end;
-        8..16:
-        begin
-          TempNative := PLMemory(I).LNatives[0];
-          PLMemory(I).LNatives[0] := PRMemory(J).RNatives[0];
-          PRMemory(J).RNatives[0] := TempNative;
-
-          if (SizeOf(T) >= SizeOf(NativeUInt) * 2) then
-          begin
-            TempNative := PLMemory(I).LNatives[1];
-            PLMemory(I).LNatives[1] := PRMemory(J).RNatives[1];
-            PRMemory(J).RNatives[1] := TempNative;
-          end;
-
-          if (SizeOf(T) >= SizeOf(NativeUInt) * 3) then
-          begin
-            TempNative := PLMemory(I).LNatives[2];
-            PLMemory(I).LNatives[2] := PRMemory(J).RNatives[2];
-            PRMemory(J).RNatives[2] := TempNative;
-          end;
-
-          if (SizeOf(T)  = SizeOf(NativeUInt) * 4) then
-          begin
-            TempNative := PLMemory(I).LNatives[3];
-            PLMemory(I).LNatives[3] := PRMemory(J).RNatives[3];
-            PRMemory(J).RNatives[3] := TempNative;
-          end;
-
-          {$ifdef LARGEINT}
-          case SizeOf(T) of
-            12, 13, 14, 15:
-            begin
-              Temp4 := PLMemory(I).LCardinals[2];
-              PLMemory(I).LCardinals[2] := PRMemory(J).RCardinals[2];
-              PRMemory(J).RCardinals[2] := Temp4;
-            end;
-          end;
-          {$endif}
-
-          case SizeOf(T) of
-            9:
-            begin
-              Temp1 := PLMemory(I).LBytes[8];
-              PLMemory(I).LBytes[8] := PRMemory(J).RBytes[8];
-              PRMemory(J).RBytes[8] := Temp1;
-            end;
-            10:
-            begin
-              Temp2 := PLMemory(I).LWords[4];
-              PLMemory(I).LWords[4] := PRMemory(J).RWords[4];
-              PRMemory(J).RWords[4] := Temp2;
-            end;
-            11:
-            begin
-              Temp2 := PLMemory(I).LWords[4];
-              PLMemory(I).LWords[4] := PRMemory(J).RWords[4];
-              PRMemory(J).RWords[4] := Temp2;
-              Temp1 := PLMemory(I).LBytes[10];
-              PLMemory(I).LBytes[10] := PRMemory(J).RBytes[10];
-              PRMemory(J).RBytes[10] := Temp1;
-            end;
-            13:
-            begin
-              Temp2 := PLMemory(I).LWords[5];
-              PLMemory(I).LWords[5] := PRMemory(J).RWords[5];
-              PRMemory(J).RWords[5] := Temp2;
-              Temp1 := PLMemory(I).LBytes[12];
-              PLMemory(I).LBytes[12] := PRMemory(J).RBytes[12];
-              PRMemory(J).RBytes[12] := Temp1;
-            end;
-            14:
-            begin
-              Temp2 := PLMemory(I).LWords[6];
-              PLMemory(I).LWords[6] := PRMemory(J).RWords[6];
-              PRMemory(J).RWords[6] := Temp2;
-            end;
-            15:
-            begin
-              Temp2 := PLMemory(I).LWords[6];
-              PLMemory(I).LWords[6] := PRMemory(J).RWords[6];
-              PRMemory(J).RWords[6] := Temp2;
-              Temp1 := PLMemory(I).LBytes[14];
-              PLMemory(I).LBytes[14] := PRMemory(J).RBytes[14];
-              PRMemory(J).RBytes[14] := Temp1;
-            end;
-          end;
-        end;
-      else
-        Index := 0;
-        repeat
-          TempNative := PLMemory(I).LNatives[Index];
-          PLMemory(I).LNatives[Index] := PRMemory(J).RNatives[Index];
-          PRMemory(J).RNatives[Index] := TempNative;
-          Inc(Index);
-        until (Index = SizeOf(T) div SizeOf(NativeUInt));
-
-        if (SizeOf(T) and (SizeOf(NativeUInt) - 1) <> 0) then
-        begin
-          {$ifdef LARGEINT}
-          if (SizeOf(T) and 4 <> 0) then
-          begin
-            Index := SizeOf(T) div SizeOf(Cardinal) - 1;
-            Temp4 := PLMemory(I).LCardinals[Index];
-            PLMemory(I).LCardinals[Index] := PRMemory(J).RCardinals[Index];
-            PRMemory(J).RCardinals[Index] := Temp4;
-          end;
-          {$endif}
-
-          if (SizeOf(T) and 2 <> 0) then
-          begin
-            Index := SizeOf(T) div SizeOf(Word) - 1;
-            Temp2 := PLMemory(I).LWords[Index];
-            PLMemory(I).LWords[Index] := PRMemory(J).RWords[Index];
-            PRMemory(J).RWords[Index] := Temp2;
-          end;
-
-          if (SizeOf(T) and 1 <> 0) then
-          begin
-            Index := SizeOf(T) div SizeOf(Byte) - 1;
-            Temp1 := PLMemory(I).LBytes[Index];
-            PLMemory(I).LBytes[Index] := PRMemory(J).RBytes[Index];
-            PRMemory(J).RBytes[Index] := Temp1;
-          end;
-        end;
-      end;
-
-      Dec(J, 2);
-      if (I <= J) then goto swap_loop;
-      Inc(I);
-      Inc(J);
+      if (StackItem <> Pointer(@Stack[0])) then Continue;
+      Exit;
     end;
-  end;
 
-  // next iteration
-  StackItem := SortItemNext<T>(StackItem, I, J);
-  if (NativeInt(StackItem) >= 0) then goto proc_loop_current;
-  Dec(NativeInt(StackItem), HIGH_NATIVE_BIT);
-  if (StackItem <> @Stack[0]) then goto proc_loop;
+    // pivot
+    TArray.CopyMemory<T>(@Helper.Pivot, SortItemPivot<T>(I, J));
+
+    // quick sort
+    Dec(J);
+    Dec(I);
+    repeat
+      Inc(J, 2);
+
+      repeat
+        Inc(I);
+        if (Helper.Compare(Helper.Inst, Helper.Pivot, I^) >= 0) then Break;
+      until (False);
+
+      repeat
+        Dec(J);
+        if (Helper.Compare(Helper.Inst, J^, Helper.Pivot) >= 0) then Break;
+      until (False);
+
+      if (I <= J) then
+      begin
+        // TArray.Exchange<T>(I, J);
+        case SizeOf(T) of
+          0: ;
+          1:
+          begin
+            Temp1 := PLMemory(I).LBytes[0];
+            PLMemory(I).LBytes[0] := PRMemory(J).RBytes[0];
+            PRMemory(J).RBytes[0] := Temp1;
+          end;
+          2:
+          begin
+            Temp2 := PLMemory(I).LWords[0];
+            PLMemory(I).LWords[0] := PRMemory(J).RWords[0];
+            PRMemory(J).RWords[0] := Temp2;
+          end;
+          3:
+          begin
+            Temp2 := PLMemory(I).LWords[0];
+            PLMemory(I).LWords[0] := PRMemory(J).RWords[0];
+            PRMemory(J).RWords[0] := Temp2;
+
+            Temp1 := PLMemory(I).LBytes[2];
+            PLMemory(I).LBytes[2] := PRMemory(J).RBytes[2];
+            PRMemory(J).RBytes[2] := Temp1;
+          end;
+          4..7:
+          begin
+            Temp4 := PLMemory(I).LCardinals[0];
+            PLMemory(I).LCardinals[0] := PRMemory(J).RCardinals[0];
+            PRMemory(J).RCardinals[0] := Temp4;
+
+            case SizeOf(T) of
+              5:
+              begin
+                Temp1 := PLMemory(I).LBytes[4];
+                PLMemory(I).LBytes[4] := PRMemory(J).RBytes[4];
+                PRMemory(J).RBytes[4] := Temp1;
+              end;
+              6:
+              begin
+                Temp2 := PLMemory(I).LWords[2];
+                PLMemory(I).LWords[2] := PRMemory(J).RWords[2];
+                PRMemory(J).RWords[2] := Temp2;
+              end;
+              7:
+              begin
+                Temp2 := PLMemory(I).LWords[2];
+                PLMemory(I).LWords[2] := PRMemory(J).RWords[2];
+                PRMemory(J).RWords[2] := Temp2;
+                Temp1 := PLMemory(I).LBytes[6];
+                PLMemory(I).LBytes[6] := PRMemory(J).RBytes[6];
+                PRMemory(J).RBytes[6] := Temp1;
+              end;
+            end;
+          end;
+          8..16:
+          begin
+            TempNative := PLMemory(I).LNatives[0];
+            PLMemory(I).LNatives[0] := PRMemory(J).RNatives[0];
+            PRMemory(J).RNatives[0] := TempNative;
+
+            if (SizeOf(T) >= SizeOf(NativeUInt) * 2) then
+            begin
+              TempNative := PLMemory(I).LNatives[1];
+              PLMemory(I).LNatives[1] := PRMemory(J).RNatives[1];
+              PRMemory(J).RNatives[1] := TempNative;
+            end;
+
+            if (SizeOf(T) >= SizeOf(NativeUInt) * 3) then
+            begin
+              TempNative := PLMemory(I).LNatives[2];
+              PLMemory(I).LNatives[2] := PRMemory(J).RNatives[2];
+              PRMemory(J).RNatives[2] := TempNative;
+            end;
+
+            if (SizeOf(T)  = SizeOf(NativeUInt) * 4) then
+            begin
+              TempNative := PLMemory(I).LNatives[3];
+              PLMemory(I).LNatives[3] := PRMemory(J).RNatives[3];
+              PRMemory(J).RNatives[3] := TempNative;
+            end;
+
+            {$ifdef LARGEINT}
+            case SizeOf(T) of
+              12, 13, 14, 15:
+              begin
+                Temp4 := PLMemory(I).LCardinals[2];
+                PLMemory(I).LCardinals[2] := PRMemory(J).RCardinals[2];
+                PRMemory(J).RCardinals[2] := Temp4;
+              end;
+            end;
+            {$endif}
+
+            case SizeOf(T) of
+              9:
+              begin
+                Temp1 := PLMemory(I).LBytes[8];
+                PLMemory(I).LBytes[8] := PRMemory(J).RBytes[8];
+                PRMemory(J).RBytes[8] := Temp1;
+              end;
+              10:
+              begin
+                Temp2 := PLMemory(I).LWords[4];
+                PLMemory(I).LWords[4] := PRMemory(J).RWords[4];
+                PRMemory(J).RWords[4] := Temp2;
+              end;
+              11:
+              begin
+                Temp2 := PLMemory(I).LWords[4];
+                PLMemory(I).LWords[4] := PRMemory(J).RWords[4];
+                PRMemory(J).RWords[4] := Temp2;
+                Temp1 := PLMemory(I).LBytes[10];
+                PLMemory(I).LBytes[10] := PRMemory(J).RBytes[10];
+                PRMemory(J).RBytes[10] := Temp1;
+              end;
+              13:
+              begin
+                Temp2 := PLMemory(I).LWords[5];
+                PLMemory(I).LWords[5] := PRMemory(J).RWords[5];
+                PRMemory(J).RWords[5] := Temp2;
+                Temp1 := PLMemory(I).LBytes[12];
+                PLMemory(I).LBytes[12] := PRMemory(J).RBytes[12];
+                PRMemory(J).RBytes[12] := Temp1;
+              end;
+              14:
+              begin
+                Temp2 := PLMemory(I).LWords[6];
+                PLMemory(I).LWords[6] := PRMemory(J).RWords[6];
+                PRMemory(J).RWords[6] := Temp2;
+              end;
+              15:
+              begin
+                Temp2 := PLMemory(I).LWords[6];
+                PLMemory(I).LWords[6] := PRMemory(J).RWords[6];
+                PRMemory(J).RWords[6] := Temp2;
+                Temp1 := PLMemory(I).LBytes[14];
+                PLMemory(I).LBytes[14] := PRMemory(J).RBytes[14];
+                PRMemory(J).RBytes[14] := Temp1;
+              end;
+            end;
+          end;
+        else
+          Index := 0;
+          repeat
+            TempNative := PLMemory(I).LNatives[Index];
+            PLMemory(I).LNatives[Index] := PRMemory(J).RNatives[Index];
+            PRMemory(J).RNatives[Index] := TempNative;
+            Inc(Index);
+          until (Index = SizeOf(T) div SizeOf(NativeUInt));
+
+          if (SizeOf(T) and (SizeOf(NativeUInt) - 1) <> 0) then
+          begin
+            {$ifdef LARGEINT}
+            if (SizeOf(T) and 4 <> 0) then
+            begin
+              Index := SizeOf(T) div SizeOf(Cardinal) - 1;
+              Temp4 := PLMemory(I).LCardinals[Index];
+              PLMemory(I).LCardinals[Index] := PRMemory(J).RCardinals[Index];
+              PRMemory(J).RCardinals[Index] := Temp4;
+            end;
+            {$endif}
+
+            if (SizeOf(T) and 2 <> 0) then
+            begin
+              Index := SizeOf(T) div SizeOf(Word) - 1;
+              Temp2 := PLMemory(I).LWords[Index];
+              PLMemory(I).LWords[Index] := PRMemory(J).RWords[Index];
+              PRMemory(J).RWords[Index] := Temp2;
+            end;
+
+            if (SizeOf(T) and 1 <> 0) then
+            begin
+              Index := SizeOf(T) div SizeOf(Byte) - 1;
+              Temp1 := PLMemory(I).LBytes[Index];
+              PLMemory(I).LBytes[Index] := PRMemory(J).RBytes[Index];
+              PRMemory(J).RBytes[Index] := Temp1;
+            end;
+          end;
+        end;
+
+        Dec(J, 2);
+        if (I <= J) then Continue;
+        Inc(I);
+        Inc(J);
+      end;
+      Break;
+    until (False);
+
+    // next iteration
+    StackItem := SortItemNext<T>(StackItem, I, J);
+    if (NativeInt(StackItem) >= 0) then
+    begin
+      Inc(StackItem);
+      Continue;
+    end;
+    Dec(NativeInt(StackItem), HIGH_NATIVE_BIT);
+    if (StackItem <> Pointer(@Stack[0])) then Continue;
+    Break;
+  until (False);
 end;
 
 class procedure TArray.Sort<T>(var Values: T; const Count: Integer);
@@ -12322,22 +12860,22 @@ begin
       1:
       begin
         case TypeData.OrdType of
-          otSByte: SortSigneds<ShortInt>(@Values, Count);
-          otUByte: SortUnsigneds<Byte>(@Values, Count);
+          otSByte: SortSigneds<{$if CompilerVersion = 28}T{$else}ShortInt{$ifend}>(@Values, Count);
+          otUByte: SortUnsigneds<{$if CompilerVersion = 28}T{$else}Byte{$ifend}>(@Values, Count);
         end;
       end;
       2:
       begin
         case TypeData.OrdType of
-          otSWord: SortSigneds<SmallInt>(@Values, Count);
-          otUWord: SortUnsigneds<Word>(@Values, Count);
+          otSWord: SortSigneds<{$if CompilerVersion = 28}T{$else}SmallInt{$ifend}>(@Values, Count);
+          otUWord: SortUnsigneds<{$if CompilerVersion = 28}T{$else}Word{$ifend}>(@Values, Count);
         end;
       end;
       4:
       begin
         case TypeData.OrdType of
-          otSLong: SortSigneds<Integer>(@Values, Count);
-          otULong: SortUnsigneds<Cardinal>(@Values, Count);
+          otSLong: SortSigneds<{$if CompilerVersion = 28}T{$else}Integer{$ifend}>(@Values, Count);
+          otULong: SortUnsigneds<{$if CompilerVersion = 28}T{$else}Cardinal{$ifend}>(@Values, Count);
         end;
       end;
     end;
@@ -12345,74 +12883,91 @@ begin
     begin
       if (TypeData.MaxInt64Value > TypeData.MinInt64Value) then
       begin
-        SortSigneds<Int64>(@Values, Count);
+        SortSigneds<{$if CompilerVersion = 28}T{$else}Int64{$ifend}>(@Values, Count);
       end else
       begin
-        SortUnsigneds<UInt64>(@Values, Count);
+        SortUnsigneds<{$if CompilerVersion = 28}T{$else}UInt64{$ifend}>(@Values, Count);
       end;
     end;
     tkClass, tkInterface, tkClassRef, tkPointer, tkProcedure:
     begin
       {$ifdef LARGEINT}
-        SortUnsigneds<UInt64>(@Values, Count);
+        SortUnsigneds<{$if CompilerVersion = 28}T{$else}UInt64{$ifend}>(@Values, Count);
       {$else .SMALLINT}
-        SortUnsigneds<Cardinal>(@Values, Count);
+        SortUnsigneds<{$if CompilerVersion = 28}T{$else}Cardinal{$ifend}>(@Values, Count);
       {$endif}
     end;
     tkFloat:
     case SizeOf(T) of
-       4: SortFloats<Single>(@Values, Count);
-      10: SortFloats<Extended>(@Values, Count);
+       4: SortFloats<{$if CompilerVersion = 28}T{$else}Single{$ifend}>(@Values, Count);
+      10: SortFloats<{$if CompilerVersion = 28}T{$else}Extended{$ifend}>(@Values, Count);
     else
       if (TypeData.FloatType = ftDouble) then
       begin
-        SortFloats<Double>(@Values, Count);
+        SortFloats<{$if CompilerVersion = 28}T{$else}Double{$ifend}>(@Values, Count);
       end else
       begin
-        SortSigneds<Int64>(@Values, Count);
+        SortSigneds<{$if CompilerVersion = 28}T{$else}Int64{$ifend}>(@Values, Count);
       end;
-    end;
-    tkMethod:
-    begin
-      SortBinaries<InterfaceDefaults.TMethodPtr>(@Values, Count, InterfaceDefaults.TMethodPtr(nil^));
     end;
     tkVariant:
     begin
-      TArray.Sort<Variant>(PVariant(@Values)^, Count, IComparer<Variant>(@InterfaceDefaults.TDefaultComparer<Variant>.Instance));
-    end;
-    tkString:
-    begin
-      SortBinaries<T>(@Values, Count, T(nil^));
-    end;
-    tkLString:
-    begin
-      {$ifdef NEXTGEN}
-         SortBinaries<T>(@Values, Count, T(nil^));
+      {$if CompilerVersion = 28}
+        TArray.Sort<T>(Values, Count, IComparer<T>(InterfaceDefaults.TDefaultComparer<Variant>.Create));
       {$else}
-         SortBinaries<AnsiString>(@Values, Count, AnsiString(nil^));
-      {$endif}
+        TArray.Sort<Variant>(PVariant(@Values)^, Count, IComparer<Variant>(InterfaceDefaults.TDefaultComparer<Variant>.Create));
+      {$ifend}
     end;
-    {$ifdef MSWINDOWS}
-    tkWString:
-    begin
-      SortBinaries<WideString>(@Values, Count, WideString(nil^));
-    end;
+    {$if CompilerVersion = 28}
+      tkMethod, tkString, tkLString, tkWString, tkUString:
+      begin
+        if (not InterfaceDefaults.TDefaultComparer<T>.Created) then
+          InterfaceDefaults.TDefaultComparer<T>.InternalCreate;
+        SortBinaries<T>(@Values, Count, T(nil^));
+      end;
     {$else}
-    tkWString,
-    {$endif}
-    tkUString:
-    begin
-      SortBinaries<UnicodeString>(@Values, Count, UnicodeString(nil^));
-    end;
-    tkDynArray:
-    begin
-      SortBinaries<T>(@Values, Count, T(nil^));
-    end;
+      tkMethod:
+      begin
+        SortBinaries<InterfaceDefaults.TMethodPtr>(@Values, Count, InterfaceDefaults.TMethodPtr(nil^));
+      end;
+      tkString:
+      begin
+        SortBinaries<T>(@Values, Count, T(nil^));
+      end;
+      tkLString:
+      begin
+        {$ifdef NEXTGEN}
+          SortBinaries<T>(@Values, Count, T(nil^));
+        {$else}
+          SortBinaries<AnsiString>(@Values, Count, AnsiString(nil^));
+        {$endif}
+      end;
+      {$ifdef MSWINDOWS}
+      tkWString:
+      begin
+        SortBinaries<WideString>(@Values, Count, WideString(nil^));
+      end;
+      {$else}
+      tkWString,
+      {$endif}
+      tkUString:
+      begin
+        SortBinaries<UnicodeString>(@Values, Count, UnicodeString(nil^));
+      end;
+      tkDynArray:
+      begin
+        if (not InterfaceDefaults.TDefaultComparer<T>.Created) then
+          InterfaceDefaults.TDefaultComparer<T>.InternalCreate;
+        SortBinaries<T>(@Values, Count, T(nil^));
+      end;
+    {$ifend}
   else
     // binary
+    if (not InterfaceDefaults.TDefaultComparer<T>.Created) then
+      InterfaceDefaults.TDefaultComparer<T>.InternalCreate;
     case SizeOf(T) of
       0: ;
-      1: SortUnsigneds<Byte>(@Values, Count);
+      1: SortUnsigneds<{$if CompilerVersion = 28}T{$else}Byte{$ifend}>(@Values, Count);
       2..BUFFER_SIZE: SortBinaries<T>(@Values, Count, T(nil^));
     else
       GetMem(PivotBig, SizeOf(T));
@@ -12426,7 +12981,7 @@ begin
 end;
 {$else}
 begin
-  TArray.Sort<T>(Values, Count, IComparer<T>(@InterfaceDefaults.TDefaultComparer<T>.Instance));
+  TArray.Sort<T>(Values, Count, IComparer<T>(InterfaceDefaults.TDefaultComparer<T>.Create));
 end;
 {$endif}
 
@@ -12440,13 +12995,13 @@ begin
   if (SizeOf(TSortHelper<T>) <= SizeOf(HelperBuffer)) then
   begin
     Helper := Pointer(@HelperBuffer);
-    Helper.Init(Comparer);
+    Helper^.Init(Comparer);
     TArray.SortUniversals<T>(@Values, Count, Helper^);
   end else
   begin
     GetMem(Helper, SizeOf(TSortHelper<T>));
     try
-      Helper.Init(Comparer);
+      Helper^.Init(Comparer);
       TArray.SortUniversals<T>(@Values, Count, Helper^);
     finally
       FreeMem(Helper);
@@ -12464,13 +13019,13 @@ begin
   if (SizeOf(TSortHelper<T>) <= SizeOf(HelperBuffer)) then
   begin
     Helper := Pointer(@HelperBuffer);
-    Helper.Init(Comparison);
+    Helper^.Init(Comparison);
     TArray.SortUniversals<T>(@Values, Count, Helper^);
   end else
   begin
     GetMem(Helper, SizeOf(TSortHelper<T>));
     try
-      Helper.Init(Comparison);
+      Helper^.Init(Comparison);
       TArray.SortUniversals<T>(@Values, Count, Helper^);
     finally
       FreeMem(Helper);
@@ -12541,22 +13096,22 @@ begin
       1:
       begin
         case TypeData.OrdType of
-          otSByte: SortDescendingSigneds<ShortInt>(@Values, Count);
-          otUByte: SortDescendingUnsigneds<Byte>(@Values, Count);
+          otSByte: SortDescendingSigneds<{$if CompilerVersion = 28}T{$else}ShortInt{$ifend}>(@Values, Count);
+          otUByte: SortDescendingUnsigneds<{$if CompilerVersion = 28}T{$else}Byte{$ifend}>(@Values, Count);
         end;
       end;
       2:
       begin
         case TypeData.OrdType of
-          otSWord: SortDescendingSigneds<SmallInt>(@Values, Count);
-          otUWord: SortDescendingUnsigneds<Word>(@Values, Count);
+          otSWord: SortDescendingSigneds<{$if CompilerVersion = 28}T{$else}SmallInt{$ifend}>(@Values, Count);
+          otUWord: SortDescendingUnsigneds<{$if CompilerVersion = 28}T{$else}Word{$ifend}>(@Values, Count);
         end;
       end;
       4:
       begin
         case TypeData.OrdType of
-          otSLong: SortDescendingSigneds<Integer>(@Values, Count);
-          otULong: SortDescendingUnsigneds<Cardinal>(@Values, Count);
+          otSLong: SortDescendingSigneds<{$if CompilerVersion = 28}T{$else}Integer{$ifend}>(@Values, Count);
+          otULong: SortDescendingUnsigneds<{$if CompilerVersion = 28}T{$else}Cardinal{$ifend}>(@Values, Count);
         end;
       end;
     end;
@@ -12564,74 +13119,91 @@ begin
     begin
       if (TypeData.MaxInt64Value > TypeData.MinInt64Value) then
       begin
-        SortDescendingSigneds<Int64>(@Values, Count);
+        SortDescendingSigneds<{$if CompilerVersion = 28}T{$else}Int64{$ifend}>(@Values, Count);
       end else
       begin
-        SortDescendingUnsigneds<UInt64>(@Values, Count);
+        SortDescendingUnsigneds<{$if CompilerVersion = 28}T{$else}UInt64{$ifend}>(@Values, Count);
       end;
     end;
     tkClass, tkInterface, tkClassRef, tkPointer, tkProcedure:
     begin
       {$ifdef LARGEINT}
-        SortDescendingUnsigneds<UInt64>(@Values, Count);
+        SortDescendingUnsigneds<{$if CompilerVersion = 28}T{$else}UInt64{$ifend}>(@Values, Count);
       {$else .SMALLINT}
-        SortDescendingUnsigneds<Cardinal>(@Values, Count);
+        SortDescendingUnsigneds<{$if CompilerVersion = 28}T{$else}Cardinal{$ifend}>(@Values, Count);
       {$endif}
     end;
     tkFloat:
     case SizeOf(T) of
-       4: SortDescendingFloats<Single>(@Values, Count);
-      10: SortDescendingFloats<Extended>(@Values, Count);
+       4: SortDescendingFloats<{$if CompilerVersion = 28}T{$else}Single{$ifend}>(@Values, Count);
+      10: SortDescendingFloats<{$if CompilerVersion = 28}T{$else}Extended{$ifend}>(@Values, Count);
     else
       if (TypeData.FloatType = ftDouble) then
       begin
-        SortDescendingFloats<Double>(@Values, Count);
+        SortDescendingFloats<{$if CompilerVersion = 28}T{$else}Double{$ifend}>(@Values, Count);
       end else
       begin
-        SortDescendingSigneds<Int64>(@Values, Count);
+        SortDescendingSigneds<{$if CompilerVersion = 28}T{$else}Int64{$ifend}>(@Values, Count);
       end;
-    end;
-    tkMethod:
-    begin
-      SortDescendingBinaries<InterfaceDefaults.TMethodPtr>(@Values, Count, InterfaceDefaults.TMethodPtr(nil^));
     end;
     tkVariant:
     begin
-      TArray.SortDescending<Variant>(PVariant(@Values)^, Count, IComparer<Variant>(@InterfaceDefaults.TDefaultComparer<Variant>.Instance));
-    end;
-    tkString:
-    begin
-      SortDescendingBinaries<T>(@Values, Count, T(nil^));
-    end;
-    tkLString:
-    begin
-      {$ifdef NEXTGEN}
-         SortDescendingBinaries<T>(@Values, Count, T(nil^));
+      {$if CompilerVersion = 28}
+        TArray.SortDescending<T>(Values, Count, IComparer<T>(InterfaceDefaults.TDefaultComparer<Variant>.Create));
       {$else}
-         SortDescendingBinaries<AnsiString>(@Values, Count, AnsiString(nil^));
-      {$endif}
+        TArray.SortDescending<Variant>(PVariant(@Values)^, Count, IComparer<Variant>(InterfaceDefaults.TDefaultComparer<Variant>.Create));
+      {$ifend}
     end;
-    {$ifdef MSWINDOWS}
-    tkWString:
-    begin
-      SortDescendingBinaries<WideString>(@Values, Count, WideString(nil^));
-    end;
+    {$if CompilerVersion = 28}
+      tkMethod, tkString, tkLString, tkWString, tkUString:
+      begin
+        if (not InterfaceDefaults.TDefaultComparer<T>.Created) then
+          InterfaceDefaults.TDefaultComparer<T>.InternalCreate;
+        SortDescendingBinaries<T>(@Values, Count, T(nil^));
+      end;
     {$else}
-    tkWString,
-    {$endif}
-    tkUString:
-    begin
-      SortDescendingBinaries<UnicodeString>(@Values, Count, UnicodeString(nil^));
-    end;
-    tkDynArray:
-    begin
-      SortDescendingBinaries<T>(@Values, Count, T(nil^));
-    end;
+      tkMethod:
+      begin
+        SortDescendingBinaries<InterfaceDefaults.TMethodPtr>(@Values, Count, InterfaceDefaults.TMethodPtr(nil^));
+      end;
+      tkString:
+      begin
+        SortDescendingBinaries<T>(@Values, Count, T(nil^));
+      end;
+      tkLString:
+      begin
+        {$ifdef NEXTGEN}
+          SortDescendingBinaries<T>(@Values, Count, T(nil^));
+        {$else}
+          SortDescendingBinaries<AnsiString>(@Values, Count, AnsiString(nil^));
+        {$endif}
+      end;
+      {$ifdef MSWINDOWS}
+      tkWString:
+      begin
+        SortDescendingBinaries<WideString>(@Values, Count, WideString(nil^));
+      end;
+      {$else}
+      tkWString,
+      {$endif}
+      tkUString:
+      begin
+        SortDescendingBinaries<UnicodeString>(@Values, Count, UnicodeString(nil^));
+      end;
+      tkDynArray:
+      begin
+        if (not InterfaceDefaults.TDefaultComparer<T>.Created) then
+          InterfaceDefaults.TDefaultComparer<T>.InternalCreate;
+        SortDescendingBinaries<T>(@Values, Count, T(nil^));
+      end;
+    {$ifend}
   else
     // binary
+    if (not InterfaceDefaults.TDefaultComparer<T>.Created) then
+      InterfaceDefaults.TDefaultComparer<T>.InternalCreate;
     case SizeOf(T) of
       0: ;
-      1: SortDescendingUnsigneds<Byte>(@Values, Count);
+      1: SortDescendingUnsigneds<{$if CompilerVersion = 28}T{$else}Byte{$ifend}>(@Values, Count);
       2..BUFFER_SIZE: SortDescendingBinaries<T>(@Values, Count, T(nil^));
     else
       GetMem(PivotBig, SizeOf(T));
@@ -12645,7 +13217,7 @@ begin
 end;
 {$else}
 begin
-  TArray.SortDescending<T>(Values, Count, IComparer<T>(@InterfaceDefaults.TDefaultComparer<T>.Instance));
+  TArray.SortDescending<T>(Values, Count, IComparer<T>(InterfaceDefaults.TDefaultComparer<T>.Create));
 end;
 {$endif}
 
@@ -12659,13 +13231,13 @@ begin
   if (SizeOf(TSortHelper<T>) <= SizeOf(HelperBuffer)) then
   begin
     Helper := Pointer(@HelperBuffer);
-    Helper.Init(Comparer);
+    Helper^.Init(Comparer);
     TArray.SortDescendingUniversals<T>(@Values, Count, Helper^);
   end else
   begin
     GetMem(Helper, SizeOf(TSortHelper<T>));
     try
-      Helper.Init(Comparer);
+      Helper^.Init(Comparer);
       TArray.SortDescendingUniversals<T>(@Values, Count, Helper^);
     finally
       FreeMem(Helper);
@@ -12683,13 +13255,13 @@ begin
   if (SizeOf(TSortHelper<T>) <= SizeOf(HelperBuffer)) then
   begin
     Helper := Pointer(@HelperBuffer);
-    Helper.Init(Comparison);
+    Helper^.Init(Comparison);
     TArray.SortDescendingUniversals<T>(@Values, Count, Helper^);
   end else
   begin
     GetMem(Helper, SizeOf(TSortHelper<T>));
     try
-      Helper.Init(Comparison);
+      Helper^.Init(Comparison);
       TArray.SortDescendingUniversals<T>(@Values, Count, Helper^);
     finally
       FreeMem(Helper);
@@ -12744,18 +13316,10 @@ class function TArray.SearchSigneds<T>(Values: Pointer; Count: NativeInt; Item: 
 label
   middle_init, not_found;
 type
-  TArray1 = array[0..High(Integer) div 1 - 1] of ShortInt;
-  TArray2 = array[0..High(Integer) div 2 - 1] of SmallInt;
-  TArray4 = array[0..High(Integer) div 4 - 1] of Integer;
-  {$ifdef LARGEINT}
-    TArray8 = array[0..High(Integer) div 8 - 1] of Int64;
-  {$else .SMALLINT}
-    TArray8 = array[0..High(Integer) div 8 - 1] of TPoint;
-  {$endif}
-  PArray1 = ^TArray1;
-  PArray2 = ^TArray2;
-  PArray4 = ^TArray4;
-  PArray8 = ^TArray8;
+  PArray1 = ^HugeShortIntArray;
+  PArray2 = ^HugeSmallIntArray;
+  PArray4 = ^HugeIntegerArray;
+  PArray8 = ^{$ifdef LARGEINT}HugeInt64Array{$else .SMALLINT}HugeTPointArray{$endif};
 var
   Item1: ShortInt;
   Item2: SmallInt;
@@ -12847,18 +13411,10 @@ class function TArray.SearchDescendingSigneds<T>(Values: Pointer; Count: NativeI
 label
   middle_init, not_found;
 type
-  TArray1 = array[0..High(Integer) div 1 - 1] of ShortInt;
-  TArray2 = array[0..High(Integer) div 2 - 1] of SmallInt;
-  TArray4 = array[0..High(Integer) div 4 - 1] of Integer;
-  {$ifdef LARGEINT}
-    TArray8 = array[0..High(Integer) div 8 - 1] of Int64;
-  {$else .SMALLINT}
-    TArray8 = array[0..High(Integer) div 8 - 1] of TPoint;
-  {$endif}
-  PArray1 = ^TArray1;
-  PArray2 = ^TArray2;
-  PArray4 = ^TArray4;
-  PArray8 = ^TArray8;
+  PArray1 = ^HugeShortIntArray;
+  PArray2 = ^HugeSmallIntArray;
+  PArray4 = ^HugeIntegerArray;
+  PArray8 = ^{$ifdef LARGEINT}HugeInt64Array{$else .SMALLINT}HugeTPointArray{$endif};
 var
   Item1: ShortInt;
   Item2: SmallInt;
@@ -12950,18 +13506,10 @@ class function TArray.SearchUnsigneds<T>(Values: Pointer; Count: NativeInt; Item
 label
   middle_init, not_found;
 type
-  TArray1 = array[0..High(Integer) div 1 - 1] of Byte;
-  TArray2 = array[0..High(Integer) div 2 - 1] of Word;
-  TArray4 = array[0..High(Integer) div 4 - 1] of Cardinal;
-  {$ifdef LARGEINT}
-    TArray8 = array[0..High(Integer) div 8 - 1] of UInt64;
-  {$else .SMALLINT}
-    TArray8 = array[0..High(Integer) div 8 - 1] of TPoint;
-  {$endif}
-  PArray1 = ^TArray1;
-  PArray2 = ^TArray2;
-  PArray4 = ^TArray4;
-  PArray8 = ^TArray8;
+  PArray1 = ^HugeByteArray;
+  PArray2 = ^HugeWordArray;
+  PArray4 = ^HugeCardinalArray;
+  PArray8 = ^{$ifdef LARGEINT}HugeUInt64Array{$else .SMALLINT}HugeTPointArray{$endif};
 var
   Item1: Byte;
   Item2: Word;
@@ -13053,18 +13601,10 @@ class function TArray.SearchDescendingUnsigneds<T>(Values: Pointer; Count: Nativ
 label
   middle_init, not_found;
 type
-  TArray1 = array[0..High(Integer) div 1 - 1] of Byte;
-  TArray2 = array[0..High(Integer) div 2 - 1] of Word;
-  TArray4 = array[0..High(Integer) div 4 - 1] of Cardinal;
-  {$ifdef LARGEINT}
-    TArray8 = array[0..High(Integer) div 8 - 1] of UInt64;
-  {$else .SMALLINT}
-    TArray8 = array[0..High(Integer) div 8 - 1] of TPoint;
-  {$endif}
-  PArray1 = ^TArray1;
-  PArray2 = ^TArray2;
-  PArray4 = ^TArray4;
-  PArray8 = ^TArray8;
+  PArray1 = ^HugeByteArray;
+  PArray2 = ^HugeWordArray;
+  PArray4 = ^HugeCardinalArray;
+  PArray8 = ^{$ifdef LARGEINT}HugeUInt64Array{$else .SMALLINT}HugeTPointArray{$endif};
 var
   Item1: Byte;
   Item2: Word;
@@ -13156,12 +13696,9 @@ class function TArray.SearchFloats<T>(Values: Pointer; Count: NativeInt; Item: P
 label
   middle_init, not_found;
 type
-  TArray4 = array[0..High(Integer) div 4 - 1] of Single;
-  TArray8 = array[0..High(Integer) div 8 - 1] of Double;
-  TArrayE = array[0..High(Integer) div 10 - 1] of Extended;
-  PArray4 = ^TArray4;
-  PArray8 = ^TArray8;
-  PArrayE = ^TArrayE;
+  PArray4 = ^HugeSingleArray;
+  PArray8 = ^HugeDoubleArray;
+  PArrayE = ^HugeExtendedArray;
 var
   Item4: {$ifdef CPUX86}Extended{$else}Single{$endif};
   Item8: {$ifdef CPUX86}Extended{$else}Double{$endif};
@@ -13221,12 +13758,9 @@ class function TArray.SearchDescendingFloats<T>(Values: Pointer; Count: NativeIn
 label
   middle_init, not_found;
 type
-  TArray4 = array[0..High(Integer) div 4 - 1] of Single;
-  TArray8 = array[0..High(Integer) div 8 - 1] of Double;
-  TArrayE = array[0..High(Integer) div 10 - 1] of Extended;
-  PArray4 = ^TArray4;
-  PArray8 = ^TArray8;
-  PArrayE = ^TArrayE;
+  PArray4 = ^HugeSingleArray;
+  PArray8 = ^HugeDoubleArray;
+  PArrayE = ^HugeExtendedArray;
 var
   Item4: {$ifdef CPUX86}Extended{$else}Single{$endif};
   Item8: {$ifdef CPUX86}Extended{$else}Double{$endif};
@@ -13285,17 +13819,12 @@ end;
 class function TArray.SearchBinaries<T>(Values: Pointer; Count: NativeInt; const Item: T): NativeInt;
 label
   middle_init, not_found;
-type
-  P = ^T;
 var
   Left, Right, Middle: NativeInt;
   X, Y: NativeUInt;
   BufferMiddle, BufferLeft: Pointer;
   Cmp: Integer;
-  Stored: record
-    X: NativeUInt;
-    ItemPtr: Pointer;
-  end;
+  Stored: TInternalSearchStored;
 begin
   Middle := -1;
   Right := Count + (-1);
@@ -13324,7 +13853,7 @@ begin
       end;
       tkLString, tkWString, tkUString, tkDynArray:
       begin
-        Y := PNativeUInt(P(Values) + Middle)^;
+        Y := PNativeUInt(TRAIIHelper<T>.P(Values) + Middle)^;
         if (Y <> 0) then
         case GetTypeKind(T) of
           tkLString:
@@ -13361,7 +13890,7 @@ begin
         end;
       end;
     else
-      Y := TArray.SortBinaryMarker<T>(P(Values) + Middle);
+      Y := TArray.SortBinaryMarker<T>(TRAIIHelper<T>.P(Values) + Middle);
     end;
 
     if (Y < X) then Continue;
@@ -13375,23 +13904,39 @@ begin
         Y := NativeUInt(PMethod(Y).Data);
         if (Y < NativeUInt(Stored.ItemPtr)) then Continue;
       end else
-      if (GetTypeKind(T) in [tkLString, tkWString, tkUString, tkDynArray]) then
       begin
-        BufferMiddle := PPointer(P(Values) + Middle)^;
-        if (BufferMiddle <> Stored.ItemPtr) then
-        begin
-          case GetTypeKind(T) of
-            tkLString: Cmp := InterfaceDefaults.Compare_LStr(nil, BufferMiddle, Stored.ItemPtr);
-            tkWString: Cmp := InterfaceDefaults.Compare_WStr(nil, BufferMiddle, Stored.ItemPtr);
-            tkUString: Cmp := InterfaceDefaults.Compare_UStr(nil, BufferMiddle, Stored.ItemPtr);
-           tkDynArray: Cmp := InterfaceDefaults.Compare_Dyn(InterfaceDefaults.TDefaultComparer<T>.Instance, BufferMiddle, Stored.ItemPtr);
+        {$if CompilerVersion = 28}
+          Cmp := IComparer<T>(@InterfaceDefaults.TDefaultComparer<T>.Instance).Compare(
+            (TRAIIHelper<T>.P(Values) + Middle)^, Item);
+        {$else}
+          if (GetTypeKind(T) = tkString) then
+          begin
+            Cmp := InterfaceDefaults.Compare_OStr(nil, Pointer(TRAIIHelper<T>.P(Values) + Middle), Pointer(@Item));
+          end else
+          if (GetTypeKind(T) in [tkLString, tkWString, tkUString, tkDynArray]) then
+          begin
+            BufferMiddle := PPointer(TRAIIHelper<T>.P(Values) + Middle)^;
+            if (BufferMiddle <> Stored.ItemPtr) then
+            begin
+              case GetTypeKind(T) of
+                tkLString: Cmp := InterfaceDefaults.Compare_LStr(nil, BufferMiddle, Stored.ItemPtr);
+                tkWString: Cmp := InterfaceDefaults.Compare_WStr(nil, BufferMiddle, Stored.ItemPtr);
+                tkUString: Cmp := InterfaceDefaults.Compare_UStr(nil, BufferMiddle, Stored.ItemPtr);
+               tkDynArray: Cmp := InterfaceDefaults.Compare_Dyn(InterfaceDefaults.TDefaultComparer<T>.Instance, BufferMiddle, Stored.ItemPtr);
+              end;
+            end;
+          end else
+          case SizeOf(T) of
+            0..SizeOf(Cardinal): Cmp := 0;
+            {$ifdef LARGEINT}
+            SizeOf(Int64): Cmp := InterfaceDefaults.Compare_Bin8(nil, PInt64(TRAIIHelper<T>.P(Values) + Middle)^, PInt64(@Item)^);
+            {$endif}
+          else
+            Cmp := InterfaceDefaults.Compare_Bin(InterfaceDefaults.TDefaultComparer<T>.Instance,
+              Pointer(TRAIIHelper<T>.P(Values) + Middle), Pointer(@Item));
           end;
-          X := Stored.X;
-          if (Cmp < 0) then Continue;
-        end;
-      end else
-      begin
-        Cmp := SortBinaryComparer<T>(P(Values) + Middle, @Item);
+        {$ifend}
+
         X := Stored.X;
         if (Cmp < 0) then Continue;
       end;
@@ -13404,29 +13949,45 @@ begin
 
   if (Left < Count) then
   begin
-    BufferLeft := P(Values) + Left;
+    BufferLeft := TRAIIHelper<T>.P(Values) + Left;
     Y := TArray.SortBinaryMarker<T>(BufferLeft);
     if (Y <> X) then goto not_found;
     if (GetTypeKind(T) = tkMethod) then
     begin
       if (PNativeUInt(BufferLeft)^ <> NativeUInt(Stored.ItemPtr)) then goto not_found;
     end else
-    if (GetTypeKind(T) in [tkLString, tkWString, tkUString, tkDynArray]) then
     begin
-      BufferLeft := PPointer(BufferLeft)^;
-      if (BufferLeft <> Stored.ItemPtr) then
-      begin
-        case GetTypeKind(T) of
-          tkLString: Cmp := InterfaceDefaults.Compare_LStr(nil, BufferLeft, Stored.ItemPtr);
-          tkWString: Cmp := InterfaceDefaults.Compare_WStr(nil, BufferLeft, Stored.ItemPtr);
-          tkUString: Cmp := InterfaceDefaults.Compare_UStr(nil, BufferLeft, Stored.ItemPtr);
-         tkDynArray: Cmp := InterfaceDefaults.Compare_Dyn(InterfaceDefaults.TDefaultComparer<T>.Instance, BufferLeft, Stored.ItemPtr);
+      {$if CompilerVersion = 28}
+        Cmp := IComparer<T>(@InterfaceDefaults.TDefaultComparer<T>.Instance).Compare(
+          TRAIIHelper<T>.P(BufferLeft)^, Item);
+      {$else}
+        if (GetTypeKind(T) = tkString) then
+        begin
+          Cmp := InterfaceDefaults.Compare_OStr(nil, BufferLeft, Pointer(@Item));
+        end else
+        if (GetTypeKind(T) in [tkLString, tkWString, tkUString, tkDynArray]) then
+        begin
+          BufferLeft := PPointer(BufferLeft)^;
+          if (BufferLeft <> Stored.ItemPtr) then
+          begin
+            case GetTypeKind(T) of
+              tkLString: Cmp := InterfaceDefaults.Compare_LStr(nil, BufferLeft, Stored.ItemPtr);
+              tkWString: Cmp := InterfaceDefaults.Compare_WStr(nil, BufferLeft, Stored.ItemPtr);
+              tkUString: Cmp := InterfaceDefaults.Compare_UStr(nil, BufferLeft, Stored.ItemPtr);
+             tkDynArray: Cmp := InterfaceDefaults.Compare_Dyn(InterfaceDefaults.TDefaultComparer<T>.Instance, BufferLeft, Stored.ItemPtr);
+            end;
+          end;
+        end else
+        case SizeOf(T) of
+          0..SizeOf(Cardinal): Cmp := 0;
+          {$ifdef LARGEINT}
+          SizeOf(Int64): Cmp := InterfaceDefaults.Compare_Bin8(nil, PInt64(BufferLeft)^, PInt64(@Item)^);
+          {$endif}
+        else
+          Cmp := InterfaceDefaults.Compare_Bin(InterfaceDefaults.TDefaultComparer<T>.Instance, BufferLeft, Pointer(@Item));
         end;
-        if (Cmp <> 0) then goto not_found;
-      end;
-    end else
-    begin
-      Cmp := SortBinaryComparer<T>(BufferLeft, @Item);
+      {$ifend}
+
       if (Cmp <> 0) then goto not_found;
     end;
   end else
@@ -13441,17 +14002,12 @@ end;
 class function TArray.SearchDescendingBinaries<T>(Values: Pointer; Count: NativeInt; const Item: T): NativeInt;
 label
   middle_init, not_found;
-type
-  P = ^T;
 var
   Left, Right, Middle: NativeInt;
   X, Y: NativeUInt;
   BufferMiddle, BufferLeft: Pointer;
   Cmp: Integer;
-  Stored: record
-    X: NativeUInt;
-    ItemPtr: Pointer;
-  end;
+  Stored: TInternalSearchStored;
 begin
   Middle := -1;
   Right := Count + (-1);
@@ -13480,7 +14036,7 @@ begin
       end;
       tkLString, tkWString, tkUString, tkDynArray:
       begin
-        Y := PNativeUInt(P(Values) + Middle)^;
+        Y := PNativeUInt(TRAIIHelper<T>.P(Values) + Middle)^;
         if (Y <> 0) then
         case GetTypeKind(T) of
           tkLString:
@@ -13517,7 +14073,7 @@ begin
         end;
       end;
     else
-      Y := TArray.SortBinaryMarker<T>(P(Values) + Middle);
+      Y := TArray.SortBinaryMarker<T>(TRAIIHelper<T>.P(Values) + Middle);
     end;
 
     if (Y > X) then Continue;
@@ -13531,23 +14087,39 @@ begin
         Y := NativeUInt(PMethod(Y).Data);
         if (Y > NativeUInt(Stored.ItemPtr)) then Continue;
       end else
-      if (GetTypeKind(T) in [tkLString, tkWString, tkUString, tkDynArray]) then
       begin
-        BufferMiddle := PPointer(P(Values) + Middle)^;
-        if (BufferMiddle <> Stored.ItemPtr) then
-        begin
-          case GetTypeKind(T) of
-            tkLString: Cmp := InterfaceDefaults.Compare_LStr(nil, BufferMiddle, Stored.ItemPtr);
-            tkWString: Cmp := InterfaceDefaults.Compare_WStr(nil, BufferMiddle, Stored.ItemPtr);
-            tkUString: Cmp := InterfaceDefaults.Compare_UStr(nil, BufferMiddle, Stored.ItemPtr);
-           tkDynArray: Cmp := InterfaceDefaults.Compare_Dyn(InterfaceDefaults.TDefaultComparer<T>.Instance, BufferMiddle, Stored.ItemPtr);
+        {$if CompilerVersion = 28}
+          Cmp := IComparer<T>(@InterfaceDefaults.TDefaultComparer<T>.Instance).Compare(
+            (TRAIIHelper<T>.P(Values) + Middle)^, Item);
+        {$else}
+          if (GetTypeKind(T) = tkString) then
+          begin
+            Cmp := InterfaceDefaults.Compare_OStr(nil, Pointer(TRAIIHelper<T>.P(Values) + Middle), Pointer(@Item));
+          end else
+          if (GetTypeKind(T) in [tkLString, tkWString, tkUString, tkDynArray]) then
+          begin
+            BufferMiddle := PPointer(TRAIIHelper<T>.P(Values) + Middle)^;
+            if (BufferMiddle <> Stored.ItemPtr) then
+            begin
+              case GetTypeKind(T) of
+                tkLString: Cmp := InterfaceDefaults.Compare_LStr(nil, BufferMiddle, Stored.ItemPtr);
+                tkWString: Cmp := InterfaceDefaults.Compare_WStr(nil, BufferMiddle, Stored.ItemPtr);
+                tkUString: Cmp := InterfaceDefaults.Compare_UStr(nil, BufferMiddle, Stored.ItemPtr);
+               tkDynArray: Cmp := InterfaceDefaults.Compare_Dyn(InterfaceDefaults.TDefaultComparer<T>.Instance, BufferMiddle, Stored.ItemPtr);
+              end;
+            end;
+          end else
+          case SizeOf(T) of
+            0..SizeOf(Cardinal): Cmp := 0;
+            {$ifdef LARGEINT}
+            SizeOf(Int64): Cmp := InterfaceDefaults.Compare_Bin8(nil, PInt64(TRAIIHelper<T>.P(Values) + Middle)^, PInt64(@Item)^);
+            {$endif}
+          else
+            Cmp := InterfaceDefaults.Compare_Bin(InterfaceDefaults.TDefaultComparer<T>.Instance,
+              Pointer(TRAIIHelper<T>.P(Values) + Middle), Pointer(@Item));
           end;
-          X := Stored.X;
-          if (Cmp > 0) then Continue;
-        end;
-      end else
-      begin
-        Cmp := SortBinaryComparer<T>(P(Values) + Middle, @Item);
+        {$ifend}
+
         X := Stored.X;
         if (Cmp > 0) then Continue;
       end;
@@ -13560,29 +14132,45 @@ begin
 
   if (Left < Count) then
   begin
-    BufferLeft := P(Values) + Left;
+    BufferLeft := TRAIIHelper<T>.P(Values) + Left;
     Y := TArray.SortBinaryMarker<T>(BufferLeft);
     if (Y <> X) then goto not_found;
     if (GetTypeKind(T) = tkMethod) then
     begin
       if (PNativeUInt(BufferLeft)^ <> NativeUInt(Stored.ItemPtr)) then goto not_found;
     end else
-    if (GetTypeKind(T) in [tkLString, tkWString, tkUString, tkDynArray]) then
     begin
-      BufferLeft := PPointer(BufferLeft)^;
-      if (BufferLeft <> Stored.ItemPtr) then
-      begin
-        case GetTypeKind(T) of
-          tkLString: Cmp := InterfaceDefaults.Compare_LStr(nil, BufferLeft, Stored.ItemPtr);
-          tkWString: Cmp := InterfaceDefaults.Compare_WStr(nil, BufferLeft, Stored.ItemPtr);
-          tkUString: Cmp := InterfaceDefaults.Compare_UStr(nil, BufferLeft, Stored.ItemPtr);
-         tkDynArray: Cmp := InterfaceDefaults.Compare_Dyn(InterfaceDefaults.TDefaultComparer<T>.Instance, BufferLeft, Stored.ItemPtr);
+      {$if CompilerVersion = 28}
+        Cmp := IComparer<T>(@InterfaceDefaults.TDefaultComparer<T>.Instance).Compare(
+          TRAIIHelper<T>.P(BufferLeft)^, Item);
+      {$else}
+        if (GetTypeKind(T) = tkString) then
+        begin
+          Cmp := InterfaceDefaults.Compare_OStr(nil, BufferLeft, Pointer(@Item));
+        end else
+        if (GetTypeKind(T) in [tkLString, tkWString, tkUString, tkDynArray]) then
+        begin
+          BufferLeft := PPointer(BufferLeft)^;
+          if (BufferLeft <> Stored.ItemPtr) then
+          begin
+            case GetTypeKind(T) of
+              tkLString: Cmp := InterfaceDefaults.Compare_LStr(nil, BufferLeft, Stored.ItemPtr);
+              tkWString: Cmp := InterfaceDefaults.Compare_WStr(nil, BufferLeft, Stored.ItemPtr);
+              tkUString: Cmp := InterfaceDefaults.Compare_UStr(nil, BufferLeft, Stored.ItemPtr);
+             tkDynArray: Cmp := InterfaceDefaults.Compare_Dyn(InterfaceDefaults.TDefaultComparer<T>.Instance, BufferLeft, Stored.ItemPtr);
+            end;
+          end;
+        end else
+        case SizeOf(T) of
+          0..SizeOf(Cardinal): Cmp := 0;
+          {$ifdef LARGEINT}
+          SizeOf(Int64): Cmp := InterfaceDefaults.Compare_Bin8(nil, PInt64(BufferLeft)^, PInt64(@Item)^);
+          {$endif}
+        else
+          Cmp := InterfaceDefaults.Compare_Bin(InterfaceDefaults.TDefaultComparer<T>.Instance, BufferLeft, Pointer(@Item));
         end;
-        if (Cmp <> 0) then goto not_found;
-      end;
-    end else
-    begin
-      Cmp := SortBinaryComparer<T>(BufferLeft, @Item);
+      {$ifend}
+
       if (Cmp <> 0) then goto not_found;
     end;
   end else
@@ -13596,18 +14184,13 @@ end;
 {$endif .SMARTGENERICS}
 
 class function TArray.SearchUniversals<T>(Values: Pointer; const Helper: TSearchHelper; const Item: T): NativeInt;
+{$ifdef SMARTGENERICS}
 label
-  middle_init, not_found;
-type
-  TArrayT = array[0..0] of T;
-  PArrayT = ^TArrayT;
+  middle_init;
+{$endif}
 var
   Left, Right, Middle: NativeInt;
-  Stored: record
-    Inst: Pointer;
-    Compare: function(const Inst: Pointer; const Left, Right: T): NativeInt;
-    Count: NativeInt;
-  end;
+  Stored: TInternalSearchStored<T>;
 begin
   Stored.Inst := Helper.Comparer;
   Stored.Compare := PPointer(PNativeUInt(Stored.Inst)^ + 3 * SizeOf(Pointer))^;
@@ -13619,24 +14202,32 @@ begin
     Left := Middle + 1;
     if (Middle >= Right) then Break;
 
+  {$ifdef SMARTGENERICS}
   middle_init:
+  {$endif}
     Middle := Right;
     Dec(Middle, Left);
     Middle := Left + (Middle shr 1);
 
-    if (Stored.Compare(Stored.Inst, PArrayT(Values)[Middle], Item) < 0) then Continue;
+    if (Stored.Compare(Stored.Inst, TRAIIHelper<T>.PArrayT(Values)[Middle], Item) < 0) then Continue;
 
     Right := Middle + (-1);
-    if (not (Left > Right)) then goto middle_init;
-    Break;
+    if (not (Left > Right)) then
+    begin
+      {$ifdef SMARTGENERICS}
+        goto middle_init;
+      {$else}
+        Middle := Left + (-1);
+      {$endif}
+    end else
+    begin
+      Break;
+    end;
   until (False);
 
-  if (Left < Stored.Count) then
+  if (Left >= Stored.Count) or
+    (Stored.Compare(Stored.Inst, TRAIIHelper<T>.PArrayT(Values)[Left], Item) <> 0) then
   begin
-    if (Stored.Compare(Stored.Inst, PArrayT(Values)[Left], Item) <> 0) then goto not_found;
-  end else
-  begin
-  not_found:
     Left := not Left;
   end;
 
@@ -13644,18 +14235,13 @@ begin
 end;
 
 class function TArray.SearchDescendingUniversals<T>(Values: Pointer; const Helper: TSearchHelper; const Item: T): NativeInt;
+{$ifdef SMARTGENERICS}
 label
-  middle_init, not_found;
-type
-  TArrayT = array[0..0] of T;
-  PArrayT = ^TArrayT;
+  middle_init;
+{$endif}
 var
   Left, Right, Middle: NativeInt;
-  Stored: record
-    Inst: Pointer;
-    Compare: function(const Inst: Pointer; const Left, Right: T): NativeInt;
-    Count: NativeInt;
-  end;
+  Stored: TInternalSearchStored<T>;
 begin
   Stored.Inst := Helper.Comparer;
   Stored.Compare := PPointer(PNativeUInt(Stored.Inst)^ + 3 * SizeOf(Pointer))^;
@@ -13667,24 +14253,32 @@ begin
     Left := Middle + 1;
     if (Middle >= Right) then Break;
 
+  {$ifdef SMARTGENERICS}
   middle_init:
+  {$endif}
     Middle := Right;
     Dec(Middle, Left);
     Middle := Left + (Middle shr 1);
 
-    if (Stored.Compare(Stored.Inst, PArrayT(Values)[Middle], Item) > 0) then Continue;
+    if (Stored.Compare(Stored.Inst, TRAIIHelper<T>.PArrayT(Values)[Middle], Item) > 0) then Continue;
 
     Right := Middle + (-1);
-    if (not (Left > Right)) then goto middle_init;
-    Break;
+    if (not (Left > Right)) then
+    begin
+      {$ifdef SMARTGENERICS}
+        goto middle_init;
+      {$else}
+        Middle := Left + (-1);
+      {$endif}
+    end else
+    begin
+      Break;
+    end;
   until (False);
 
-  if (Left < Stored.Count) then
+  if (Left >= Stored.Count) or
+    (Stored.Compare(Stored.Inst, TRAIIHelper<T>.PArrayT(Values)[Left], Item) <> 0) then
   begin
-    if (Stored.Compare(Stored.Inst, PArrayT(Values)[Left], Item) <> 0) then goto not_found;
-  end else
-  begin
-  not_found:
     Left := not Left;
   end;
 
@@ -13693,8 +14287,6 @@ end;
 
 class function TArray.InternalSearch<T>(Values: Pointer; Index, Count: Integer; const Item: T;
   out FoundIndex: Integer): Boolean;
-type
-  P = ^T;
 var
   I: Integer;
   Helper: TSearchHelper;
@@ -13729,22 +14321,22 @@ begin
         1:
         begin
           case TypeData.OrdType of
-            otSByte: I := SearchSigneds<ShortInt>(P(Values) + Index, Count, @Item);
-            otUByte: I := SearchUnsigneds<Byte>(P(Values) + Index, Count, @Item);
+            otSByte: I := SearchSigneds<ShortInt>(TRAIIHelper<T>.P(Values) + Index, Count, @Item);
+            otUByte: I := SearchUnsigneds<Byte>(TRAIIHelper<T>.P(Values) + Index, Count, @Item);
           end;
         end;
         2:
         begin
           case TypeData.OrdType of
-            otSWord: I := SearchSigneds<SmallInt>(P(Values) + Index, Count, @Item);
-            otUWord: I := SearchUnsigneds<Word>(P(Values) + Index, Count, @Item);
+            otSWord: I := SearchSigneds<SmallInt>(TRAIIHelper<T>.P(Values) + Index, Count, @Item);
+            otUWord: I := SearchUnsigneds<Word>(TRAIIHelper<T>.P(Values) + Index, Count, @Item);
           end;
         end;
         4:
         begin
           case TypeData.OrdType of
-            otSLong: I := SearchSigneds<Integer>(P(Values) + Index, Count, @Item);
-            otULong: I := SearchUnsigneds<Cardinal>(P(Values) + Index, Count, @Item);
+            otSLong: I := SearchSigneds<Integer>(TRAIIHelper<T>.P(Values) + Index, Count, @Item);
+            otULong: I := SearchUnsigneds<Cardinal>(TRAIIHelper<T>.P(Values) + Index, Count, @Item);
           end;
         end;
       end;
@@ -13752,80 +14344,93 @@ begin
       begin
         if (TypeData.MaxInt64Value > TypeData.MinInt64Value) then
         begin
-          I := SearchSigneds<Int64>(P(Values) + Index, Count, @Item);
+          I := SearchSigneds<Int64>(TRAIIHelper<T>.P(Values) + Index, Count, @Item);
         end else
         begin
-          I := SearchUnsigneds<UInt64>(P(Values) + Index, Count, @Item);
+          I := SearchUnsigneds<UInt64>(TRAIIHelper<T>.P(Values) + Index, Count, @Item);
         end;
       end;
       tkClass, tkInterface, tkClassRef, tkPointer, tkProcedure:
       begin
         {$ifdef LARGEINT}
-          I := SearchUnsigneds<UInt64>(P(Values) + Index, Count, @Item);
+          I := SearchUnsigneds<UInt64>(TRAIIHelper<T>.P(Values) + Index, Count, @Item);
         {$else .SMALLINT}
-          I := SearchUnsigneds<Cardinal>(P(Values) + Index, Count, @Item);
+          I := SearchUnsigneds<Cardinal>(TRAIIHelper<T>.P(Values) + Index, Count, @Item);
         {$endif}
       end;
       tkFloat:
       case SizeOf(T) of
-         4: I := SearchFloats<Single>(P(Values) + Index, Count, @Item);
-        10: I := SearchFloats<Extended>(P(Values) + Index, Count, @Item);
+         4: I := SearchFloats<Single>(TRAIIHelper<T>.P(Values) + Index, Count, @Item);
+        10: I := SearchFloats<Extended>(TRAIIHelper<T>.P(Values) + Index, Count, @Item);
       else
         if (TypeData.FloatType = ftDouble) then
         begin
-          I := SearchFloats<Double>(P(Values) + Index, Count, @Item);
+          I := SearchFloats<Double>(TRAIIHelper<T>.P(Values) + Index, Count, @Item);
         end else
         begin
-          I := SearchSigneds<Int64>(P(Values) + Index, Count, @Item);
+          I := SearchSigneds<Int64>(TRAIIHelper<T>.P(Values) + Index, Count, @Item);
         end;
-      end;
-      tkMethod:
-      begin
-        I := SearchBinaries<InterfaceDefaults.TMethodPtr>(P(Values) + Index, Count,
-          InterfaceDefaults.TMethodPtr(Pointer(@Item)^));
       end;
       tkVariant:
       begin
         Helper.Count := Count;
-        Helper.Comparer := @InterfaceDefaults.TDefaultComparer<Variant>.Instance;
-        I := SearchUniversals<T>(P(Values) + Index, Helper, Item);
+        Helper.Comparer := InterfaceDefaults.TDefaultComparer<Variant>.Create;
+        I := SearchUniversals<T>(TRAIIHelper<T>.P(Values) + Index, Helper, Item);
       end;
-      tkString:
-      begin
-        I := SearchBinaries<T>(P(Values) + Index, Count, Item);
-      end;
-      tkLString:
-      begin
-        {$ifdef NEXTGEN}
-           I := SearchBinaries<T>(P(Values) + Index, Count, Item);
-        {$else}
-           I := SearchBinaries<AnsiString>(P(Values) + Index, Count, AnsiString(Pointer(@Item)^));
-        {$endif}
-      end;
-      {$ifdef MSWINDOWS}
-      tkWString:
-      begin
-        I := SearchBinaries<WideString>(P(Values) + Index, Count, WideString(Pointer(@Item)^));
-      end;
+      {$if CompilerVersion = 28}
+        tkMethod, tkString, tkLString, tkWString, tkUString:
+        begin
+          if (not InterfaceDefaults.TDefaultComparer<T>.Created) then
+            InterfaceDefaults.TDefaultComparer<T>.InternalCreate;		
+          I := SearchBinaries<T>(TRAIIHelper<T>.P(Values) + Index, Count, Item);
+        end;
       {$else}
-      tkWString,
-      {$endif}
-      tkUString:
-      begin
-        I := SearchBinaries<UnicodeString>(P(Values) + Index, Count, UnicodeString(Pointer(@Item)^));
-      end;
-      tkDynArray:
-      begin
-        I := SearchBinaries<T>(P(Values) + Index, Count, Item);
-      end;
+        tkMethod:
+        begin
+          I := SearchBinaries<InterfaceDefaults.TMethodPtr>(TRAIIHelper<T>.P(Values) + Index, Count,
+            InterfaceDefaults.TMethodPtr(Pointer(@Item)^));
+        end;
+        tkString:
+        begin
+          I := SearchBinaries<T>(TRAIIHelper<T>.P(Values) + Index, Count, Item);
+        end;
+        tkLString:
+        begin
+          {$ifdef NEXTGEN}
+            I := SearchBinaries<T>(TRAIIHelper<T>.P(Values) + Index, Count, Item);
+          {$else}
+            I := SearchBinaries<AnsiString>(TRAIIHelper<T>.P(Values) + Index, Count, AnsiString(Pointer(@Item)^));
+          {$endif}
+        end;
+        {$ifdef MSWINDOWS}
+        tkWString:
+        begin
+          I := SearchBinaries<WideString>(TRAIIHelper<T>.P(Values) + Index, Count, WideString(Pointer(@Item)^));
+        end;
+        {$else}
+        tkWString,
+        {$endif}
+        tkUString:
+        begin
+          I := SearchBinaries<UnicodeString>(TRAIIHelper<T>.P(Values) + Index, Count, UnicodeString(Pointer(@Item)^));
+        end;
+        tkDynArray:
+        begin
+          if (not InterfaceDefaults.TDefaultComparer<T>.Created) then
+            InterfaceDefaults.TDefaultComparer<T>.InternalCreate;
+          I := SearchBinaries<T>(TRAIIHelper<T>.P(Values) + Index, Count, Item);
+        end;
+      {$ifend}
     else
       // binary
-      I := SearchBinaries<T>(P(Values) + Index, Count, Item);
+      if (not InterfaceDefaults.TDefaultComparer<T>.Created) then
+        InterfaceDefaults.TDefaultComparer<T>.InternalCreate;
+      I := SearchBinaries<T>(TRAIIHelper<T>.P(Values) + Index, Count, Item);
     end;
   {$else}
     Helper.Count := Count;
-    Helper.Comparer := @InterfaceDefaults.TDefaultComparer<T>.Instance;
-    I := SearchUniversals<T>(P(Values) + Index, Helper, Item);
+    Helper.Comparer := InterfaceDefaults.TDefaultComparer<T>.Create;
+    I := SearchUniversals<T>(TRAIIHelper<T>.P(Values) + Index, Helper, Item);
   {$endif}
 
   if (I < 0) then
@@ -13841,8 +14446,6 @@ end;
 
 class function TArray.InternalSearch<T>(Values: Pointer; Index, Count: Integer; const Item: T;
   out FoundIndex: Integer; Comparer: Pointer): Boolean;
-type
-  P = ^T;
 var
   I: Integer;
   Helper: TSearchHelper;
@@ -13862,7 +14465,7 @@ begin
 
   Helper.Count := Count;
   Helper.Comparer := Comparer;
-  I := TArray.SearchUniversals<T>(P(Values) + Index, Helper, Item);
+  I := TArray.SearchUniversals<T>(TRAIIHelper<T>.P(Values) + Index, Helper, Item);
   if (I < 0) then
   begin
     FoundIndex := Index + (not I);
@@ -13945,8 +14548,6 @@ end;
 
 class function TArray.InternalSearchDescending<T>(Values: Pointer; Index, Count: Integer; const Item: T;
   out FoundIndex: Integer): Boolean;
-type
-  P = ^T;
 var
   I: Integer;
   Helper: TSearchHelper;
@@ -13981,22 +14582,22 @@ begin
         1:
         begin
           case TypeData.OrdType of
-            otSByte: I := SearchDescendingSigneds<ShortInt>(P(Values) + Index, Count, @Item);
-            otUByte: I := SearchDescendingUnsigneds<Byte>(P(Values) + Index, Count, @Item);
+            otSByte: I := SearchDescendingSigneds<ShortInt>(TRAIIHelper<T>.P(Values) + Index, Count, @Item);
+            otUByte: I := SearchDescendingUnsigneds<Byte>(TRAIIHelper<T>.P(Values) + Index, Count, @Item);
           end;
         end;
         2:
         begin
           case TypeData.OrdType of
-            otSWord: I := SearchDescendingSigneds<SmallInt>(P(Values) + Index, Count, @Item);
-            otUWord: I := SearchDescendingUnsigneds<Word>(P(Values) + Index, Count, @Item);
+            otSWord: I := SearchDescendingSigneds<SmallInt>(TRAIIHelper<T>.P(Values) + Index, Count, @Item);
+            otUWord: I := SearchDescendingUnsigneds<Word>(TRAIIHelper<T>.P(Values) + Index, Count, @Item);
           end;
         end;
         4:
         begin
           case TypeData.OrdType of
-            otSLong: I := SearchDescendingSigneds<Integer>(P(Values) + Index, Count, @Item);
-            otULong: I := SearchDescendingUnsigneds<Cardinal>(P(Values) + Index, Count, @Item);
+            otSLong: I := SearchDescendingSigneds<Integer>(TRAIIHelper<T>.P(Values) + Index, Count, @Item);
+            otULong: I := SearchDescendingUnsigneds<Cardinal>(TRAIIHelper<T>.P(Values) + Index, Count, @Item);
           end;
         end;
       end;
@@ -14004,80 +14605,93 @@ begin
       begin
         if (TypeData.MaxInt64Value > TypeData.MinInt64Value) then
         begin
-          I := SearchDescendingSigneds<Int64>(P(Values) + Index, Count, @Item);
+          I := SearchDescendingSigneds<Int64>(TRAIIHelper<T>.P(Values) + Index, Count, @Item);
         end else
         begin
-          I := SearchDescendingUnsigneds<UInt64>(P(Values) + Index, Count, @Item);
+          I := SearchDescendingUnsigneds<UInt64>(TRAIIHelper<T>.P(Values) + Index, Count, @Item);
         end;
       end;
       tkClass, tkInterface, tkClassRef, tkPointer, tkProcedure:
       begin
         {$ifdef LARGEINT}
-          I := SearchDescendingUnsigneds<UInt64>(P(Values) + Index, Count, @Item);
+          I := SearchDescendingUnsigneds<UInt64>(TRAIIHelper<T>.P(Values) + Index, Count, @Item);
         {$else .SMALLINT}
-          I := SearchDescendingUnsigneds<Cardinal>(P(Values) + Index, Count, @Item);
+          I := SearchDescendingUnsigneds<Cardinal>(TRAIIHelper<T>.P(Values) + Index, Count, @Item);
         {$endif}
       end;
       tkFloat:
       case SizeOf(T) of
-         4: I := SearchDescendingFloats<Single>(P(Values) + Index, Count, @Item);
-        10: I := SearchDescendingFloats<Extended>(P(Values) + Index, Count, @Item);
+         4: I := SearchDescendingFloats<Single>(TRAIIHelper<T>.P(Values) + Index, Count, @Item);
+        10: I := SearchDescendingFloats<Extended>(TRAIIHelper<T>.P(Values) + Index, Count, @Item);
       else
         if (TypeData.FloatType = ftDouble) then
         begin
-          I := SearchDescendingFloats<Double>(P(Values) + Index, Count, @Item);
+          I := SearchDescendingFloats<Double>(TRAIIHelper<T>.P(Values) + Index, Count, @Item);
         end else
         begin
-          I := SearchDescendingSigneds<Int64>(P(Values) + Index, Count, @Item);
+          I := SearchDescendingSigneds<Int64>(TRAIIHelper<T>.P(Values) + Index, Count, @Item);
         end;
-      end;
-      tkMethod:
-      begin
-        I := SearchDescendingBinaries<InterfaceDefaults.TMethodPtr>(P(Values) + Index, Count,
-          InterfaceDefaults.TMethodPtr(Pointer(@Item)^));
       end;
       tkVariant:
       begin
         Helper.Count := Count;
-        Helper.Comparer := @InterfaceDefaults.TDefaultComparer<Variant>.Instance;
-        I := SearchDescendingUniversals<T>(P(Values) + Index, Helper, Item);
+        Helper.Comparer := InterfaceDefaults.TDefaultComparer<Variant>.Create;
+        I := SearchDescendingUniversals<T>(TRAIIHelper<T>.P(Values) + Index, Helper, Item);
       end;
-      tkString:
-      begin
-        I := SearchDescendingBinaries<T>(P(Values) + Index, Count, Item);
-      end;
-      tkLString:
-      begin
-        {$ifdef NEXTGEN}
-           I := SearchDescendingBinaries<T>(P(Values) + Index, Count, Item);
-        {$else}
-           I := SearchDescendingBinaries<AnsiString>(P(Values) + Index, Count, AnsiString(Pointer(@Item)^));
-        {$endif}
-      end;
-      {$ifdef MSWINDOWS}
-      tkWString:
-      begin
-        I := SearchDescendingBinaries<WideString>(P(Values) + Index, Count, WideString(Pointer(@Item)^));
-      end;
+      {$if CompilerVersion = 28}
+        tkMethod, tkString, tkLString, tkWString, tkUString:
+        begin
+          I := SearchDescendingBinaries<T>(TRAIIHelper<T>.P(Values) + Index, Count, Item);
+        end;
       {$else}
-      tkWString,
-      {$endif}
-      tkUString:
-      begin
-        I := SearchDescendingBinaries<UnicodeString>(P(Values) + Index, Count, UnicodeString(Pointer(@Item)^));
-      end;
-      tkDynArray:
-      begin
-        I := SearchDescendingBinaries<T>(P(Values) + Index, Count, Item);
-      end;
+        tkMethod:
+        begin
+          if (not InterfaceDefaults.TDefaultComparer<T>.Created) then
+            InterfaceDefaults.TDefaultComparer<T>.InternalCreate;		
+          I := SearchDescendingBinaries<InterfaceDefaults.TMethodPtr>(TRAIIHelper<T>.P(Values) + Index, Count,
+            InterfaceDefaults.TMethodPtr(Pointer(@Item)^));
+        end;
+        tkString:
+        begin
+          I := SearchDescendingBinaries<T>(TRAIIHelper<T>.P(Values) + Index, Count, Item);
+        end;
+        tkLString:
+        begin
+          {$ifdef NEXTGEN}
+            I := SearchDescendingBinaries<T>(TRAIIHelper<T>.P(Values) + Index, Count, Item);
+          {$else}
+            I := SearchDescendingBinaries<AnsiString>(TRAIIHelper<T>.P(Values) + Index, Count, AnsiString(Pointer(@Item)^));
+          {$endif}
+        end;
+        {$ifdef MSWINDOWS}
+        tkWString:
+        begin
+          I := SearchDescendingBinaries<WideString>(TRAIIHelper<T>.P(Values) + Index, Count, WideString(Pointer(@Item)^));
+        end;
+        {$else}
+        tkWString,
+        {$endif}
+        tkUString:
+        begin
+          I := SearchDescendingBinaries<UnicodeString>(TRAIIHelper<T>.P(Values) + Index, Count, UnicodeString(Pointer(@Item)^));
+        end;
+        tkDynArray:
+        begin
+          if (not InterfaceDefaults.TDefaultComparer<T>.Created) then
+            InterfaceDefaults.TDefaultComparer<T>.InternalCreate;
+          I := SearchDescendingBinaries<T>(TRAIIHelper<T>.P(Values) + Index, Count, Item);
+        end;
+      {$ifend}
     else
       // binary
-      I := SearchDescendingBinaries<T>(P(Values) + Index, Count, Item);
+      if (not InterfaceDefaults.TDefaultComparer<T>.Created) then
+        InterfaceDefaults.TDefaultComparer<T>.InternalCreate;
+      I := SearchDescendingBinaries<T>(TRAIIHelper<T>.P(Values) + Index, Count, Item);
     end;
   {$else}
     Helper.Count := Count;
-    Helper.Comparer := @InterfaceDefaults.TDefaultComparer<T>.Instance;
-    I := SearchDescendingUniversals<T>(P(Values) + Index, Helper, Item);
+    Helper.Comparer := InterfaceDefaults.TDefaultComparer<T>.Create;
+    I := SearchDescendingUniversals<T>(TRAIIHelper<T>.P(Values) + Index, Helper, Item);
   {$endif}
 
   if (I < 0) then
@@ -14093,8 +14707,6 @@ end;
 
 class function TArray.InternalSearchDescending<T>(Values: Pointer; Index, Count: Integer; const Item: T;
   out FoundIndex: Integer; Comparer: Pointer): Boolean;
-type
-  P = ^T;
 var
   I: Integer;
   Helper: TSearchHelper;
@@ -14114,7 +14726,7 @@ begin
 
   Helper.Count := Count;
   Helper.Comparer := Comparer;
-  I := TArray.SearchDescendingUniversals<T>(P(Values) + Index, Helper, Item);
+  I := TArray.SearchDescendingUniversals<T>(TRAIIHelper<T>.P(Values) + Index, Helper, Item);
   if (I < 0) then
   begin
     FoundIndex := Index + (not I);
@@ -14244,6 +14856,7 @@ end;
 constructor TCustomList<T>.Create;
 begin
   inherited Create;
+  TRAIIHelper<T>.Create;
   SetNotifyMethods;
 end;
 
@@ -14266,13 +14879,18 @@ begin
   Result := EListError.CreateRes(Pointer(@SUnbalancedOperation));
 end;
 
+class function TCustomList<T>.OutOfRangeException: Exception;
+begin
+  Result := EArgumentOutOfRangeException.CreateRes(Pointer(@SArgumentOutOfRange));
+end;
+
 procedure TCustomList<T>.SetCapacity(Value: Integer);
 var
   Dif, NewTail: NativeInt;
 begin
   if (Value = FCapacity.Int) then Exit;
   if Value < Count then
-    raise EArgumentOutOfRangeException.CreateRes(Pointer(@SArgumentOutOfRange));
+    raise OutOfRangeException;
 
   if (FTail <= FHead) then
   begin
@@ -14429,7 +15047,8 @@ end;
 
 procedure TCustomList<T>.SetOnNotify(const Value: TCollectionNotifyEvent<T>);
 begin
-  if (@FOnNotify <> @Value) then
+  if (TMethod(FOnNotify).Code <> TMethod(Value).Code) or
+    (TMethod(FOnNotify).Data <> TMethod(Value).Data) then
   begin
     FOnNotify := Value;
     SetNotifyMethods;
@@ -14542,13 +15161,13 @@ end;
 
 class procedure TList<T>.Error(const Msg: string; Data: NativeInt);
 begin
-  raise EListError.CreateFmt(Msg, [Data]) at ReturnAddress;
+  raise EListError.CreateFmt(Msg, [Data]) {$if CompilerVersion >= 23}at ReturnAddress{$ifend};
 end;
 
 {$ifNdef NEXTGEN}
 class procedure TList<T>.Error(Msg: PResStringRec; Data: NativeInt);
 begin
-  raise EListError.CreateFmt(LoadResString(Msg), [Data]) at ReturnAddress;
+  raise EListError.CreateFmt(LoadResString(Msg), [Data]) {$if CompilerVersion >= 23}at ReturnAddress{$ifend};
 end;
 {$endif}
 
@@ -14559,7 +15178,7 @@ begin
   Count := FCount.Int;
   if (Value < 0) then
   begin
-    raise EArgumentOutOfRangeException.CreateRes(Pointer(@SArgumentOutOfRange));
+    raise OutOfRangeException;
   end else
   if (Value < Count) then
   begin
@@ -14596,7 +15215,7 @@ begin
     Result := FItems[Index];
   end else
   begin
-    raise EArgumentOutOfRangeException.CreateRes(Pointer(@SArgumentOutOfRange));
+    raise OutOfRangeException;
   end;
 end;
 
@@ -14607,7 +15226,7 @@ begin
     FItems[Index] := Value;
   end else
   begin
-    raise EArgumentOutOfRangeException.CreateRes(Pointer(@SArgumentOutOfRange));
+    raise OutOfRangeException;
   end;
 end;
 
@@ -14618,7 +15237,7 @@ begin
     Result := FItems[0];
   end else
   begin
-    raise EArgumentOutOfRangeException.CreateRes(Pointer(@SArgumentOutOfRange));
+    raise OutOfRangeException;
   end;
 end;
 
@@ -14633,7 +15252,7 @@ begin
     Result := FItems[Count];
   end else
   begin
-    raise EArgumentOutOfRangeException.CreateRes(Pointer(@SArgumentOutOfRange));
+    raise OutOfRangeException;
   end;
 end;
 
@@ -14658,8 +15277,6 @@ begin
 end;
 
 function TList<T>.InternalInsert(Index: NativeInt; const Value: T): Integer;
-label
-  available;
 var
   Count, Null: NativeInt;
   Item: ^TRAIIHelper.TData16;
@@ -14668,91 +15285,92 @@ begin
   Count := FCount.Native;
   if (NativeUInt(Index) <= NativeUInt(Count)) then
   begin
-    if (Count <> FCapacity.Native) then
-    begin
-    available:
-      Inc(Count);
-      FCount.Native := Count;
-      Dec(Count);
-      if (Index <> Count) then
+    repeat
+      if (Count <> FCapacity.Native) then
       begin
-        Count := (Count - Index) * SizeOf(T);
+        Inc(Count);
+        FCount.Native := Count;
+        Dec(Count);
+        if (Index <> Count) then
+        begin
+          Count := (Count - Index) * SizeOf(T);
+          Item := Pointer(@FItems[Index]);
+          System.Move(Item^, PByte(PByte(Item) + SizeOf(T))^, Count);
+          Index := Result;
+        end;
         Item := Pointer(@FItems[Index]);
-        System.Move(Item^, PByte(PByte(Item) + SizeOf(T))^, Count);
+
+        {$ifdef SMARTGENERICS}
+        if (System.IsManagedType(T) or System.HasWeakRef(T)) then
+        {$else}
+        if (SizeOf(T) >= SizeOf(NativeInt)) then
+        {$endif}
+        begin
+          {$ifdef SMARTGENERICS}
+          if (GetTypeKind(T) = tkVariant) then
+          begin
+            Item.Integers[0] := 0;
+          end else
+          {$endif}
+          if (SizeOf(T) <= 16) then
+          begin
+            Null := 0;
+            {$ifdef SMALLINT}
+              if (SizeOf(T) >= SizeOf(Integer) * 1) then Item.Integers[0] := Null;
+              if (SizeOf(T) >= SizeOf(Integer) * 2) then Item.Integers[1] := Null;
+              if (SizeOf(T) >= SizeOf(Integer) * 3) then Item.Integers[2] := Null;
+              if (SizeOf(T)  = SizeOf(Integer) * 4) then Item.Integers[3] := Null;
+            {$else .LARGEINT}
+              if (SizeOf(T) >= SizeOf(Int64) * 1) then Item.Int64s[0] := Null;
+              if (SizeOf(T)  = SizeOf(Int64) * 2) then Item.Int64s[1] := Null;
+              case SizeOf(T) of
+                 4..7: Item.Integers[0] := Null;
+               12..15: Item.Integers[2] := Null;
+              end;
+            {$endif}
+            case SizeOf(T) of
+               2,3: Item.Words[0] := 0;
+               6,7: Item.Words[2] := 0;
+             10,11: Item.Words[4] := 0;
+             14,15: Item.Words[6] := 0;
+            end;
+            case SizeOf(T) of
+               1: Item.Bytes[ 1-1] := 0;
+               3: Item.Bytes[ 3-1] := 0;
+               5: Item.Bytes[ 5-1] := 0;
+               7: Item.Bytes[ 7-1] := 0;
+               9: Item.Bytes[ 9-1] := 0;
+              11: Item.Bytes[11-1] := 0;
+              13: Item.Bytes[13-1] := 0;
+              15: Item.Bytes[15-1] := 0;
+            end;
+          end else
+          begin
+            TRAIIHelper<T>.Init(Pointer(Item));
+          end;
+        end;
+
+        PItem(Item)^ := Value;
+        if Assigned(FInternalNotify) then
+          FInternalNotify(Self, Value, cnAdded);
+        Exit;
+      end else
+      begin
+        Self.Grow;
+        Count := FCount.Native;
         Index := Result;
       end;
-      Item := Pointer(@FItems[Index]);
-
-      {$ifdef SMARTGENERICS}
-      if (System.IsManagedType(T) or System.HasWeakRef(T)) then
-      {$else}
-      if (SizeOf(T) >= SizeOf(NativeInt)) then
-      {$endif}
-      begin
-        {$ifdef SMARTGENERICS}
-        if (GetTypeKind(T) = tkVariant) then
-        begin
-          Item.Integers[0] := 0;
-        end else
-        {$endif}
-        if (SizeOf(T) <= 16) then
-        begin
-          Null := 0;
-          {$ifdef SMALLINT}
-            if (SizeOf(T) >= SizeOf(Integer) * 1) then Item.Integers[0] := Null;
-            if (SizeOf(T) >= SizeOf(Integer) * 2) then Item.Integers[1] := Null;
-            if (SizeOf(T) >= SizeOf(Integer) * 3) then Item.Integers[2] := Null;
-            if (SizeOf(T)  = SizeOf(Integer) * 4) then Item.Integers[3] := Null;
-          {$else .LARGEINT}
-            if (SizeOf(T) >= SizeOf(Int64) * 1) then Item.Int64s[0] := Null;
-            if (SizeOf(T)  = SizeOf(Int64) * 2) then Item.Int64s[1] := Null;
-            case SizeOf(T) of
-               4..7: Item.Integers[0] := Null;
-             12..15: Item.Integers[2] := Null;
-            end;
-          {$endif}
-          case SizeOf(T) of
-             2,3: Item.Words[0] := 0;
-             6,7: Item.Words[2] := 0;
-           10,11: Item.Words[4] := 0;
-           14,15: Item.Words[6] := 0;
-          end;
-          case SizeOf(T) of
-             1: Item.Bytes[ 1-1] := 0;
-             3: Item.Bytes[ 3-1] := 0;
-             5: Item.Bytes[ 5-1] := 0;
-             7: Item.Bytes[ 7-1] := 0;
-             9: Item.Bytes[ 9-1] := 0;
-            11: Item.Bytes[11-1] := 0;
-            13: Item.Bytes[13-1] := 0;
-            15: Item.Bytes[15-1] := 0;
-          end;
-        end else
-        begin
-          TRAIIHelper<T>.Init(Pointer(Item));
-        end;
-      end;
-
-      PItem(Item)^ := Value;
-      if Assigned(FInternalNotify) then
-        FInternalNotify(Self, Value, cnAdded);
-    end else
-    begin
-      Self.Grow;
-      Count := FCount.Native;
-      Index := Result;
-      goto available;
-    end;
+    until (False);
   end else
   begin
-    raise EArgumentOutOfRangeException.CreateRes(Pointer(@SArgumentOutOfRange));
+    raise OutOfRangeException;
   end;
 end;
 
 function TList<T>.Add(const Value: T): Integer;
 var
   Count, Null: NativeInt;
-  Item: ^TRAIIHelper.TData16;
+  Item: TRAIIHelper.PData16;
 begin
   Count := FCount.Native;
   if (Count <> FCapacity.Native) and (not Assigned(FInternalNotify)) then
@@ -14827,8 +15445,6 @@ begin
 end;
 
 procedure TList<T>.AddRange(const Values: array of T);
-label
-  available, out_of_memory;
 var
   Count, ValuesCount, i: NativeInt;
   Item, Source, Buffer: PItem;
@@ -14843,71 +15459,70 @@ begin
 
   Count := FCount.Native;
   Inc(Count, ValuesCount);
-  if (NativeUInt(Count) > NativeUInt(High(Integer))) then goto out_of_memory;
-
-  if (Count <= FCapacity.Native) then
+  if (NativeUInt(Count) <= NativeUInt(High(Integer))) then
   begin
-  available:
-    FCount.Native := Count;
-    Dec(Count, ValuesCount);
-    Buffer{Item} := @FItems[Count];
-
-    {$ifdef SMARTGENERICS}
-    if (System.IsManagedType(T) or System.HasWeakRef(T)) then
-    {$else}
-    if (Assigned(TRAIIHelper<T>.Options.InitProc)) then
-    {$endif}
-    begin
-      if (SizeOf(T) <= 16) then
+    repeat
+      if (Count <= FCapacity.Native) then
       begin
-        FillChar(Buffer{Item}^, ValuesCount * SizeOf(T), #0);
+        FCount.Native := Count;
+        Dec(Count, ValuesCount);
+        Buffer{Item} := @FItems[Count];
+
+        {$ifdef SMARTGENERICS}
+        if (System.IsManagedType(T) or System.HasWeakRef(T)) then
+        {$else}
+        if (Assigned(TRAIIHelper<T>.Options.InitProc)) then
+        {$endif}
+        begin
+          if (SizeOf(T) <= 16) then
+          begin
+            FillChar(Buffer{Item}^, ValuesCount * SizeOf(T), #0);
+          end else
+          begin
+            TRAIIHelper<T>.InitArray(Buffer{Item}, ValuesCount);
+          end;
+        end else
+        if (not Assigned(Stored.InternalNotify.Code)) then
+        begin
+          System.Move(Values[0], Buffer{Item}^, ValuesCount * SizeOf(T));
+          Exit;
+        end;
+
+        Source := @Values[0];
+        Item := Buffer{Item};
+        if (not Assigned(Stored.InternalNotify.Code)) then
+        begin
+          for ValuesCount := ValuesCount downto 1 do
+          begin
+            Item^ := Source^;
+            Inc(Source);
+            Inc(Item);
+          end;
+        end else
+        begin
+          for ValuesCount := ValuesCount downto 1 do
+          begin
+            Item^ := Source^;
+            TCollectionNotifyEvent<T>(Stored.InternalNotify)(Stored.Self, Source^, cnAdded);
+            Inc(Source);
+            Inc(Item);
+          end;
+        end;
+        Exit;
       end else
       begin
-        TRAIIHelper<T>.InitArray(Buffer{Item}, ValuesCount);
+        Self.GrowTo(Count);
+        Count := FCount.Native;
+        Inc(Count, ValuesCount);
       end;
-    end else
-    if (not Assigned(Stored.InternalNotify.Code)) then
-    begin
-      System.Move(Values[0], Buffer{Item}^, ValuesCount * SizeOf(T));
-      Exit;
-    end;
-
-    Source := @Values[0];
-    Item := Buffer{Item};
-    if (not Assigned(Stored.InternalNotify.Code)) then
-    begin
-      for ValuesCount := ValuesCount downto 1 do
-      begin
-        Item^ := Source^;
-        Inc(Source);
-        Inc(Item);
-      end;
-    end else
-    begin
-      for ValuesCount := ValuesCount downto 1 do
-      begin
-        Item^ := Source^;
-        TCollectionNotifyEvent<T>(Stored.InternalNotify)(Stored.Self, Source^, cnAdded);
-        Inc(Source);
-        Inc(Item);
-      end;
-    end;
-    Exit;
+    until (False);
   end else
   begin
-    Self.GrowTo(Count);
-    Count := FCount.Native;
-    Inc(Count, ValuesCount);
-    goto available;
+    OutOfMemoryError;
   end;
-
-out_of_memory:
-  OutOfMemoryError;
 end;
 
 procedure TList<T>.InsertRange(Index: Integer; const Values: array of T);
-label
-  available, out_of_range, out_of_memory;
 var
   Count, ValuesCount, AIndex: NativeInt;
   Item, Source, Buffer: PItem;
@@ -14923,79 +15538,82 @@ begin
   AIndex := Index;
 
   Count := FCount.Native;
-  if (NativeUInt(AIndex) > NativeUInt(Count)) then goto out_of_range;
-
-  Inc(Count, ValuesCount);
-  if (NativeUInt(Count) > NativeUInt(High(Integer))) then goto out_of_memory;
-
-  if (Count <= FCapacity.Native) then
+  if (NativeUInt(AIndex) <= NativeUInt(Count)) then
   begin
-  available:
-    FCount.Native := Count;
-    Dec(Count, AIndex);
-    Dec(Count, ValuesCount);
-    Buffer{Item} := @FItems[AIndex];
-    if (Count <> 0) then
-    begin
-      Count := Count * SizeOf(T);
-      Source := Buffer{Item} + Stored.Count;
-      System.Move(Buffer{Item}^, Source^, Count);
-    end;
-
-    {$ifdef SMARTGENERICS}
-    if (System.IsManagedType(T) or System.HasWeakRef(T)) then
-    {$else}
-    if (Assigned(TRAIIHelper<T>.Options.InitProc)) then
-    {$endif}
-    begin
-      if (SizeOf(T) <= 16) then
-      begin
-        FillChar(Buffer{Item}^, Stored.Count * SizeOf(T), #0);
-      end else
-      begin
-        TRAIIHelper<T>.InitArray(Buffer{Item}, Stored.Count);
-      end;
-    end else
-    if (not Assigned(Stored.InternalNotify.Code)) then
-    begin
-      System.Move(Values[0], Buffer{Item}^, Stored.Count * SizeOf(T));
-      Exit;
-    end;
-
-    Source := @Values[0];
-    Stored.Item := Source + Stored.Count;
-    Item := Buffer{Item};
-    if (not Assigned(Stored.InternalNotify.Code)) then
+    Inc(Count, ValuesCount);
+    if (NativeUInt(Count) <= NativeUInt(High(Integer))) then
     begin
       repeat
-        Item^ := Source^;
-        Inc(Source);
-        Inc(Item);
-      until (Source = Stored.Item);
+        if (Count <= FCapacity.Native) then
+        begin
+          FCount.Native := Count;
+          Dec(Count, AIndex);
+          Dec(Count, ValuesCount);
+          Buffer{Item} := @FItems[AIndex];
+          if (Count <> 0) then
+          begin
+            Count := Count * SizeOf(T);
+            Source := Buffer{Item} + Stored.Count;
+            System.Move(Buffer{Item}^, Source^, Count);
+          end;
+
+          {$ifdef SMARTGENERICS}
+          if (System.IsManagedType(T) or System.HasWeakRef(T)) then
+          {$else}
+          if (Assigned(TRAIIHelper<T>.Options.InitProc)) then
+          {$endif}
+          begin
+            if (SizeOf(T) <= 16) then
+            begin
+              FillChar(Buffer{Item}^, Stored.Count * SizeOf(T), #0);
+            end else
+            begin
+              TRAIIHelper<T>.InitArray(Buffer{Item}, Stored.Count);
+            end;
+          end else
+          if (not Assigned(Stored.InternalNotify.Code)) then
+          begin
+            System.Move(Values[0], Buffer{Item}^, Stored.Count * SizeOf(T));
+            Exit;
+          end;
+
+          Source := @Values[0];
+          Stored.Item := Source + Stored.Count;
+          Item := Buffer{Item};
+          if (not Assigned(Stored.InternalNotify.Code)) then
+          begin
+            repeat
+              Item^ := Source^;
+              Inc(Source);
+              Inc(Item);
+            until (Source = Stored.Item);
+          end else
+          begin
+            repeat
+              Item^ := Source^;
+              TCollectionNotifyEvent<T>(Stored.InternalNotify)(Stored.Self, Source^, cnAdded);
+              Inc(Source);
+              Inc(Item);
+            until (Source = Stored.Item);
+          end;
+          Exit;
+        end else
+        begin
+          Self.GrowTo(Count);
+          AIndex := Index;
+          ValuesCount := Stored.Count;
+          Count := FCount.Native;
+          Inc(Count, ValuesCount);
+        end;
+      until (False);
     end else
     begin
-      repeat
-        Item^ := Source^;
-        TCollectionNotifyEvent<T>(Stored.InternalNotify)(Stored.Self, Source^, cnAdded);
-        Inc(Source);
-        Inc(Item);
-      until (Source = Stored.Item);
+      OutOfMemoryError;
     end;
-    Exit;
   end else
   begin
-    Self.GrowTo(Count);
-    AIndex := Index;
-    ValuesCount := Stored.Count;
-    Count := FCount.Native;
-    Inc(Count, ValuesCount);
-    goto available;
+    raise OutOfRangeException;
   end;
-
-out_of_range:
-  raise EArgumentOutOfRangeException.CreateRes(Pointer(@SArgumentOutOfRange));
-out_of_memory:
-  OutOfMemoryError;
 end;
 
 procedure TList<T>.AddRange(const Collection: IEnumerable<T>);
@@ -15077,13 +15695,11 @@ begin
 end;
 
 procedure TList<T>.InternalDelete(Index: NativeInt; Action: TCollectionNotification);
-label
-  available;
 var
   Count: NativeInt;
   Item: PItem;
   VType: Integer;
-  InternalNotify: TMethod;
+  Stored: TInternalStored;
 begin
   Count := FCount.Native;
   if (NativeUInt(Index) < NativeUInt(Count)) then
@@ -15093,83 +15709,83 @@ begin
     Dec(Count, Index);
     Item := @FItems[Index];
 
-    if (not Assigned(FInternalNotify)) then
+    if (Assigned(FInternalNotify)) then
     begin
-    available:
-      {$ifdef SMARTGENERICS}
-      case GetTypeKind(T) of
-        {$ifdef AUTOREFCOUNT}
-        tkClass,
-        {$endif}
-        tkWString, tkLString, tkUString, tkInterface, tkDynArray:
-        begin
-          if (PNativeInt(Item)^ <> 0) then
-          case GetTypeKind(T) of
-            {$ifdef AUTOREFCOUNT}
-            tkClass:
-            begin
-              TRAIIHelper.RefObjClear(Item);
-            end;
-            {$endif}
-            {$ifdef MSWINDOWS}
-            tkWString:
-            begin
-              TRAIIHelper.WStrClear(Item);
-            end;
-            {$else}
-            tkWString,
-            {$endif}
-            tkLString, tkUString:
-            begin
-              TRAIIHelper.ULStrClear(Item);
-            end;
-            tkInterface:
-            begin
-              IInterface(PPointer(Item)^)._Release;
-            end;
-            tkDynArray:
-            begin
-              TRAIIHelper.DynArrayClear(Item, TypeInfo(T));
-            end;
-          end;
-        end;
-        {$ifdef WEAKREF}
-        tkMethod:
-        begin
-          if (PMethod(Item).Data <> nil) then
-            TRAIIHelper.WeakMethodClear(@PMethod(Item).Data);
-        end;
-        {$endif}
-        tkVariant:
-        begin
-          VType := PVarData(Item).VType;
-          if (VType and TRAIIHelper.varDeepData <> 0) then
-          case VType of
-            varBoolean, varUnknown+1..varUInt64: ;
-          else
-            System.VarClear(PVariant(Item)^);
-          end;
-        end;
-      else
-        TRAIIHelper<T>.Clear(Item);
-      end;
-      {$else}
-      TRAIIHelper<T>.Clear(Item);
-      {$endif}
-
-      if (Count <> 0) then
-        System.Move(Pointer(Item + 1)^, Item^, Count * SizeOf(T));
-
-      Exit;
-    end else
-    begin
-      InternalNotify := TMethod(FInternalNotify);
-      TCollectionNotifyEvent<T>(InternalNotify)(Self, Item^, Action);
-      goto available;
+      Stored.Item := Item;
+      Stored.Count := Count;
+      FInternalNotify(Self, Stored.Item^, Action);
+      Item := Stored.Item;
+      Count := Stored.Count;
     end;
+
+    {$ifdef SMARTGENERICS}
+    case GetTypeKind(T) of
+      {$ifdef AUTOREFCOUNT}
+      tkClass,
+      {$endif}
+      tkWString, tkLString, tkUString, tkInterface, tkDynArray:
+      begin
+        if (PNativeInt(Item)^ <> 0) then
+        case GetTypeKind(T) of
+          {$ifdef AUTOREFCOUNT}
+          tkClass:
+          begin
+            TRAIIHelper.RefObjClear(Item);
+          end;
+          {$endif}
+          {$ifdef MSWINDOWS}
+          tkWString:
+          begin
+            TRAIIHelper.WStrClear(Item);
+          end;
+          {$else}
+          tkWString,
+          {$endif}
+          tkLString, tkUString:
+          begin
+            TRAIIHelper.ULStrClear(Item);
+          end;
+          tkInterface:
+          begin
+            IInterface(PPointer(Item)^)._Release;
+          end;
+          tkDynArray:
+          begin
+            TRAIIHelper.DynArrayClear(Item, TypeInfo(T));
+          end;
+        end;
+      end;
+      {$ifdef WEAKREF}
+      tkMethod:
+      begin
+        if (PMethod(Item).Data <> nil) then
+          TRAIIHelper.WeakMethodClear(@PMethod(Item).Data);
+      end;
+      {$endif}
+      tkVariant:
+      begin
+        VType := PVarData(Item).VType;
+        if (VType and TRAIIHelper.varDeepData <> 0) then
+        case VType of
+          varBoolean, varUnknown+1..varUInt64: ;
+        else
+          System.VarClear(PVariant(Item)^);
+        end;
+      end;
+    else
+      TRAIIHelper<T>.Clear(Item);
+    end;
+    {$else}
+    TRAIIHelper<T>.Clear(Item);
+    {$endif}
+
+    if (Count <> 0) then
+      System.Move(Pointer(Item + 1)^, Item^, Count * SizeOf(T));
+
+    Exit;
   end else
   begin
-    raise EArgumentOutOfRangeException.CreateRes(Pointer(@SArgumentOutOfRange));
+    raise OutOfRangeException;
   end;
 end;
 
@@ -15179,32 +15795,41 @@ begin
 end;
 
 procedure TList<T>.DeleteRange(AIndex, ACount: Integer);
-label
-  available;
 var
-  Count: NativeInt;
-  IndexTop: Integer;
+  Count, Index: NativeInt;
   Item: PItem;
   VType: Integer;
   Stored: TInternalStored;
 begin
-  Stored.Self := Self;
-  Stored.InternalNotify := TMethod(FInternalNotify);
-
-  IndexTop := AIndex + ACount;
-  Count := FCount.Native;
-  if (AIndex >= 0) and (ACount >= 0) and (IndexTop >= 0) and
-    (IndexTop <= Integer(Count)) then
+  if (AIndex >= 0) and (ACount >= 0) then
   begin
-    if (ACount = 0) then Exit;
-    Dec(Count, ACount);
-    FCount.Native := Count;
-    Dec(Count, AIndex);
-    Item := @FItems[AIndex];
-
-    if (not Assigned(Stored.InternalNotify.Code)) then
+    Index := NativeInt(AIndex) + NativeInt(ACount);
+    Count := FCount.Native;
+    if (Index >= 0) and (Index <= Count) then
     begin
-    available:
+      if (ACount = 0) then Exit;
+      Dec(Count, ACount);
+      Dec(Index, ACount);
+      FCount.Native := Count;
+      Dec(Count, Index);
+      Item := @FItems[Index];
+
+      if (Assigned(FInternalNotify)) then
+      begin
+        Stored.Self := Self;
+        Stored.InternalNotify := TMethod(FInternalNotify);
+        Stored.Count := Count;
+        Stored.ACount := ACount;
+        for ACount := ACount downto 1 do
+        begin
+          TCollectionNotifyEvent<T>(Stored.InternalNotify)(Stored.Self, Item^, cnRemoved);
+          Inc(Item);
+        end;
+        Count := Stored.Count;
+        ACount := Stored.ACount;
+        Dec(Item, ACount);
+      end;
+
       {$ifdef SMARTGENERICS}
       if (System.IsManagedType(T) or System.HasWeakRef(T)) then
       {$else}
@@ -15284,24 +15909,10 @@ begin
       if (Count <> 0) then
         System.Move(Pointer(Item + ACount)^, Item^, Count * SizeOf(T));
       Exit;
-    end else
-    begin
-      Stored.Count := Count;
-      Stored.ACount := ACount;
-      for ACount := ACount downto 1 do
-      begin
-        TCollectionNotifyEvent<T>(Stored.InternalNotify)(Stored.Self, Item^, cnRemoved);
-        Inc(Item);
-      end;
-      Count := Stored.Count;
-      ACount := Stored.ACount;
-      Dec(Item, ACount);
-      goto available;
     end;
-  end else
-  begin
-    raise EArgumentOutOfRangeException.CreateRes(Pointer(@SArgumentOutOfRange));
   end;
+
+  raise OutOfRangeException;
 end;
 
 function TList<T>.Expand: TList<T>;
@@ -15330,7 +15941,7 @@ begin
     end;
   end else
   begin
-    raise EArgumentOutOfRangeException.CreateRes(Pointer(@SArgumentOutOfRange));
+    raise OutOfRangeException;
   end;
 end;
 
@@ -15361,7 +15972,7 @@ begin
     end;
   end else
   begin
-    raise EArgumentOutOfRangeException.CreateRes(Pointer(@SArgumentOutOfRange));
+    raise OutOfRangeException;
   end;
 end;
 
@@ -15481,7 +16092,7 @@ begin
     end;
   end else
   begin
-    raise EArgumentOutOfRangeException.CreateRes(Pointer(@SArgumentOutOfRange));
+    raise OutOfRangeException;
   end;
 end;
 
@@ -15588,7 +16199,7 @@ begin
   if (Index < 0) or ((Index >= FCount.Int) and (Count > 0))
     or (Index + Count - 1 >= FCount.Int) or (Count < 0)
     or (Index + Count < 0) then
-    raise EArgumentOutOfRangeException.CreateRes(Pointer(@SArgumentOutOfRange));
+    raise OutOfRangeException;
   if Count <= 1 then
     Exit;
 
@@ -15628,7 +16239,7 @@ begin
   if (Index < 0) or ((Index >= FCount.Int) and (Count > 0))
     or (Index + Count - 1 >= FCount.Int) or (Count < 0)
     or (Index + Count < 0) then
-    raise EArgumentOutOfRangeException.CreateRes(Pointer(@SArgumentOutOfRange));
+    raise OutOfRangeException;
   if Count <= 1 then
     Exit;
 
@@ -15640,7 +16251,7 @@ begin
   if (Index < 0) or ((Index >= FCount.Int) and (Count > 0))
     or (Index + Count - 1 >= FCount.Int) or (Count < 0)
     or (Index + Count < 0) then
-    raise EArgumentOutOfRangeException.CreateRes(Pointer(@SArgumentOutOfRange));
+    raise OutOfRangeException;
   if Count <= 1 then
     Exit;
 
@@ -15669,7 +16280,7 @@ begin
   if (Index < 0) or ((Index >= FCount.Int) and (Count > 0))
     or (Index + Count - 1 >= FCount.Int) or (Count < 0)
     or (Index + Count < 0) then
-    raise EArgumentOutOfRangeException.CreateRes(Pointer(@SArgumentOutOfRange));
+    raise OutOfRangeException;
   if Count <= 1 then
     Exit;
 
@@ -15709,7 +16320,7 @@ begin
   if (Index < 0) or ((Index >= FCount.Int) and (Count > 0))
     or (Index + Count - 1 >= FCount.Int) or (Count < 0)
     or (Index + Count < 0) then
-    raise EArgumentOutOfRangeException.CreateRes(Pointer(@SArgumentOutOfRange));
+    raise OutOfRangeException;
   if Count <= 1 then
     Exit;
 
@@ -15721,7 +16332,7 @@ begin
   if (Index < 0) or ((Index >= FCount.Int) and (Count > 0))
     or (Index + Count - 1 >= FCount.Int) or (Count < 0)
     or (Index + Count < 0) then
-    raise EArgumentOutOfRangeException.CreateRes(Pointer(@SArgumentOutOfRange));
+    raise OutOfRangeException;
   if Count <= 1 then
     Exit;
 
@@ -15732,21 +16343,21 @@ function TList<T>.BinarySearch(const Item: T; out FoundIndex: Integer): Boolean;
 begin
   if (Assigned(FComparer)) then
   begin
-    Result := TArray.InternalSearch<T>(FItems, 0, FCount.Int, Item, FoundIndex, Pointer(FComparer));
+    Result := TArray.InternalSearch<T>(Pointer(FItems), 0, FCount.Int, Item, FoundIndex, Pointer(FComparer));
   end else
   begin
-    Result := TArray.InternalSearch<T>(FItems, 0, FCount.Int, Item, FoundIndex);
+    Result := TArray.InternalSearch<T>(Pointer(FItems), 0, FCount.Int, Item, FoundIndex);
   end;
 end;
 
 function TList<T>.BinarySearch(const Item: T; out FoundIndex: Integer; const AComparer: IComparer<T>): Boolean;
 begin
-  Result := TArray.InternalSearch<T>(FItems, 0, FCount.Int, Item, FoundIndex, Pointer(AComparer));
+  Result := TArray.InternalSearch<T>(Pointer(FItems), 0, FCount.Int, Item, FoundIndex, Pointer(AComparer));
 end;
 
 function TList<T>.BinarySearch(const Item: T; out FoundIndex: Integer; const AComparison: TComparison<T>): Boolean;
 begin
-  Result := TArray.InternalSearch<T>(FItems, 0, FCount.Int, Item, FoundIndex, PPointer(@AComparison)^);
+  Result := TArray.InternalSearch<T>(Pointer(FItems), 0, FCount.Int, Item, FoundIndex, PPointer(@AComparison)^);
 end;
 
 function TList<T>.BinarySearch(const Item: T; out FoundIndex: Integer; Index, Count: Integer): Boolean;
@@ -15754,14 +16365,14 @@ begin
   if (Index < 0) or ((Index >= FCount.Int) and (Count > 0))
     or (Index + Count - 1 >= FCount.Int) {or (Count < 0)}
     or (Index + Count < 0) then
-    raise EArgumentOutOfRangeException.CreateRes(Pointer(@SArgumentOutOfRange));
+    raise OutOfRangeException;
 
   if (Assigned(FComparer)) then
   begin
-    Result := TArray.InternalSearch<T>(FItems, Index, Count, Item, FoundIndex, Pointer(FComparer));
+    Result := TArray.InternalSearch<T>(Pointer(FItems), Index, Count, Item, FoundIndex, Pointer(FComparer));
   end else
   begin
-    Result := TArray.InternalSearch<T>(FItems, Index, Count, Item, FoundIndex);
+    Result := TArray.InternalSearch<T>(Pointer(FItems), Index, Count, Item, FoundIndex);
   end;
 end;
 
@@ -15771,9 +16382,9 @@ begin
   if (Index < 0) or ((Index >= FCount.Int) and (Count > 0))
     or (Index + Count - 1 >= FCount.Int) {or (Count < 0)}
     or (Index + Count < 0) then
-    raise EArgumentOutOfRangeException.CreateRes(Pointer(@SArgumentOutOfRange));
+    raise OutOfRangeException;
 
-  Result := TArray.InternalSearch<T>(FItems, Index, Count, Item, FoundIndex, Pointer(AComparer));
+  Result := TArray.InternalSearch<T>(Pointer(FItems), Index, Count, Item, FoundIndex, Pointer(AComparer));
 end;
 
 function TList<T>.BinarySearch(const Item: T; out FoundIndex: Integer; Index, Count: Integer;
@@ -15782,30 +16393,30 @@ begin
   if (Index < 0) or ((Index >= FCount.Int) and (Count > 0))
     or (Index + Count - 1 >= FCount.Int) {or (Count < 0)}
     or (Index + Count < 0) then
-    raise EArgumentOutOfRangeException.CreateRes(Pointer(@SArgumentOutOfRange));
+    raise OutOfRangeException;
 
-  Result := TArray.InternalSearch<T>(FItems, Index, Count, Item, FoundIndex, PPointer(@AComparison)^);
+  Result := TArray.InternalSearch<T>(Pointer(FItems), Index, Count, Item, FoundIndex, PPointer(@AComparison)^);
 end;
 
 function TList<T>.BinarySearchDescending(const Item: T; out FoundIndex: Integer): Boolean;
 begin
   if (Assigned(FComparer)) then
   begin
-    Result := TArray.InternalSearchDescending<T>(FItems, 0, FCount.Int, Item, FoundIndex, Pointer(FComparer));
+    Result := TArray.InternalSearchDescending<T>(Pointer(FItems), 0, FCount.Int, Item, FoundIndex, Pointer(FComparer));
   end else
   begin
-    Result := TArray.InternalSearchDescending<T>(FItems, 0, FCount.Int, Item, FoundIndex);
+    Result := TArray.InternalSearchDescending<T>(Pointer(FItems), 0, FCount.Int, Item, FoundIndex);
   end;
 end;
 
 function TList<T>.BinarySearchDescending(const Item: T; out FoundIndex: Integer; const AComparer: IComparer<T>): Boolean;
 begin
-  Result := TArray.InternalSearchDescending<T>(FItems, 0, FCount.Int, Item, FoundIndex, Pointer(AComparer));
+  Result := TArray.InternalSearchDescending<T>(Pointer(FItems), 0, FCount.Int, Item, FoundIndex, Pointer(AComparer));
 end;
 
 function TList<T>.BinarySearchDescending(const Item: T; out FoundIndex: Integer; const AComparison: TComparison<T>): Boolean;
 begin
-  Result := TArray.InternalSearchDescending<T>(FItems, 0, FCount.Int, Item, FoundIndex, PPointer(@AComparison)^);
+  Result := TArray.InternalSearchDescending<T>(Pointer(FItems), 0, FCount.Int, Item, FoundIndex, PPointer(@AComparison)^);
 end;
 
 function TList<T>.BinarySearchDescending(const Item: T; out FoundIndex: Integer; Index, Count: Integer): Boolean;
@@ -15813,14 +16424,14 @@ begin
   if (Index < 0) or ((Index >= FCount.Int) and (Count > 0))
     or (Index + Count - 1 >= FCount.Int) {or (Count < 0)}
     or (Index + Count < 0) then
-    raise EArgumentOutOfRangeException.CreateRes(Pointer(@SArgumentOutOfRange));
+    raise OutOfRangeException;
 
   if (Assigned(FComparer)) then
   begin
-    Result := TArray.InternalSearchDescending<T>(FItems, Index, Count, Item, FoundIndex, Pointer(FComparer));
+    Result := TArray.InternalSearchDescending<T>(Pointer(FItems), Index, Count, Item, FoundIndex, Pointer(FComparer));
   end else
   begin
-    Result := TArray.InternalSearchDescending<T>(FItems, Index, Count, Item, FoundIndex);
+    Result := TArray.InternalSearchDescending<T>(Pointer(FItems), Index, Count, Item, FoundIndex);
   end;
 end;
 
@@ -15830,9 +16441,9 @@ begin
   if (Index < 0) or ((Index >= FCount.Int) and (Count > 0))
     or (Index + Count - 1 >= FCount.Int) {or (Count < 0)}
     or (Index + Count < 0) then
-    raise EArgumentOutOfRangeException.CreateRes(Pointer(@SArgumentOutOfRange));
+    raise OutOfRangeException;
 
-  Result := TArray.InternalSearchDescending<T>(FItems, Index, Count, Item, FoundIndex, Pointer(AComparer));
+  Result := TArray.InternalSearchDescending<T>(Pointer(FItems), Index, Count, Item, FoundIndex, Pointer(AComparer));
 end;
 
 function TList<T>.BinarySearchDescending(const Item: T; out FoundIndex: Integer; Index, Count: Integer;
@@ -15841,31 +16452,39 @@ begin
   if (Index < 0) or ((Index >= FCount.Int) and (Count > 0))
     or (Index + Count - 1 >= FCount.Int) {or (Count < 0)}
     or (Index + Count < 0) then
-    raise EArgumentOutOfRangeException.CreateRes(Pointer(@SArgumentOutOfRange));
+    raise OutOfRangeException;
 
-  Result := TArray.InternalSearchDescending<T>(FItems, Index, Count, Item, FoundIndex, PPointer(@AComparison)^);
+  Result := TArray.InternalSearchDescending<T>(Pointer(FItems), Index, Count, Item, FoundIndex, PPointer(@AComparison)^);
 end;
 
 function TList<T>.InternalIndexOf(const Value: T): NativeInt;
-{$ifdef SMARTGENERICS}
+{$if CompilerVersion >= 29}
 label
   cmp0, cmp1, cmp2, cmp3, cmp4, cmp5{$ifdef SMALLINT}, cmp6, cmp7, cmp8, cmp9, cmp10{$endif};
-{$endif}
-type
-  TData16 = TRAIIHelper.TData16;
-  PData16 = ^TData16;
+{$ifend}
 var
   R: NativeInt;
   Item, TopItem: PItem;
-  {$ifdef SMARTGENERICS}
+  {$if CompilerVersion >= 29}
   Count: NativeUInt;
   Left, Right: PByte;
   Offset: NativeUInt;
-  {$endif}
+  {$ifend}
   Stored: TInternalStored;
 begin
   if (not Assigned(FComparer)) then
   begin
+    {$if CompilerVersion >= 29}
+      if ((GetTypeKind(T) = tkFloat) and (SizeOf(T) = 8)) or (GetTypeKind(T) = tkDynArray) then
+      begin
+        if (not TRAIIHelper<T>.Created) then
+          TRAIIHelper<T>.InternalCreate;
+      end;
+    {$else}
+      if (not InterfaceDefaults.TDefaultEqualityComparer<T>.Created) then
+        InterfaceDefaults.TDefaultEqualityComparer<T>.InternalCreate;
+    {$ifend}
+
     Item := Pointer(FItems);
     Stored.Item := Item;
     Dec(Item);
@@ -15874,7 +16493,7 @@ begin
     repeat
       if (Item = TopItem) then Break;
       Inc(Item);
-      {$ifdef SMARTGENERICS}
+      {$if CompilerVersion >= 29}
       if (GetTypeKind(T) = tkVariant) then
       begin
         if (not InterfaceDefaults.Equals_Var(nil, PVarData(@Value), PVarData(Item))) then Continue;
@@ -15915,7 +16534,7 @@ begin
           if ((PPoint(@Value).X - PPoint(Item).X) or (PPoint(@Value).Y - PPoint(Item).Y) <> 0) then
         {$endif}
           begin
-            if (InterfaceDefaults.TDefaultEqualityComparer<T>.Instance.Size < 0) then Continue;
+            if (TRAIIHelper<T>.Options.ItemSize < 0) then Continue;
             if (PDouble(@Value)^ <> PDouble(Item)^) then Continue;
           end;
         end;
@@ -16016,7 +16635,7 @@ begin
               Dec(Right, SizeOf(NativeUInt));
               Count := PNativeUInt(Left)^;
               if (Count <> PNativeUInt(Right)^) then Continue;
-              NativeInt(Count) := NativeInt(Count) * InterfaceDefaults.TDefaultEqualityComparer<T>.Instance.Size;
+              NativeInt(Count) := NativeInt(Count) * TRAIIHelper<T>.Options.ItemSize;
               Inc(Left, SizeOf(NativeUInt));
               Inc(Right, SizeOf(NativeUInt));
             end else
@@ -16172,7 +16791,7 @@ begin
       {$else}
         if (not TEquals(InterfaceDefaults.TDefaultEqualityComparer<T>.Instance.Equals)(
           @InterfaceDefaults.TDefaultEqualityComparer<T>.Instance, Item^, Value)) then Continue;
-      {$endif}
+      {$ifend}
 
       R := NativeInt(Item) - NativeInt(Stored.Item);
       case SizeOf(T) of
@@ -16217,25 +16836,33 @@ begin
 end;
 
 function TList<T>.InternalIndexOfRev(const Value: T): NativeInt;
-{$ifdef SMARTGENERICS}
+{$if CompilerVersion >= 29}
 label
   cmp0, cmp1, cmp2, cmp3, cmp4, cmp5{$ifdef SMALLINT}, cmp6, cmp7, cmp8, cmp9, cmp10{$endif};
-{$endif}
-type
-  TData16 = TRAIIHelper.TData16;
-  PData16 = ^TData16;
+{$ifend}
 var
   R: NativeInt;
   Item, LowItem: PItem;
-  {$ifdef SMARTGENERICS}
+  {$if CompilerVersion >= 29}
   Count: NativeUInt;
   Left, Right: PByte;
   Offset: NativeUInt;
-  {$endif}
+  {$ifend}
   Stored: TInternalStored;
 begin
   if (not Assigned(FComparer)) then
   begin
+    {$if CompilerVersion >= 29}
+      if ((GetTypeKind(T) = tkFloat) and (SizeOf(T) = 8)) or (GetTypeKind(T) = tkDynArray) then
+      begin
+        if (not TRAIIHelper<T>.Created) then
+          TRAIIHelper<T>.InternalCreate;
+      end;
+    {$else}
+      if (not InterfaceDefaults.TDefaultEqualityComparer<T>.Created) then
+        InterfaceDefaults.TDefaultEqualityComparer<T>.InternalCreate;
+    {$ifend}
+
     LowItem := Pointer(FItems);
     Stored.Item := LowItem;
     Item := LowItem + FCount.Native;
@@ -16243,7 +16870,7 @@ begin
     repeat
       if (Item = LowItem) then Break;
       Dec(Item);
-      {$ifdef SMARTGENERICS}
+      {$if CompilerVersion >= 29}
       if (GetTypeKind(T) = tkVariant) then
       begin
         if (not InterfaceDefaults.Equals_Var(nil, PVarData(@Value), PVarData(Item))) then Continue;
@@ -16284,7 +16911,7 @@ begin
           if ((PPoint(@Value).X - PPoint(Item).X) or (PPoint(@Value).Y - PPoint(Item).Y) <> 0) then
         {$endif}
           begin
-            if (InterfaceDefaults.TDefaultEqualityComparer<T>.Instance.Size < 0) then Continue;
+            if (TRAIIHelper<T>.Options.ItemSize < 0) then Continue;
             if (PDouble(@Value)^ <> PDouble(Item)^) then Continue;
           end;
         end;
@@ -16385,7 +17012,7 @@ begin
               Dec(Right, SizeOf(NativeUInt));
               Count := PNativeUInt(Left)^;
               if (Count <> PNativeUInt(Right)^) then Continue;
-              NativeInt(Count) := NativeInt(Count) * InterfaceDefaults.TDefaultEqualityComparer<T>.Instance.Size;
+              NativeInt(Count) := NativeInt(Count) * TRAIIHelper<T>.Options.ItemSize;
               Inc(Left, SizeOf(NativeUInt));
               Inc(Right, SizeOf(NativeUInt));
             end else
@@ -16541,7 +17168,7 @@ begin
       {$else}
         if (not TEquals(InterfaceDefaults.TDefaultEqualityComparer<T>.Instance.Equals)(
           @InterfaceDefaults.TDefaultEqualityComparer<T>.Instance, Item^, Value)) then Continue;
-      {$endif}
+      {$ifend}
 
       R := NativeInt(Item) - NativeInt(Stored.Item);
       case SizeOf(T) of
@@ -16664,13 +17291,212 @@ begin
   end;
 end;
 
-class function TList<T>.InternalIsEmpty(const Inst: TComparerInst; const Left, Right: T): Boolean;
-begin
-  Result := (TCompare(Inst.Method.Code)(Inst.Method.Data, Left, Right) = 0);
-end;
-
 {$ifdef SMARTGENERICS}
 procedure TList<T>.InternalPackDifficults;
+{$if CompilerVersion = 28}
+var
+  R: NativeInt;
+  Item, TopItem, DestItem: PItem;
+  VarData: PVarData;
+  {$ifNdef CPUX86}
+  VSingle, VSingleNull: Single;
+  VDouble, VDoubleNull: Double;
+  VExtended, VExtendedNull: Extended;
+  {$endif}
+begin
+  Item := Pointer(FItems);
+  Dec(Item);
+  TopItem := Item + FCount.Native;
+
+  {$ifNdef CPUX86}
+  case SizeOf(T) of
+    4:
+    begin
+      VSingleNull := 0;
+    end;
+    10:
+    begin
+      VExtendedNull := 0;
+    end;
+  else
+    VDoubleNull := 0;
+  end;
+  {$endif}
+
+  repeat
+    if (Item = TopItem) then Exit;
+    Inc(Item);
+
+    if (GetTypeKind(T) = tkVariant) then
+    begin
+      VarData := Pointer(Item);
+      while (VarData.VType = varByRef or varVariant) do
+        VarData := PVarData(VarData.VPointer);
+
+      if (VarData.VType > varNull) then Continue;
+    end else
+    if (GetTypeKind(T) = tkFloat) then
+    begin
+      case SizeOf(T) of
+        4:
+        begin
+          if (PSingle(Item)^ <> {$ifdef CPUX86}0{$else}VSingleNull{$endif}) then Continue;
+        end;
+        10:
+        begin
+          if (PExtended(Item)^ <> {$ifdef CPUX86}0{$else}VExtendedNull{$endif}) then Continue;
+        end;
+      else
+        if (PDouble(Item)^ <> {$ifdef CPUX86}0{$else}VDoubleNull{$endif}) then Continue;
+      end;
+    end else
+    //if (GetTypeKind(T) = tkString) then
+    begin
+      if (PByte(Item)^ <> 0) then Continue;
+    end;
+    Break;
+  until (False);
+
+  DestItem := Item;
+  Inc(TopItem);
+  repeat
+    Inc(Item);
+    if (Item = TopItem) then Break;
+
+    if (GetTypeKind(T) = tkVariant) then
+    begin
+      VarData := Pointer(Item);
+      while (VarData.VType = varByRef or varVariant) do
+        VarData := PVarData(VarData.VPointer);
+
+      if (VarData.VType > varNull) then Break;
+    end else
+    if (GetTypeKind(T) = tkFloat) then
+    begin
+      case SizeOf(T) of
+        4:
+        begin
+          {$ifdef CPUX86}
+            if (PSingle(Item)^ <> 0) then Break;
+          {$else}
+            VSingle := PSingle(Item)^;
+            if (VSingle <> VSingleNull) then Break;
+          {$endif}
+        end;
+        10:
+        begin
+          {$ifdef CPUX86}
+            if (PExtended(Item)^ <> 0) then Break;
+          {$else}
+            VExtended := PExtended(Item)^;
+            if (VExtended <> VExtendedNull) then Break;
+          {$endif}
+        end;
+      else
+        {$ifdef CPUX86}
+          if (PDouble(Item)^ <> 0) then Break;
+        {$else}
+          VDouble := PDouble(Item)^;
+          if (VDouble <> VDoubleNull) then Break;
+        {$endif}
+      end;
+    end else
+    //if (GetTypeKind(T) = tkString) then
+    begin
+      if (PByte(Item)^ <> 0) then Break;
+    end;
+  until (False);
+
+  if (Item <> TopItem) then
+  repeat
+    // DestItem^ := Item^;
+    if (GetTypeKind(T) = tkVariant) then
+    begin
+      PRect(DestItem)^ := PRect(Item)^;
+    end else
+    if (GetTypeKind(T) = tkFloat) then
+    begin
+      {$ifdef CPUX86}
+        DestItem^ := Item^;
+      {$else !CPUX86}
+      case SizeOf(T) of
+         4: PSingle(DestItem)^ := VSingle;
+        10: PExtended(DestItem)^ := VExtended;
+      else
+        PDouble(DestItem)^ := VDouble;
+      end;
+      {$endif}
+    end else
+    begin
+      DestItem^ := Item^;
+    end;
+
+    Inc(DestItem);
+    repeat
+      Inc(Item);
+      if (Item = TopItem) then Break;
+
+      if (GetTypeKind(T) = tkVariant) then
+      begin
+        VarData := Pointer(Item);
+        while (VarData.VType = varByRef or varVariant) do
+          VarData := PVarData(VarData.VPointer);
+
+        if (VarData.VType > varNull) then Break;
+      end else
+      if (GetTypeKind(T) = tkFloat) then
+      begin
+        case SizeOf(T) of
+          4:
+          begin
+            {$ifdef CPUX86}
+              if (PSingle(Item)^ <> 0) then Break;
+            {$else}
+              VSingle := PSingle(Item)^;
+              if (VSingle <> VSingleNull) then Break;
+            {$endif}
+          end;
+          10:
+          begin
+            {$ifdef CPUX86}
+              if (PExtended(Item)^ <> 0) then Break;
+            {$else}
+              VExtended := PExtended(Item)^;
+              if (VExtended <> VExtendedNull) then Break;
+            {$endif}
+          end;
+        else
+          {$ifdef CPUX86}
+            if (PDouble(Item)^ <> 0) then Break;
+          {$else}
+            VDouble := PDouble(Item)^;
+            if (VDouble <> VDoubleNull) then Break;
+          {$endif}
+        end;
+      end else
+      //if (GetTypeKind(T) = tkString) then
+      begin
+        if (PByte(Item)^ <> 0) then Break;
+      end;
+    until (False);
+  until (Item = TopItem);
+
+  R := NativeInt(DestItem) - NativeInt(FItems);
+  case SizeOf(T) of
+  0, 1: FCount.Native := R;
+     2: FCount.Native := R shr 1;
+     4: FCount.Native := R shr 2;
+     8: FCount.Native := R shr 3;
+    16: FCount.Native := R shr 4;
+    32: FCount.Native := R shr 5;
+    64: FCount.Native := R shr 6;
+   128: FCount.Native := R shr 7;
+   256: FCount.Native := R shr 8;
+  else
+    FCount.Native := Round(R * (1 / SizeOf(T)));
+  end;
+end;
+{$else}
 label
   next_item;
 var
@@ -16739,6 +17565,7 @@ begin
   DestItem := Item;
   goto next_item;
   repeat
+    // DestItem^ := Item^;
     if (GetTypeKind(T) = tkVariant) then
     begin
       PRect(DestItem)^ := PRect(Item)^;
@@ -16826,6 +17653,7 @@ begin
     FCount.Native := Round(R * (1 / SizeOf(T)));
   end;
 end;
+{$ifend}
 
 procedure TList<T>.Pack;
 label
@@ -16837,14 +17665,13 @@ var
   VWord: Word;
   VInteger: Integer;
   VNative, Flags: NativeUInt;
-  ComparerInst: TComparerInst;
 begin
   if (Assigned(FComparer)) then goto comparer_recall;
 
   if (GetTypeKind(T) = tkVariant) or (GetTypeKind(T) = tkString) or
     (GetTypeKind(T) = tkFloat) and
     (
-      (SizeOf(T) <> SizeOf(Double)) or (InterfaceDefaults.TDefaultEqualityComparer<T>.Instance.Size >= 0)
+      (SizeOf(T) <> SizeOf(Double)) or (TRAIIHelper<T>.Options.ItemSize >= 0)
     ) then
   begin
     Self.InternalPackDifficults;
@@ -17107,150 +17934,146 @@ begin
   Exit;
 
 comparer_recall:
-  ComparerInst.Method.Data := Pointer(FComparer);
-  ComparerInst.Method.Code := PPointer(PNativeUInt(FComparer)^ + 3 * SizeOf(Pointer))^;
-  ComparerInst.Vtable := @ComparerInst.QueryInterface;
-  ComparerInst.Call := @TList<T>.InternalIsEmpty;
-  Self.Pack(TEmptyFunc(@ComparerInst));
+  Self.InternalPackComparer;
 end;
 
 {$else !SMARTGENERICS}
 procedure TList<T>.Pack;
-label
-  next_item, comparer_recall;
 var
   R, i: NativeInt;
   Item, TopItem, DestItem: PItem;
   _Self: TList<T>;
-  ComparerInst: TComparerInst;
 begin
-  if (Assigned(FComparer)) then goto comparer_recall;
-
-  _Self := Self;
-  with _Self do
+  if (not Assigned(FComparer)) then
   begin
-    Item := Pointer(FItems);
-    Dec(Item);
-    TopItem := Item + FCount.Native;
-  end;
+    if (not InterfaceDefaults.TDefaultEqualityComparer<T>.Created) then
+      InterfaceDefaults.TDefaultEqualityComparer<T>.InternalCreate;
 
-  repeat
-    if (Item = TopItem) then Exit;
-    Inc(Item);
-  until (TEquals(InterfaceDefaults.TDefaultEqualityComparer<T>.Instance.Equals)(
-        @InterfaceDefaults.TDefaultEqualityComparer<T>.Instance, Item^, Default(T)));
+    _Self := Self;
+    with _Self do
+    begin
+      Item := Pointer(FItems);
+      Dec(Item);
+      TopItem := Item + FCount.Native;
+    end;
 
-  DestItem := Item;
-  goto next_item;
-  repeat
-    // DestItem^ := Item^;
-    case SizeOf(T) of
-      1: TRAIIHelper.T1(Pointer(DestItem)^) := TRAIIHelper.T1(Pointer(Item)^);
-      2: TRAIIHelper.T2(Pointer(DestItem)^) := TRAIIHelper.T2(Pointer(Item)^);
-      3: TRAIIHelper.T3(Pointer(DestItem)^) := TRAIIHelper.T3(Pointer(Item)^);
-      4: TRAIIHelper.T4(Pointer(DestItem)^) := TRAIIHelper.T4(Pointer(Item)^);
-      5: TRAIIHelper.T5(Pointer(DestItem)^) := TRAIIHelper.T5(Pointer(Item)^);
-      6: TRAIIHelper.T6(Pointer(DestItem)^) := TRAIIHelper.T6(Pointer(Item)^);
-      7: TRAIIHelper.T7(Pointer(DestItem)^) := TRAIIHelper.T7(Pointer(Item)^);
-      8: TRAIIHelper.T8(Pointer(DestItem)^) := TRAIIHelper.T8(Pointer(Item)^);
-      9: TRAIIHelper.T9(Pointer(DestItem)^) := TRAIIHelper.T9(Pointer(Item)^);
-      10: TRAIIHelper.T10(Pointer(DestItem)^) := TRAIIHelper.T10(Pointer(Item)^);
-      11: TRAIIHelper.T11(Pointer(DestItem)^) := TRAIIHelper.T11(Pointer(Item)^);
-      12: TRAIIHelper.T12(Pointer(DestItem)^) := TRAIIHelper.T12(Pointer(Item)^);
-      13: TRAIIHelper.T13(Pointer(DestItem)^) := TRAIIHelper.T13(Pointer(Item)^);
-      14: TRAIIHelper.T14(Pointer(DestItem)^) := TRAIIHelper.T14(Pointer(Item)^);
-      15: TRAIIHelper.T15(Pointer(DestItem)^) := TRAIIHelper.T15(Pointer(Item)^);
-      16: TRAIIHelper.T16(Pointer(DestItem)^) := TRAIIHelper.T16(Pointer(Item)^);
-      17: TRAIIHelper.T17(Pointer(DestItem)^) := TRAIIHelper.T17(Pointer(Item)^);
-      18: TRAIIHelper.T18(Pointer(DestItem)^) := TRAIIHelper.T18(Pointer(Item)^);
-      19: TRAIIHelper.T19(Pointer(DestItem)^) := TRAIIHelper.T19(Pointer(Item)^);
-      20: TRAIIHelper.T20(Pointer(DestItem)^) := TRAIIHelper.T20(Pointer(Item)^);
-      21: TRAIIHelper.T21(Pointer(DestItem)^) := TRAIIHelper.T21(Pointer(Item)^);
-      22: TRAIIHelper.T22(Pointer(DestItem)^) := TRAIIHelper.T22(Pointer(Item)^);
-      23: TRAIIHelper.T23(Pointer(DestItem)^) := TRAIIHelper.T23(Pointer(Item)^);
-      24: TRAIIHelper.T24(Pointer(DestItem)^) := TRAIIHelper.T24(Pointer(Item)^);
-      25: TRAIIHelper.T25(Pointer(DestItem)^) := TRAIIHelper.T25(Pointer(Item)^);
-      26: TRAIIHelper.T26(Pointer(DestItem)^) := TRAIIHelper.T26(Pointer(Item)^);
-      27: TRAIIHelper.T27(Pointer(DestItem)^) := TRAIIHelper.T27(Pointer(Item)^);
-      28: TRAIIHelper.T28(Pointer(DestItem)^) := TRAIIHelper.T28(Pointer(Item)^);
-      29: TRAIIHelper.T29(Pointer(DestItem)^) := TRAIIHelper.T29(Pointer(Item)^);
-      30: TRAIIHelper.T30(Pointer(DestItem)^) := TRAIIHelper.T30(Pointer(Item)^);
-      31: TRAIIHelper.T31(Pointer(DestItem)^) := TRAIIHelper.T31(Pointer(Item)^);
-      32: TRAIIHelper.T32(Pointer(DestItem)^) := TRAIIHelper.T32(Pointer(Item)^);
-      33: TRAIIHelper.T33(Pointer(DestItem)^) := TRAIIHelper.T33(Pointer(Item)^);
-      34: TRAIIHelper.T34(Pointer(DestItem)^) := TRAIIHelper.T34(Pointer(Item)^);
-      35: TRAIIHelper.T35(Pointer(DestItem)^) := TRAIIHelper.T35(Pointer(Item)^);
-      36: TRAIIHelper.T36(Pointer(DestItem)^) := TRAIIHelper.T36(Pointer(Item)^);
-      37: TRAIIHelper.T37(Pointer(DestItem)^) := TRAIIHelper.T37(Pointer(Item)^);
-      38: TRAIIHelper.T38(Pointer(DestItem)^) := TRAIIHelper.T38(Pointer(Item)^);
-      39: TRAIIHelper.T39(Pointer(DestItem)^) := TRAIIHelper.T39(Pointer(Item)^);
-      40: TRAIIHelper.T40(Pointer(DestItem)^) := TRAIIHelper.T40(Pointer(Item)^);
-    else
-      for i := 1 to SizeOf(T) div SizeOf(NativeUInt) do
-      begin
-        NativeUInt(Pointer(DestItem)^) := NativeUInt(Pointer(Item)^);
-        Inc(NativeInt(Item), SizeOf(NativeUInt));
-        Inc(NativeInt(DestItem), SizeOf(NativeUInt));
-      end;
+    repeat
+      if (Item = TopItem) then Exit;
+      Inc(Item);
+    until (TEquals(InterfaceDefaults.TDefaultEqualityComparer<T>.Instance.Equals)(
+          @InterfaceDefaults.TDefaultEqualityComparer<T>.Instance, Item^, Default(T)));
 
-      case SizeOf(T) and (SizeOf(NativeUInt) - 1) of
+    DestItem := Item;
+    Inc(TopItem);
+    repeat
+      Inc(Item);
+      if (Item = TopItem) then Break;
+    until (not TEquals(InterfaceDefaults.TDefaultEqualityComparer<T>.Instance.Equals)(
+          @InterfaceDefaults.TDefaultEqualityComparer<T>.Instance, Item^, Default(T)));
+
+    if (Item <> TopItem) then
+    repeat
+      // DestItem^ := Item^;
+      case SizeOf(T) of
         1: TRAIIHelper.T1(Pointer(DestItem)^) := TRAIIHelper.T1(Pointer(Item)^);
         2: TRAIIHelper.T2(Pointer(DestItem)^) := TRAIIHelper.T2(Pointer(Item)^);
         3: TRAIIHelper.T3(Pointer(DestItem)^) := TRAIIHelper.T3(Pointer(Item)^);
-      {$ifdef LARGEINT}
         4: TRAIIHelper.T4(Pointer(DestItem)^) := TRAIIHelper.T4(Pointer(Item)^);
         5: TRAIIHelper.T5(Pointer(DestItem)^) := TRAIIHelper.T5(Pointer(Item)^);
         6: TRAIIHelper.T6(Pointer(DestItem)^) := TRAIIHelper.T6(Pointer(Item)^);
         7: TRAIIHelper.T7(Pointer(DestItem)^) := TRAIIHelper.T7(Pointer(Item)^);
-      {$endif}
+        8: TRAIIHelper.T8(Pointer(DestItem)^) := TRAIIHelper.T8(Pointer(Item)^);
+        9: TRAIIHelper.T9(Pointer(DestItem)^) := TRAIIHelper.T9(Pointer(Item)^);
+        10: TRAIIHelper.T10(Pointer(DestItem)^) := TRAIIHelper.T10(Pointer(Item)^);
+        11: TRAIIHelper.T11(Pointer(DestItem)^) := TRAIIHelper.T11(Pointer(Item)^);
+        12: TRAIIHelper.T12(Pointer(DestItem)^) := TRAIIHelper.T12(Pointer(Item)^);
+        13: TRAIIHelper.T13(Pointer(DestItem)^) := TRAIIHelper.T13(Pointer(Item)^);
+        14: TRAIIHelper.T14(Pointer(DestItem)^) := TRAIIHelper.T14(Pointer(Item)^);
+        15: TRAIIHelper.T15(Pointer(DestItem)^) := TRAIIHelper.T15(Pointer(Item)^);
+        16: TRAIIHelper.T16(Pointer(DestItem)^) := TRAIIHelper.T16(Pointer(Item)^);
+        17: TRAIIHelper.T17(Pointer(DestItem)^) := TRAIIHelper.T17(Pointer(Item)^);
+        18: TRAIIHelper.T18(Pointer(DestItem)^) := TRAIIHelper.T18(Pointer(Item)^);
+        19: TRAIIHelper.T19(Pointer(DestItem)^) := TRAIIHelper.T19(Pointer(Item)^);
+        20: TRAIIHelper.T20(Pointer(DestItem)^) := TRAIIHelper.T20(Pointer(Item)^);
+        21: TRAIIHelper.T21(Pointer(DestItem)^) := TRAIIHelper.T21(Pointer(Item)^);
+        22: TRAIIHelper.T22(Pointer(DestItem)^) := TRAIIHelper.T22(Pointer(Item)^);
+        23: TRAIIHelper.T23(Pointer(DestItem)^) := TRAIIHelper.T23(Pointer(Item)^);
+        24: TRAIIHelper.T24(Pointer(DestItem)^) := TRAIIHelper.T24(Pointer(Item)^);
+        25: TRAIIHelper.T25(Pointer(DestItem)^) := TRAIIHelper.T25(Pointer(Item)^);
+        26: TRAIIHelper.T26(Pointer(DestItem)^) := TRAIIHelper.T26(Pointer(Item)^);
+        27: TRAIIHelper.T27(Pointer(DestItem)^) := TRAIIHelper.T27(Pointer(Item)^);
+        28: TRAIIHelper.T28(Pointer(DestItem)^) := TRAIIHelper.T28(Pointer(Item)^);
+        29: TRAIIHelper.T29(Pointer(DestItem)^) := TRAIIHelper.T29(Pointer(Item)^);
+        30: TRAIIHelper.T30(Pointer(DestItem)^) := TRAIIHelper.T30(Pointer(Item)^);
+        31: TRAIIHelper.T31(Pointer(DestItem)^) := TRAIIHelper.T31(Pointer(Item)^);
+        32: TRAIIHelper.T32(Pointer(DestItem)^) := TRAIIHelper.T32(Pointer(Item)^);
+        33: TRAIIHelper.T33(Pointer(DestItem)^) := TRAIIHelper.T33(Pointer(Item)^);
+        34: TRAIIHelper.T34(Pointer(DestItem)^) := TRAIIHelper.T34(Pointer(Item)^);
+        35: TRAIIHelper.T35(Pointer(DestItem)^) := TRAIIHelper.T35(Pointer(Item)^);
+        36: TRAIIHelper.T36(Pointer(DestItem)^) := TRAIIHelper.T36(Pointer(Item)^);
+        37: TRAIIHelper.T37(Pointer(DestItem)^) := TRAIIHelper.T37(Pointer(Item)^);
+        38: TRAIIHelper.T38(Pointer(DestItem)^) := TRAIIHelper.T38(Pointer(Item)^);
+        39: TRAIIHelper.T39(Pointer(DestItem)^) := TRAIIHelper.T39(Pointer(Item)^);
+        40: TRAIIHelper.T40(Pointer(DestItem)^) := TRAIIHelper.T40(Pointer(Item)^);
+      else
+        for i := 1 to SizeOf(T) div SizeOf(NativeUInt) do
+        begin
+          NativeUInt(Pointer(DestItem)^) := NativeUInt(Pointer(Item)^);
+          Inc(NativeInt(Item), SizeOf(NativeUInt));
+          Inc(NativeInt(DestItem), SizeOf(NativeUInt));
+        end;
+
+        case SizeOf(T) and (SizeOf(NativeUInt) - 1) of
+          1: TRAIIHelper.T1(Pointer(DestItem)^) := TRAIIHelper.T1(Pointer(Item)^);
+          2: TRAIIHelper.T2(Pointer(DestItem)^) := TRAIIHelper.T2(Pointer(Item)^);
+          3: TRAIIHelper.T3(Pointer(DestItem)^) := TRAIIHelper.T3(Pointer(Item)^);
+        {$ifdef LARGEINT}
+          4: TRAIIHelper.T4(Pointer(DestItem)^) := TRAIIHelper.T4(Pointer(Item)^);
+          5: TRAIIHelper.T5(Pointer(DestItem)^) := TRAIIHelper.T5(Pointer(Item)^);
+          6: TRAIIHelper.T6(Pointer(DestItem)^) := TRAIIHelper.T6(Pointer(Item)^);
+          7: TRAIIHelper.T7(Pointer(DestItem)^) := TRAIIHelper.T7(Pointer(Item)^);
+        {$endif}
+        end;
+
+        Dec(NativeInt(DestItem), (SizeOf(T) div SizeOf(NativeUInt)) * SizeOf(NativeUInt));
+        Dec(NativeInt(Item), (SizeOf(T) div SizeOf(NativeUInt)) * SizeOf(NativeUInt));
       end;
 
-      Dec(NativeInt(DestItem), (SizeOf(T) div SizeOf(NativeUInt)) * SizeOf(NativeUInt));
-      Dec(NativeInt(Item), (SizeOf(T) div SizeOf(NativeUInt)) * SizeOf(NativeUInt));
+      Inc(DestItem);
+      repeat
+        Inc(Item);
+        if (Item = TopItem) then Break;
+      until (not TEquals(InterfaceDefaults.TDefaultEqualityComparer<T>.Instance.Equals)(
+        @InterfaceDefaults.TDefaultEqualityComparer<T>.Instance, Item^, Default(T)));
+    until (Item = TopItem);
+
+    _Self := Self;
+    with _Self do
+    begin
+      R := NativeInt(DestItem) - NativeInt(FItems);
+      case SizeOf(T) of
+      0, 1: FCount.Native := R;
+         2: FCount.Native := R shr 1;
+         4: FCount.Native := R shr 2;
+         8: FCount.Native := R shr 3;
+        16: FCount.Native := R shr 4;
+        32: FCount.Native := R shr 5;
+        64: FCount.Native := R shr 6;
+       128: FCount.Native := R shr 7;
+       256: FCount.Native := R shr 8;
+      else
+        FCount.Native := Round(R * (1 / SizeOf(T)));
+      end;
     end;
-
-    Inc(DestItem);
-  next_item:
-    if (Item = TopItem) then Break;
-    Inc(Item);
-
-    if (not TEquals(InterfaceDefaults.TDefaultEqualityComparer<T>.Instance.Equals)(
-      @InterfaceDefaults.TDefaultEqualityComparer<T>.Instance, Item^, Default(T))) then Continue;
-    goto next_item;
-  until (False);
-
-  _Self := Self;
-  with _Self do
+    Exit;
+  end else
   begin
-    R := NativeInt(DestItem) - NativeInt(FItems);
-    case SizeOf(T) of
-    0, 1: FCount.Native := R;
-       2: FCount.Native := R shr 1;
-       4: FCount.Native := R shr 2;
-       8: FCount.Native := R shr 3;
-      16: FCount.Native := R shr 4;
-      32: FCount.Native := R shr 5;
-      64: FCount.Native := R shr 6;
-     128: FCount.Native := R shr 7;
-     256: FCount.Native := R shr 8;
-    else
-      FCount.Native := Round(R * (1 / SizeOf(T)));
-    end;
+    Self.InternalPackComparer;
   end;
-  Exit;
-
-comparer_recall:
-  ComparerInst.Method.Data := Pointer(FComparer);
-  ComparerInst.Method.Code := PPointer(PNativeUInt(FComparer)^ + 3 * SizeOf(Pointer))^;
-  ComparerInst.Vtable := @ComparerInst.QueryInterface;
-  ComparerInst.Call := @TList<T>.InternalIsEmpty;
-  Self.Pack(TEmptyFunc(@ComparerInst));
 end;
 {$endif}
 
 procedure TList<T>.Pack(const IsEmpty: TEmptyFunc);
-label
-  next_item;
 var
   R, i: NativeInt;
   Item, TopItem, DestItem: PItem;
@@ -17274,7 +18097,13 @@ begin
   until (TEquals(Equals.Code)(Equals.Data, Item^, Default(T)));
 
   DestItem := Item;
-  goto next_item;
+  Inc(TopItem);
+  repeat
+    Inc(Item);
+    if (Item = TopItem) then Break;
+  until (not TEquals(Equals.Code)(Equals.Data, Item^, Default(T)));
+
+  if (Item <> TopItem) then
   repeat
     // DestItem^ := Item^;
     case SizeOf(T) of
@@ -17343,13 +18172,136 @@ begin
     end;
 
     Inc(DestItem);
-  next_item:
-    if (Item = TopItem) then Break;
-    Inc(Item);
+    repeat
+      Inc(Item);
+      if (Item = TopItem) then Break;
+    until (not TEquals(Equals.Code)(Equals.Data, Item^, Default(T)));
+  until (Item = TopItem);
 
-    if (not TEquals(Equals.Code)(Equals.Data, Item^, Default(T))) then Continue;
-    goto next_item;
-  until (False);
+  _Self := Self;
+  with _Self do
+  begin
+    R := NativeInt(DestItem) - NativeInt(FItems);
+    case SizeOf(T) of
+    0, 1: FCount.Native := R;
+       2: FCount.Native := R shr 1;
+       4: FCount.Native := R shr 2;
+       8: FCount.Native := R shr 3;
+      16: FCount.Native := R shr 4;
+      32: FCount.Native := R shr 5;
+      64: FCount.Native := R shr 6;
+     128: FCount.Native := R shr 7;
+     256: FCount.Native := R shr 8;
+    else
+      FCount.Native := Round(R * (1 / SizeOf(T)));
+    end;
+  end;
+end;
+
+procedure TList<T>.InternalPackComparer;
+var
+  R, i: NativeInt;
+  Item, TopItem, DestItem: PItem;
+  Compare: TMethod;
+  _Self: TList<T>;
+begin
+  Compare.Data := Pointer(FComparer);
+  Compare.Code := PPointer(PNativeUInt(Compare.Data)^ + 3 * SizeOf(Pointer))^;
+
+  _Self := Self;
+  with _Self do
+  begin
+    Item := Pointer(FItems);
+    Dec(Item);
+    TopItem := Item + FCount.Native;
+  end;
+
+  repeat
+    if (Item = TopItem) then Exit;
+    Inc(Item);
+  until (TCompare(Compare.Code)(Compare.Data, Item^, Default(T)) = 0);
+
+  DestItem := Item;
+  Inc(TopItem);
+  repeat
+    Inc(Item);
+    if (Item = TopItem) then Break;
+  until (TCompare(Compare.Code)(Compare.Data, Item^, Default(T)) <> 0);
+
+  if (Item <> TopItem) then
+  repeat
+    // DestItem^ := Item^;
+    case SizeOf(T) of
+      1: TRAIIHelper.T1(Pointer(DestItem)^) := TRAIIHelper.T1(Pointer(Item)^);
+      2: TRAIIHelper.T2(Pointer(DestItem)^) := TRAIIHelper.T2(Pointer(Item)^);
+      3: TRAIIHelper.T3(Pointer(DestItem)^) := TRAIIHelper.T3(Pointer(Item)^);
+      4: TRAIIHelper.T4(Pointer(DestItem)^) := TRAIIHelper.T4(Pointer(Item)^);
+      5: TRAIIHelper.T5(Pointer(DestItem)^) := TRAIIHelper.T5(Pointer(Item)^);
+      6: TRAIIHelper.T6(Pointer(DestItem)^) := TRAIIHelper.T6(Pointer(Item)^);
+      7: TRAIIHelper.T7(Pointer(DestItem)^) := TRAIIHelper.T7(Pointer(Item)^);
+      8: TRAIIHelper.T8(Pointer(DestItem)^) := TRAIIHelper.T8(Pointer(Item)^);
+      9: TRAIIHelper.T9(Pointer(DestItem)^) := TRAIIHelper.T9(Pointer(Item)^);
+      10: TRAIIHelper.T10(Pointer(DestItem)^) := TRAIIHelper.T10(Pointer(Item)^);
+      11: TRAIIHelper.T11(Pointer(DestItem)^) := TRAIIHelper.T11(Pointer(Item)^);
+      12: TRAIIHelper.T12(Pointer(DestItem)^) := TRAIIHelper.T12(Pointer(Item)^);
+      13: TRAIIHelper.T13(Pointer(DestItem)^) := TRAIIHelper.T13(Pointer(Item)^);
+      14: TRAIIHelper.T14(Pointer(DestItem)^) := TRAIIHelper.T14(Pointer(Item)^);
+      15: TRAIIHelper.T15(Pointer(DestItem)^) := TRAIIHelper.T15(Pointer(Item)^);
+      16: TRAIIHelper.T16(Pointer(DestItem)^) := TRAIIHelper.T16(Pointer(Item)^);
+      17: TRAIIHelper.T17(Pointer(DestItem)^) := TRAIIHelper.T17(Pointer(Item)^);
+      18: TRAIIHelper.T18(Pointer(DestItem)^) := TRAIIHelper.T18(Pointer(Item)^);
+      19: TRAIIHelper.T19(Pointer(DestItem)^) := TRAIIHelper.T19(Pointer(Item)^);
+      20: TRAIIHelper.T20(Pointer(DestItem)^) := TRAIIHelper.T20(Pointer(Item)^);
+      21: TRAIIHelper.T21(Pointer(DestItem)^) := TRAIIHelper.T21(Pointer(Item)^);
+      22: TRAIIHelper.T22(Pointer(DestItem)^) := TRAIIHelper.T22(Pointer(Item)^);
+      23: TRAIIHelper.T23(Pointer(DestItem)^) := TRAIIHelper.T23(Pointer(Item)^);
+      24: TRAIIHelper.T24(Pointer(DestItem)^) := TRAIIHelper.T24(Pointer(Item)^);
+      25: TRAIIHelper.T25(Pointer(DestItem)^) := TRAIIHelper.T25(Pointer(Item)^);
+      26: TRAIIHelper.T26(Pointer(DestItem)^) := TRAIIHelper.T26(Pointer(Item)^);
+      27: TRAIIHelper.T27(Pointer(DestItem)^) := TRAIIHelper.T27(Pointer(Item)^);
+      28: TRAIIHelper.T28(Pointer(DestItem)^) := TRAIIHelper.T28(Pointer(Item)^);
+      29: TRAIIHelper.T29(Pointer(DestItem)^) := TRAIIHelper.T29(Pointer(Item)^);
+      30: TRAIIHelper.T30(Pointer(DestItem)^) := TRAIIHelper.T30(Pointer(Item)^);
+      31: TRAIIHelper.T31(Pointer(DestItem)^) := TRAIIHelper.T31(Pointer(Item)^);
+      32: TRAIIHelper.T32(Pointer(DestItem)^) := TRAIIHelper.T32(Pointer(Item)^);
+      33: TRAIIHelper.T33(Pointer(DestItem)^) := TRAIIHelper.T33(Pointer(Item)^);
+      34: TRAIIHelper.T34(Pointer(DestItem)^) := TRAIIHelper.T34(Pointer(Item)^);
+      35: TRAIIHelper.T35(Pointer(DestItem)^) := TRAIIHelper.T35(Pointer(Item)^);
+      36: TRAIIHelper.T36(Pointer(DestItem)^) := TRAIIHelper.T36(Pointer(Item)^);
+      37: TRAIIHelper.T37(Pointer(DestItem)^) := TRAIIHelper.T37(Pointer(Item)^);
+      38: TRAIIHelper.T38(Pointer(DestItem)^) := TRAIIHelper.T38(Pointer(Item)^);
+      39: TRAIIHelper.T39(Pointer(DestItem)^) := TRAIIHelper.T39(Pointer(Item)^);
+      40: TRAIIHelper.T40(Pointer(DestItem)^) := TRAIIHelper.T40(Pointer(Item)^);
+    else
+      for i := 1 to SizeOf(T) div SizeOf(NativeUInt) do
+      begin
+        NativeUInt(Pointer(DestItem)^) := NativeUInt(Pointer(Item)^);
+        Inc(NativeInt(Item), SizeOf(NativeUInt));
+        Inc(NativeInt(DestItem), SizeOf(NativeUInt));
+      end;
+
+      case SizeOf(T) and (SizeOf(NativeUInt) - 1) of
+        1: TRAIIHelper.T1(Pointer(DestItem)^) := TRAIIHelper.T1(Pointer(Item)^);
+        2: TRAIIHelper.T2(Pointer(DestItem)^) := TRAIIHelper.T2(Pointer(Item)^);
+        3: TRAIIHelper.T3(Pointer(DestItem)^) := TRAIIHelper.T3(Pointer(Item)^);
+      {$ifdef LARGEINT}
+        4: TRAIIHelper.T4(Pointer(DestItem)^) := TRAIIHelper.T4(Pointer(Item)^);
+        5: TRAIIHelper.T5(Pointer(DestItem)^) := TRAIIHelper.T5(Pointer(Item)^);
+        6: TRAIIHelper.T6(Pointer(DestItem)^) := TRAIIHelper.T6(Pointer(Item)^);
+        7: TRAIIHelper.T7(Pointer(DestItem)^) := TRAIIHelper.T7(Pointer(Item)^);
+      {$endif}
+      end;
+
+      Dec(NativeInt(DestItem), (SizeOf(T) div SizeOf(NativeUInt)) * SizeOf(NativeUInt));
+      Dec(NativeInt(Item), (SizeOf(T) div SizeOf(NativeUInt)) * SizeOf(NativeUInt));
+    end;
+
+    Inc(DestItem);
+    repeat
+      Inc(Item);
+      if (Item = TopItem) then Break;
+    until (TCompare(Compare.Code)(Compare.Data, Item^, Default(T)) <> 0);
+  until (Item = TopItem);
 
   _Self := Self;
   with _Self do
@@ -17389,78 +18341,76 @@ begin
 end;
 
 procedure TStack<T>.InternalPush(const Value: T);
-label
-  available;
 var
   Count, Null: NativeInt;
   Item: ^TRAIIHelper.TData16;
 begin
   Count := FCount.Native;
-  if (Count <> FCapacity.Native) then
-  begin
-  available:
-    FCount.Native := Count + 1;
-    Item := Pointer(@FItems[Count]);
-
-    {$ifdef SMARTGENERICS}
-    if (System.IsManagedType(T) or System.HasWeakRef(T)) then
-    {$else}
-    if (SizeOf(T) >= SizeOf(NativeInt)) then
-    {$endif}
+  repeat
+    if (Count <> FCapacity.Native) then
     begin
-      {$ifdef SMARTGENERICS}
-      if (GetTypeKind(T) = tkVariant) then
-      begin
-        Item.Integers[0] := 0;
-      end else
-      {$endif}
-      if (SizeOf(T) <= 16) then
-      begin
-        Null := 0;
-        {$ifdef SMALLINT}
-          if (SizeOf(T) >= SizeOf(Integer) * 1) then Item.Integers[0] := Null;
-          if (SizeOf(T) >= SizeOf(Integer) * 2) then Item.Integers[1] := Null;
-          if (SizeOf(T) >= SizeOf(Integer) * 3) then Item.Integers[2] := Null;
-          if (SizeOf(T)  = SizeOf(Integer) * 4) then Item.Integers[3] := Null;
-        {$else .LARGEINT}
-          if (SizeOf(T) >= SizeOf(Int64) * 1) then Item.Int64s[0] := Null;
-          if (SizeOf(T)  = SizeOf(Int64) * 2) then Item.Int64s[1] := Null;
-          case SizeOf(T) of
-             4..7: Item.Integers[0] := Null;
-           12..15: Item.Integers[2] := Null;
-          end;
-        {$endif}
-        case SizeOf(T) of
-           2,3: Item.Words[0] := 0;
-           6,7: Item.Words[2] := 0;
-         10,11: Item.Words[4] := 0;
-         14,15: Item.Words[6] := 0;
-        end;
-        case SizeOf(T) of
-           1: Item.Bytes[ 1-1] := 0;
-           3: Item.Bytes[ 3-1] := 0;
-           5: Item.Bytes[ 5-1] := 0;
-           7: Item.Bytes[ 7-1] := 0;
-           9: Item.Bytes[ 9-1] := 0;
-          11: Item.Bytes[11-1] := 0;
-          13: Item.Bytes[13-1] := 0;
-          15: Item.Bytes[15-1] := 0;
-        end;
-      end else
-      begin
-        TRAIIHelper<T>.Init(Pointer(Item));
-      end;
-    end;
+      FCount.Native := Count + 1;
+      Item := Pointer(@FItems[Count]);
 
-    PItem(Item)^ := Value;
-    if Assigned(FInternalNotify) then
-      FInternalNotify(Self, Value, cnAdded);
-    Exit;
-  end else
-  begin
-    Self.Grow;
-    goto available;
-  end;
+      {$ifdef SMARTGENERICS}
+      if (System.IsManagedType(T) or System.HasWeakRef(T)) then
+      {$else}
+      if (SizeOf(T) >= SizeOf(NativeInt)) then
+      {$endif}
+      begin
+        {$ifdef SMARTGENERICS}
+        if (GetTypeKind(T) = tkVariant) then
+        begin
+          Item.Integers[0] := 0;
+        end else
+        {$endif}
+        if (SizeOf(T) <= 16) then
+        begin
+          Null := 0;
+          {$ifdef SMALLINT}
+            if (SizeOf(T) >= SizeOf(Integer) * 1) then Item.Integers[0] := Null;
+            if (SizeOf(T) >= SizeOf(Integer) * 2) then Item.Integers[1] := Null;
+            if (SizeOf(T) >= SizeOf(Integer) * 3) then Item.Integers[2] := Null;
+            if (SizeOf(T)  = SizeOf(Integer) * 4) then Item.Integers[3] := Null;
+          {$else .LARGEINT}
+            if (SizeOf(T) >= SizeOf(Int64) * 1) then Item.Int64s[0] := Null;
+            if (SizeOf(T)  = SizeOf(Int64) * 2) then Item.Int64s[1] := Null;
+            case SizeOf(T) of
+               4..7: Item.Integers[0] := Null;
+             12..15: Item.Integers[2] := Null;
+            end;
+          {$endif}
+          case SizeOf(T) of
+             2,3: Item.Words[0] := 0;
+             6,7: Item.Words[2] := 0;
+           10,11: Item.Words[4] := 0;
+           14,15: Item.Words[6] := 0;
+          end;
+          case SizeOf(T) of
+             1: Item.Bytes[ 1-1] := 0;
+             3: Item.Bytes[ 3-1] := 0;
+             5: Item.Bytes[ 5-1] := 0;
+             7: Item.Bytes[ 7-1] := 0;
+             9: Item.Bytes[ 9-1] := 0;
+            11: Item.Bytes[11-1] := 0;
+            13: Item.Bytes[13-1] := 0;
+            15: Item.Bytes[15-1] := 0;
+          end;
+        end else
+        begin
+          TRAIIHelper<T>.Init(Pointer(Item));
+        end;
+      end;
+
+      PItem(Item)^ := Value;
+      if Assigned(FInternalNotify) then
+        FInternalNotify(Self, Value, cnAdded);
+      Exit;
+    end else
+    begin
+      Self.Grow;
+    end;
+  until (False);
 end;
 
 procedure TStack<T>.Push(const Value: T);
@@ -17811,102 +18761,96 @@ var
   Item: T;
 begin
   Create;
-
   for Item in Collection do
     Enqueue(Item);
 end;
 
 procedure TQueue<T>.InternalEnqueue(const Value: T);
-label
-  available, actual;
 var
   Count, Null: NativeInt;
   Item: ^TRAIIHelper.TData16;
 begin
   Count := FCount.Native;
-  if (Count <> FCapacity.Native) then
-  begin
-  available:
-    FCount.Native := Count + 1;
-    Count := FHead;
+  repeat
     if (Count <> FCapacity.Native) then
     begin
-      Inc(Count);
-      FHead := Count;
-      Dec(Count);
-    actual:
-      Item := Pointer(@FItems[Count]);
+      FCount.Native := Count + 1;
+      Count := FHead;
+      repeat
+        if (Count <> FCapacity.Native) then
+        begin
+          Inc(Count);
+          FHead := Count;
+          Dec(Count);
+          Item := Pointer(@FItems[Count]);
 
-      {$ifdef SMARTGENERICS}
-      if (System.IsManagedType(T) or System.HasWeakRef(T)) then
-      {$else}
-      if (SizeOf(T) >= SizeOf(NativeInt)) then
-      {$endif}
-      begin
-        {$ifdef SMARTGENERICS}
-        if (GetTypeKind(T) = tkVariant) then
-        begin
-          Item.Integers[0] := 0;
-        end else
-        {$endif}
-        if (SizeOf(T) <= 16) then
-        begin
-          Null := 0;
-          {$ifdef SMALLINT}
-            if (SizeOf(T) >= SizeOf(Integer) * 1) then Item.Integers[0] := Null;
-            if (SizeOf(T) >= SizeOf(Integer) * 2) then Item.Integers[1] := Null;
-            if (SizeOf(T) >= SizeOf(Integer) * 3) then Item.Integers[2] := Null;
-            if (SizeOf(T)  = SizeOf(Integer) * 4) then Item.Integers[3] := Null;
-          {$else .LARGEINT}
-            if (SizeOf(T) >= SizeOf(Int64) * 1) then Item.Int64s[0] := Null;
-            if (SizeOf(T)  = SizeOf(Int64) * 2) then Item.Int64s[1] := Null;
-            case SizeOf(T) of
-               4..7: Item.Integers[0] := Null;
-             12..15: Item.Integers[2] := Null;
-            end;
+          {$ifdef SMARTGENERICS}
+          if (System.IsManagedType(T) or System.HasWeakRef(T)) then
+          {$else}
+          if (SizeOf(T) >= SizeOf(NativeInt)) then
           {$endif}
-          case SizeOf(T) of
-             2,3: Item.Words[0] := 0;
-             6,7: Item.Words[2] := 0;
-           10,11: Item.Words[4] := 0;
-           14,15: Item.Words[6] := 0;
+          begin
+            {$ifdef SMARTGENERICS}
+            if (GetTypeKind(T) = tkVariant) then
+            begin
+              Item.Integers[0] := 0;
+            end else
+            {$endif}
+            if (SizeOf(T) <= 16) then
+            begin
+              Null := 0;
+              {$ifdef SMALLINT}
+                if (SizeOf(T) >= SizeOf(Integer) * 1) then Item.Integers[0] := Null;
+                if (SizeOf(T) >= SizeOf(Integer) * 2) then Item.Integers[1] := Null;
+                if (SizeOf(T) >= SizeOf(Integer) * 3) then Item.Integers[2] := Null;
+                if (SizeOf(T)  = SizeOf(Integer) * 4) then Item.Integers[3] := Null;
+              {$else .LARGEINT}
+                if (SizeOf(T) >= SizeOf(Int64) * 1) then Item.Int64s[0] := Null;
+                if (SizeOf(T)  = SizeOf(Int64) * 2) then Item.Int64s[1] := Null;
+                case SizeOf(T) of
+                   4..7: Item.Integers[0] := Null;
+                 12..15: Item.Integers[2] := Null;
+                end;
+              {$endif}
+              case SizeOf(T) of
+                 2,3: Item.Words[0] := 0;
+                 6,7: Item.Words[2] := 0;
+               10,11: Item.Words[4] := 0;
+               14,15: Item.Words[6] := 0;
+              end;
+              case SizeOf(T) of
+                 1: Item.Bytes[ 1-1] := 0;
+                 3: Item.Bytes[ 3-1] := 0;
+                 5: Item.Bytes[ 5-1] := 0;
+                 7: Item.Bytes[ 7-1] := 0;
+                 9: Item.Bytes[ 9-1] := 0;
+                11: Item.Bytes[11-1] := 0;
+                13: Item.Bytes[13-1] := 0;
+                15: Item.Bytes[15-1] := 0;
+              end;
+            end else
+            begin
+              TRAIIHelper<T>.Init(Pointer(Item));
+            end;
           end;
-          case SizeOf(T) of
-             1: Item.Bytes[ 1-1] := 0;
-             3: Item.Bytes[ 3-1] := 0;
-             5: Item.Bytes[ 5-1] := 0;
-             7: Item.Bytes[ 7-1] := 0;
-             9: Item.Bytes[ 9-1] := 0;
-            11: Item.Bytes[11-1] := 0;
-            13: Item.Bytes[13-1] := 0;
-            15: Item.Bytes[15-1] := 0;
-          end;
+
+          PItem(Item)^ := Value;
+          if Assigned(FInternalNotify) then
+            FInternalNotify(Self, Value, cnAdded);
+          Exit;
         end else
         begin
-          TRAIIHelper<T>.Init(Pointer(Item));
+          Count := 0;
         end;
-      end;
-
-      PItem(Item)^ := Value;
-      if Assigned(FInternalNotify) then
-        FInternalNotify(Self, Value, cnAdded);
-      Exit;
+      until (False);
     end else
     begin
-      FHead := 1;
-      Count := 0;
-      goto actual;
+      Self.Grow;
     end;
-  end else
-  begin
-    Self.Grow;
-    goto available;
-  end;
+  until (False);
 end;
 
 procedure TQueue<T>.Enqueue(const Value: T);
-label
-  actual;
 var
   Count, Null: NativeInt;
   Item: ^TRAIIHelper.TData16;
@@ -17916,72 +18860,71 @@ begin
   begin
     FCount.Native := Count + 1;
     Count := FHead;
-    if (Count <> FCapacity.Native) then
-    begin
-      Inc(Count);
-      FHead := Count;
-      Dec(Count);
-    actual:
-      Item := Pointer(@FItems[Count]);
-
-      {$ifdef SMARTGENERICS}
-      if (System.IsManagedType(T) or System.HasWeakRef(T)) then
-      {$else}
-      if (SizeOf(T) >= SizeOf(NativeInt)) then
-      {$endif}
+    repeat
+      if (Count <> FCapacity.Native) then
       begin
-        {$ifdef SMARTGENERICS}
-        if (GetTypeKind(T) = tkVariant) then
-        begin
-          Item.Integers[0] := 0;
-        end else
-        {$endif}
-        if (SizeOf(T) <= 16) then
-        begin
-          Null := 0;
-          {$ifdef SMALLINT}
-            if (SizeOf(T) >= SizeOf(Integer) * 1) then Item.Integers[0] := Null;
-            if (SizeOf(T) >= SizeOf(Integer) * 2) then Item.Integers[1] := Null;
-            if (SizeOf(T) >= SizeOf(Integer) * 3) then Item.Integers[2] := Null;
-            if (SizeOf(T)  = SizeOf(Integer) * 4) then Item.Integers[3] := Null;
-          {$else .LARGEINT}
-            if (SizeOf(T) >= SizeOf(Int64) * 1) then Item.Int64s[0] := Null;
-            if (SizeOf(T)  = SizeOf(Int64) * 2) then Item.Int64s[1] := Null;
-            case SizeOf(T) of
-               4..7: Item.Integers[0] := Null;
-             12..15: Item.Integers[2] := Null;
-            end;
-          {$endif}
-          case SizeOf(T) of
-             2,3: Item.Words[0] := 0;
-             6,7: Item.Words[2] := 0;
-           10,11: Item.Words[4] := 0;
-           14,15: Item.Words[6] := 0;
-          end;
-          case SizeOf(T) of
-             1: Item.Bytes[ 1-1] := 0;
-             3: Item.Bytes[ 3-1] := 0;
-             5: Item.Bytes[ 5-1] := 0;
-             7: Item.Bytes[ 7-1] := 0;
-             9: Item.Bytes[ 9-1] := 0;
-            11: Item.Bytes[11-1] := 0;
-            13: Item.Bytes[13-1] := 0;
-            15: Item.Bytes[15-1] := 0;
-          end;
-        end else
-        begin
-          TRAIIHelper<T>.Init(Pointer(Item));
-        end;
-      end;
+        Inc(Count);
+        FHead := Count;
+        Dec(Count);
+        Item := Pointer(@FItems[Count]);
 
-      PItem(Item)^ := Value;
-      Exit;
-    end else
-    begin
-      FHead := 1;
-      Count := 0;
-      goto actual;
-    end;
+        {$ifdef SMARTGENERICS}
+        if (System.IsManagedType(T) or System.HasWeakRef(T)) then
+        {$else}
+        if (SizeOf(T) >= SizeOf(NativeInt)) then
+        {$endif}
+        begin
+          {$ifdef SMARTGENERICS}
+          if (GetTypeKind(T) = tkVariant) then
+          begin
+            Item.Integers[0] := 0;
+          end else
+          {$endif}
+          if (SizeOf(T) <= 16) then
+          begin
+            Null := 0;
+            {$ifdef SMALLINT}
+              if (SizeOf(T) >= SizeOf(Integer) * 1) then Item.Integers[0] := Null;
+              if (SizeOf(T) >= SizeOf(Integer) * 2) then Item.Integers[1] := Null;
+              if (SizeOf(T) >= SizeOf(Integer) * 3) then Item.Integers[2] := Null;
+              if (SizeOf(T)  = SizeOf(Integer) * 4) then Item.Integers[3] := Null;
+            {$else .LARGEINT}
+              if (SizeOf(T) >= SizeOf(Int64) * 1) then Item.Int64s[0] := Null;
+              if (SizeOf(T)  = SizeOf(Int64) * 2) then Item.Int64s[1] := Null;
+              case SizeOf(T) of
+                 4..7: Item.Integers[0] := Null;
+               12..15: Item.Integers[2] := Null;
+              end;
+            {$endif}
+            case SizeOf(T) of
+               2,3: Item.Words[0] := 0;
+               6,7: Item.Words[2] := 0;
+             10,11: Item.Words[4] := 0;
+             14,15: Item.Words[6] := 0;
+            end;
+            case SizeOf(T) of
+               1: Item.Bytes[ 1-1] := 0;
+               3: Item.Bytes[ 3-1] := 0;
+               5: Item.Bytes[ 5-1] := 0;
+               7: Item.Bytes[ 7-1] := 0;
+               9: Item.Bytes[ 9-1] := 0;
+              11: Item.Bytes[11-1] := 0;
+              13: Item.Bytes[13-1] := 0;
+              15: Item.Bytes[15-1] := 0;
+            end;
+          end else
+          begin
+            TRAIIHelper<T>.Init(Pointer(Item));
+          end;
+        end;
+
+        PItem(Item)^ := Value;
+        Exit;
+      end else
+      begin
+        Count := 0;
+      end;
+    until (False);
   end else
   begin
     Self.InternalEnqueue(Value);
@@ -17989,8 +18932,6 @@ begin
 end;
 
 function TQueue<T>.InternalDequeue(const Action: TCollectionNotification): T;
-label
-  actual;
 var
   Count: NativeInt;
   Item: PItem;
@@ -18000,87 +18941,84 @@ begin
   if (Count <> 0) then
   begin
     FCount.Native := Count - 1;
-    Count := FTail + 1;
-    if (Count <> FCapacity.Native) then
-    begin
-      FTail := Count;
-    actual:
-      Dec(Count);
-      Item := @FItems[Count];
-      Result := Item^;
+    Count := FTail;
+    Item := @FItems[Count];
+    Inc(Count);
+    repeat
+      if (Count <> FCapacity.Native) then
+      begin
+        FTail := Count;
+        Result := Item^;
 
-      if Assigned(FInternalNotify) then
         Self.FInternalNotify(Self, Item^, Action);
 
-      {$ifdef SMARTGENERICS}
-      case GetTypeKind(T) of
-        {$ifdef AUTOREFCOUNT}
-        tkClass,
-        {$endif}
-        tkWString, tkLString, tkUString, tkInterface, tkDynArray:
-        begin
-          if (PNativeInt(Item)^ <> 0) then
-          case GetTypeKind(T) of
-            {$ifdef AUTOREFCOUNT}
-            tkClass:
-            begin
-              TRAIIHelper.RefObjClear(Item);
-            end;
-            {$endif}
-            {$ifdef MSWINDOWS}
-            tkWString:
-            begin
-              TRAIIHelper.WStrClear(Item);
-            end;
-            {$else}
-            tkWString,
-            {$endif}
-            tkLString, tkUString:
-            begin
-              TRAIIHelper.ULStrClear(Item);
-            end;
-            tkInterface:
-            begin
-              IInterface(PPointer(Item)^)._Release;
-            end;
-            tkDynArray:
-            begin
-              TRAIIHelper.DynArrayClear(Item, TypeInfo(T));
+        {$ifdef SMARTGENERICS}
+        case GetTypeKind(T) of
+          {$ifdef AUTOREFCOUNT}
+          tkClass,
+          {$endif}
+          tkWString, tkLString, tkUString, tkInterface, tkDynArray:
+          begin
+            if (PNativeInt(Item)^ <> 0) then
+            case GetTypeKind(T) of
+              {$ifdef AUTOREFCOUNT}
+              tkClass:
+              begin
+                TRAIIHelper.RefObjClear(Item);
+              end;
+              {$endif}
+              {$ifdef MSWINDOWS}
+              tkWString:
+              begin
+                TRAIIHelper.WStrClear(Item);
+              end;
+              {$else}
+              tkWString,
+              {$endif}
+              tkLString, tkUString:
+              begin
+                TRAIIHelper.ULStrClear(Item);
+              end;
+              tkInterface:
+              begin
+                IInterface(PPointer(Item)^)._Release;
+              end;
+              tkDynArray:
+              begin
+                TRAIIHelper.DynArrayClear(Item, TypeInfo(T));
+              end;
             end;
           end;
-        end;
-        {$ifdef WEAKREF}
-        tkMethod:
-        begin
-          if (PMethod(Item).Data <> nil) then
-            TRAIIHelper.WeakMethodClear(@PMethod(Item).Data);
-        end;
-        {$endif}
-        tkVariant:
-        begin
-          VType := PVarData(Item).VType;
-          if (VType and TRAIIHelper.varDeepData <> 0) then
-          case VType of
-            varBoolean, varUnknown+1..varUInt64: ;
-          else
-            System.VarClear(PVariant(Item)^);
+          {$ifdef WEAKREF}
+          tkMethod:
+          begin
+            if (PMethod(Item).Data <> nil) then
+              TRAIIHelper.WeakMethodClear(@PMethod(Item).Data);
           end;
+          {$endif}
+          tkVariant:
+          begin
+            VType := PVarData(Item).VType;
+            if (VType and TRAIIHelper.varDeepData <> 0) then
+            case VType of
+              varBoolean, varUnknown+1..varUInt64: ;
+            else
+              System.VarClear(PVariant(Item)^);
+            end;
+          end;
+        else
+          TRAIIHelper<T>.Clear(Item);
         end;
-      else
+        {$else}
         TRAIIHelper<T>.Clear(Item);
-      end;
-      {$else}
-      TRAIIHelper<T>.Clear(Item);
-      {$endif}
+        {$endif}
 
-      Exit;
-    end else
-    begin
-      Count := 0;
-      FTail := Count;
-      Count := FCapacity.Native;
-      goto actual;
-    end;
+        Exit;
+      end else
+      begin
+        Count := 0;
+      end;
+    until (False);
   end else
   begin
     raise Self.EmptyException;
@@ -18088,8 +19026,6 @@ begin
 end;
 
 function TQueue<T>.Dequeue: T;
-label
-  actual;
 var
   Count: NativeInt;
   Item: PItem;
@@ -18099,84 +19035,82 @@ begin
   if (Count <> 0) and (not Assigned(FInternalNotify)) then
   begin
     FCount.Native := Count - 1;
-    Count := FTail + 1;
-    if (Count <> FCapacity.Native) then
-    begin
-      FTail := Count;
-    actual:
-      Dec(Count);
-      Item := @FItems[Count];
-      Result := Item^;
+    Count := FTail;
+    Item := @FItems[Count];
+    Inc(Count);
+    repeat
+      if (Count <> FCapacity.Native) then
+      begin
+        FTail := Count;
+        Result := Item^;
 
-      {$ifdef SMARTGENERICS}
-      case GetTypeKind(T) of
-        {$ifdef AUTOREFCOUNT}
-        tkClass,
-        {$endif}
-        tkWString, tkLString, tkUString, tkInterface, tkDynArray:
-        begin
-          if (PNativeInt(Item)^ <> 0) then
-          case GetTypeKind(T) of
-            {$ifdef AUTOREFCOUNT}
-            tkClass:
-            begin
-              TRAIIHelper.RefObjClear(Item);
-            end;
-            {$endif}
-            {$ifdef MSWINDOWS}
-            tkWString:
-            begin
-              TRAIIHelper.WStrClear(Item);
-            end;
-            {$else}
-            tkWString,
-            {$endif}
-            tkLString, tkUString:
-            begin
-              TRAIIHelper.ULStrClear(Item);
-            end;
-            tkInterface:
-            begin
-              IInterface(PPointer(Item)^)._Release;
-            end;
-            tkDynArray:
-            begin
-              TRAIIHelper.DynArrayClear(Item, TypeInfo(T));
+        {$ifdef SMARTGENERICS}
+        case GetTypeKind(T) of
+          {$ifdef AUTOREFCOUNT}
+          tkClass,
+          {$endif}
+          tkWString, tkLString, tkUString, tkInterface, tkDynArray:
+          begin
+            if (PNativeInt(Item)^ <> 0) then
+            case GetTypeKind(T) of
+              {$ifdef AUTOREFCOUNT}
+              tkClass:
+              begin
+                TRAIIHelper.RefObjClear(Item);
+              end;
+              {$endif}
+              {$ifdef MSWINDOWS}
+              tkWString:
+              begin
+                TRAIIHelper.WStrClear(Item);
+              end;
+              {$else}
+              tkWString,
+              {$endif}
+              tkLString, tkUString:
+              begin
+                TRAIIHelper.ULStrClear(Item);
+              end;
+              tkInterface:
+              begin
+                IInterface(PPointer(Item)^)._Release;
+              end;
+              tkDynArray:
+              begin
+                TRAIIHelper.DynArrayClear(Item, TypeInfo(T));
+              end;
             end;
           end;
-        end;
-        {$ifdef WEAKREF}
-        tkMethod:
-        begin
-          if (PMethod(Item).Data <> nil) then
-            TRAIIHelper.WeakMethodClear(@PMethod(Item).Data);
-        end;
-        {$endif}
-        tkVariant:
-        begin
-          VType := PVarData(Item).VType;
-          if (VType and TRAIIHelper.varDeepData <> 0) then
-          case VType of
-            varBoolean, varUnknown+1..varUInt64: ;
-          else
-            System.VarClear(PVariant(Item)^);
+          {$ifdef WEAKREF}
+          tkMethod:
+          begin
+            if (PMethod(Item).Data <> nil) then
+              TRAIIHelper.WeakMethodClear(@PMethod(Item).Data);
           end;
+          {$endif}
+          tkVariant:
+          begin
+            VType := PVarData(Item).VType;
+            if (VType and TRAIIHelper.varDeepData <> 0) then
+            case VType of
+              varBoolean, varUnknown+1..varUInt64: ;
+            else
+              System.VarClear(PVariant(Item)^);
+            end;
+          end;
+        else
+          TRAIIHelper<T>.Clear(Item);
         end;
-      else
+        {$else}
         TRAIIHelper<T>.Clear(Item);
-      end;
-      {$else}
-      TRAIIHelper<T>.Clear(Item);
-      {$endif}
+        {$endif}
 
-      Exit;
-    end else
-    begin
-      Count := 0;
-      FTail := Count;
-      Count := FCapacity.Native;
-      goto actual;
-    end;
+        Exit;
+      end else
+      begin
+        Count := 0;
+      end;
+    until (False);
   end else
   begin
     Result := Self.InternalDequeue(cnRemoved);
@@ -18184,8 +19118,6 @@ begin
 end;
 
 function TQueue<T>.Extract: T;
-label
-  actual;
 var
   Count: NativeInt;
   Item: PItem;
@@ -18195,84 +19127,82 @@ begin
   if (Count <> 0) and (not Assigned(FInternalNotify)) then
   begin
     FCount.Native := Count - 1;
-    Count := FTail + 1;
-    if (Count <> FCapacity.Native) then
-    begin
-      FTail := Count;
-    actual:
-      Dec(Count);
-      Item := @FItems[Count];
-      Result := Item^;
+    Count := FTail;
+    Item := @FItems[Count];
+    Inc(Count);
+    repeat
+      if (Count <> FCapacity.Native) then
+      begin
+        FTail := Count;
+        Result := Item^;
 
-      {$ifdef SMARTGENERICS}
-      case GetTypeKind(T) of
-        {$ifdef AUTOREFCOUNT}
-        tkClass,
-        {$endif}
-        tkWString, tkLString, tkUString, tkInterface, tkDynArray:
-        begin
-          if (PNativeInt(Item)^ <> 0) then
-          case GetTypeKind(T) of
-            {$ifdef AUTOREFCOUNT}
-            tkClass:
-            begin
-              TRAIIHelper.RefObjClear(Item);
-            end;
-            {$endif}
-            {$ifdef MSWINDOWS}
-            tkWString:
-            begin
-              TRAIIHelper.WStrClear(Item);
-            end;
-            {$else}
-            tkWString,
-            {$endif}
-            tkLString, tkUString:
-            begin
-              TRAIIHelper.ULStrClear(Item);
-            end;
-            tkInterface:
-            begin
-              IInterface(PPointer(Item)^)._Release;
-            end;
-            tkDynArray:
-            begin
-              TRAIIHelper.DynArrayClear(Item, TypeInfo(T));
+        {$ifdef SMARTGENERICS}
+        case GetTypeKind(T) of
+          {$ifdef AUTOREFCOUNT}
+          tkClass,
+          {$endif}
+          tkWString, tkLString, tkUString, tkInterface, tkDynArray:
+          begin
+            if (PNativeInt(Item)^ <> 0) then
+            case GetTypeKind(T) of
+              {$ifdef AUTOREFCOUNT}
+              tkClass:
+              begin
+                TRAIIHelper.RefObjClear(Item);
+              end;
+              {$endif}
+              {$ifdef MSWINDOWS}
+              tkWString:
+              begin
+                TRAIIHelper.WStrClear(Item);
+              end;
+              {$else}
+              tkWString,
+              {$endif}
+              tkLString, tkUString:
+              begin
+                TRAIIHelper.ULStrClear(Item);
+              end;
+              tkInterface:
+              begin
+                IInterface(PPointer(Item)^)._Release;
+              end;
+              tkDynArray:
+              begin
+                TRAIIHelper.DynArrayClear(Item, TypeInfo(T));
+              end;
             end;
           end;
-        end;
-        {$ifdef WEAKREF}
-        tkMethod:
-        begin
-          if (PMethod(Item).Data <> nil) then
-            TRAIIHelper.WeakMethodClear(@PMethod(Item).Data);
-        end;
-        {$endif}
-        tkVariant:
-        begin
-          VType := PVarData(Item).VType;
-          if (VType and TRAIIHelper.varDeepData <> 0) then
-          case VType of
-            varBoolean, varUnknown+1..varUInt64: ;
-          else
-            System.VarClear(PVariant(Item)^);
+          {$ifdef WEAKREF}
+          tkMethod:
+          begin
+            if (PMethod(Item).Data <> nil) then
+              TRAIIHelper.WeakMethodClear(@PMethod(Item).Data);
           end;
+          {$endif}
+          tkVariant:
+          begin
+            VType := PVarData(Item).VType;
+            if (VType and TRAIIHelper.varDeepData <> 0) then
+            case VType of
+              varBoolean, varUnknown+1..varUInt64: ;
+            else
+              System.VarClear(PVariant(Item)^);
+            end;
+          end;
+        else
+          TRAIIHelper<T>.Clear(Item);
         end;
-      else
+        {$else}
         TRAIIHelper<T>.Clear(Item);
-      end;
-      {$else}
-      TRAIIHelper<T>.Clear(Item);
-      {$endif}
+        {$endif}
 
-      Exit;
-    end else
-    begin
-      Count := 0;
-      FTail := Count;
-      Count := FCapacity.Native;
-      goto actual;
-    end;
+        Exit;
+      end else
+      begin
+        Count := 0;
+      end;
+    until (False);
   end else
   begin
     Result := Self.InternalDequeue(cnExtracted);
@@ -18365,7 +19295,7 @@ begin
 end;
 
 { TThreadedQueue<T> }
-
+{$if CompilerVersion >= 22}
 constructor TThreadedQueue<T>.Create(AQueueDepth: Integer = 10; PushTimeout: LongWord = INFINITE; PopTimeout: LongWord = INFINITE);
 begin
   inherited Create;
@@ -18490,6 +19420,8 @@ begin
   TMonitor.PulseAll(FQueueNotFull);
   TMonitor.PulseAll(FQueueNotEmpty);
 end;
+{$ifend}
+
 
 { TObjectList<T> }
 
@@ -18524,13 +19456,13 @@ procedure TObjectList<T>.DisposeNotifyEvent(Sender: TObject; const Item: TObject
 begin
   Self.FOnNotify(Sender, Item, Action);
   if (Action = cnRemoved) then
-    Item.DisposeOf;
+    Item.Free;
 end;
 
 procedure TObjectList<T>.DisposeOnly(Sender: TObject; const Item: TObject; Action: TCollectionNotification);
 begin
   if (Action = cnRemoved) then
-    Item.DisposeOf;
+    Item.Free;
 end;
 
 procedure TObjectList<T>.SetNotifyMethods;
@@ -18591,13 +19523,13 @@ procedure TObjectStack<T>.DisposeNotifyEvent(Sender: TObject; const Item: TObjec
 begin
   Self.FOnNotify(Sender, Item, Action);
   if (Action = cnRemoved) then
-    Item.DisposeOf;
+    Item.Free;
 end;
 
 procedure TObjectStack<T>.DisposeOnly(Sender: TObject; const Item: TObject; Action: TCollectionNotification);
 begin
   if (Action = cnRemoved) then
-    Item.DisposeOf;
+    Item.Free;
 end;
 
 procedure TObjectStack<T>.SetNotifyMethods;
@@ -18658,13 +19590,13 @@ procedure TObjectQueue<T>.DisposeNotifyEvent(Sender: TObject; const Item: TObjec
 begin
   Self.FOnNotify(Sender, Item, Action);
   if (Action = cnRemoved) then
-    Item.DisposeOf;
+    Item.Free;
 end;
 
 procedure TObjectQueue<T>.DisposeOnly(Sender: TObject; const Item: TObject; Action: TCollectionNotification);
 begin
   if (Action = cnRemoved) then
-    Item.DisposeOf;
+    Item.Free;
 end;
 
 procedure TObjectQueue<T>.SetNotifyMethods;
@@ -18731,36 +19663,32 @@ end;
 
 procedure TObjectDictionary<TKey,TValue>.DisposeKeyEvent(Sender: TObject;
   const Key: TObject; Action: TCollectionNotification);
-type
-  TOnKeyNotify = procedure(Data, Sender: TObject; const Key: TObject; Action: TCollectionNotification);
 begin
   TOnKeyNotify(TMethod(FOnKeyNotify).Code)(TMethod(FOnKeyNotify).Data, Self, Key, Action);
   if (Action = cnRemoved) then
-    Key.DisposeOf;
+    Key.Free;
 end;
 
 procedure TObjectDictionary<TKey,TValue>.DisposeKeyOnly(Sender: TObject;
   const Key: TObject; Action: TCollectionNotification);
 begin
   if (Action = cnRemoved) then
-    Key.DisposeOf;
+    Key.Free;
 end;
 
 procedure TObjectDictionary<TKey,TValue>.DisposeValueEvent(Sender: TObject;
   const Value: TObject; Action: TCollectionNotification);
-type
-  TOnValueNotify = procedure(Data, Sender: TObject; const Value: TObject; Action: TCollectionNotification);
 begin
   TOnValueNotify(TMethod(FOnValueNotify).Code)(TMethod(FOnValueNotify).Data, Self, Value, Action);
   if (Action = cnRemoved) then
-    Value.DisposeOf;
+    Value.Free;
 end;
 
 procedure TObjectDictionary<TKey,TValue>.DisposeValueOnly(Sender: TObject;
   const Value: TObject; Action: TCollectionNotification);
 begin
   if (Action = cnRemoved) then
-    Value.DisposeOf;
+    Value.Free;
 end;
 
 procedure TObjectDictionary<TKey,TValue>.DisposeItemNotifyKeyCaller(const Item: TItem;
@@ -18774,14 +19702,14 @@ procedure TObjectDictionary<TKey,TValue>.DisposeItemNotifyKeyEvent(const Item: T
 begin
   FOnKeyNotify(Self, Item.Key, Action);
   if (Action = cnRemoved) then
-    TObject(Pointer(@Item.Key)^).DisposeOf;
+    TObject(Pointer(@Item.Key)^).Free;
 end;
 
 procedure TObjectDictionary<TKey,TValue>.DisposeItemNotifyKeyOnly(const Item: TItem;
   Action: TCollectionNotification);
 begin
   if (Action = cnRemoved) then
-    TObject(Pointer(@Item.Key)^).DisposeOf;
+    TObject(Pointer(@Item.Key)^).Free;
 end;
 
 procedure TObjectDictionary<TKey,TValue>.DisposeItemNotifyValueCaller(const Item: TItem;
@@ -18795,14 +19723,14 @@ procedure TObjectDictionary<TKey,TValue>.DisposeItemNotifyValueEvent(const Item:
 begin
   FOnValueNotify(Self, Item.Value, Action);
   if (Action = cnRemoved) then
-    TObject(Pointer(@Item.Value)^).DisposeOf;
+    TObject(Pointer(@Item.Value)^).Free;
 end;
 
 procedure TObjectDictionary<TKey,TValue>.DisposeItemNotifyValueOnly(const Item: TItem;
   Action: TCollectionNotification);
 begin
   if (Action = cnRemoved) then
-    TObject(Pointer(@Item.Value)^).DisposeOf;
+    TObject(Pointer(@Item.Value)^).Free;
 end;
 
 procedure TObjectDictionary<TKey,TValue>.SetNotifyMethods;
@@ -18920,36 +19848,32 @@ end;
 
 procedure TRapidObjectDictionary<TKey,TValue>.DisposeKeyEvent(Sender: TObject;
   const Key: TObject; Action: TCollectionNotification);
-type
-  TOnKeyNotify = procedure(Data, Sender: TObject; const Key: TObject; Action: TCollectionNotification);
 begin
   TOnKeyNotify(TMethod(FOnKeyNotify).Code)(TMethod(FOnKeyNotify).Data, Self, Key, Action);
   if (Action = cnRemoved) then
-    Key.DisposeOf;
+    Key.Free;
 end;
 
 procedure TRapidObjectDictionary<TKey,TValue>.DisposeKeyOnly(Sender: TObject;
   const Key: TObject; Action: TCollectionNotification);
 begin
   if (Action = cnRemoved) then
-    Key.DisposeOf;
+    Key.Free;
 end;
 
 procedure TRapidObjectDictionary<TKey,TValue>.DisposeValueEvent(Sender: TObject;
   const Value: TObject; Action: TCollectionNotification);
-type
-  TOnValueNotify = procedure(Data, Sender: TObject; const Value: TObject; Action: TCollectionNotification);
 begin
   TOnValueNotify(TMethod(FOnValueNotify).Code)(TMethod(FOnValueNotify).Data, Self, Value, Action);
   if (Action = cnRemoved) then
-    Value.DisposeOf;
+    Value.Free;
 end;
 
 procedure TRapidObjectDictionary<TKey,TValue>.DisposeValueOnly(Sender: TObject;
   const Value: TObject; Action: TCollectionNotification);
 begin
   if (Action = cnRemoved) then
-    Value.DisposeOf;
+    Value.Free;
 end;
 
 procedure TRapidObjectDictionary<TKey,TValue>.DisposeItemNotifyKeyCaller(const Item: TItem;
@@ -18963,14 +19887,14 @@ procedure TRapidObjectDictionary<TKey,TValue>.DisposeItemNotifyKeyEvent(const It
 begin
   FOnKeyNotify(Self, Item.Key, Action);
   if (Action = cnRemoved) then
-    TObject(Pointer(@Item.Key)^).DisposeOf;
+    TObject(Pointer(@Item.Key)^).Free;
 end;
 
 procedure TRapidObjectDictionary<TKey,TValue>.DisposeItemNotifyKeyOnly(const Item: TItem;
   Action: TCollectionNotification);
 begin
   if (Action = cnRemoved) then
-    TObject(Pointer(@Item.Key)^).DisposeOf;
+    TObject(Pointer(@Item.Key)^).Free;
 end;
 
 procedure TRapidObjectDictionary<TKey,TValue>.DisposeItemNotifyValueCaller(const Item: TItem;
@@ -18984,14 +19908,14 @@ procedure TRapidObjectDictionary<TKey,TValue>.DisposeItemNotifyValueEvent(const 
 begin
   FOnValueNotify(Self, Item.Value, Action);
   if (Action = cnRemoved) then
-    TObject(Pointer(@Item.Value)^).DisposeOf;
+    TObject(Pointer(@Item.Value)^).Free;
 end;
 
 procedure TRapidObjectDictionary<TKey,TValue>.DisposeItemNotifyValueOnly(const Item: TItem;
   Action: TCollectionNotification);
 begin
   if (Action = cnRemoved) then
-    TObject(Pointer(@Item.Value)^).DisposeOf;
+    TObject(Pointer(@Item.Value)^).Free;
 end;
 
 procedure TRapidObjectDictionary<TKey,TValue>.SetNotifyMethods;
@@ -19084,3 +20008,5 @@ end;
 
 
 end.
+
+
