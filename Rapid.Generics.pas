@@ -6140,13 +6140,15 @@ end;
 
 function TCustomDictionary<TKey,TValue>.TPairEnumerator.MoveNext: Boolean;
 var
-  N, R: NativeInt;
+  N: NativeInt;
 begin
   N := FIndex + 1;
-  R := Byte(N < FDictionary.FCount.Native);
-  Dec(N, R);
-  FIndex := N;
-  Result := Boolean(R);
+  if (N < FDictionary.FCount.Native) then
+  begin
+    FIndex := N;
+    Exit(True);
+  end;
+  Result := False;
 end;
 
 { TCustomDictionary<TKey,TValue>.TKeyEnumerator }
@@ -6174,10 +6176,13 @@ begin
 end;
 
 function TCustomDictionary<TKey,TValue>.TKeyEnumerator.MoveNext: Boolean;
+var
+  N: NativeInt;
 begin
-  if (FIndex < FDictionary.FCount.Native) then
+  N := FIndex + 1;
+  if (N < FDictionary.FCount.Native) then
   begin
-    Inc(FIndex);
+    FIndex := N;
     Exit(True);
   end;
   Result := False;
@@ -6208,10 +6213,13 @@ begin
 end;
 
 function TCustomDictionary<TKey,TValue>.TValueEnumerator.MoveNext: Boolean;
+var
+  N: NativeInt;
 begin
-  if (FIndex < FDictionary.FCount.Native) then
+  N := FIndex + 1;
+  if (N < FDictionary.FCount.Native) then
   begin
-    Inc(FIndex);
+    FIndex := N;
     Exit(True);
   end;
   Result := False;
@@ -14842,14 +14850,17 @@ end;
 
 function TCustomList<T>.TEnumerator.MoveNext: Boolean;
 var
-  N, R: NativeInt;
+  N: NativeInt;
 begin
   N := FIndex + 1;
-  R := Byte(N < FList.FCount.Native);
-  Dec(N, R);
-  FIndex := N;
-  Result := Boolean(R);
+  if (N < FList.FCount.Native) then
+  begin
+    FIndex := N;
+    Exit(True);
+  end;
+  Result := False;
 end;
+
 
 { TCustomList<T> }
 
