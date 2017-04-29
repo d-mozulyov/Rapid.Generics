@@ -15,12 +15,13 @@ const
   ITEMS_COUNT = 1000000;
 
 type
+  TProc = procedure of object;
+  
   {$M+}
   TTest<T> = class
   public type
     TItems = array[0..ITEMS_COUNT - 1] of T;
-    TRandomFunc = reference to function: T;
-    TProc = procedure of object;
+    TRandomFunc = reference to function: T;    
   public
     Items: TItems;
     SourceItems: TItems;

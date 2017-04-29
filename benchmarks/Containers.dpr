@@ -161,7 +161,7 @@ type
     function Execute: T; override;
   end;
 
-  {$if CompilerVersion >= 23}
+  {$if CompilerVersion >= 24}
   SystemListPack = class(TSystemListTest)
     function Execute: T; override;
   end;
@@ -587,7 +587,7 @@ begin
 end;
 
 { SystemListPack }
-{$if CompilerVersion >= 23}
+{$if CompilerVersion >= 24}
 function SystemListPack.Execute: T;
 begin
   List.Pack;
@@ -743,7 +743,7 @@ begin
     Run(SystemListDelete, RapidListDelete, 500);
     Run(SystemListIndexOf, RapidListIndexOf, 1000);
     Run(SystemListReverse, RapidListReverse, 8000);
-    {$if CompilerVersion >= 23}
+    {$if CompilerVersion >= 24}
     Run(SystemListPack, RapidListPack, 500);
     {$ifend}
     Run(SystemStackPush, RapidStackPush, 300);

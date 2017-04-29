@@ -13,6 +13,9 @@ uses
 
 const
   ITEMS_COUNT = 1024 * (1024 div 4 * 3);
+  ITERATIONS_COUNT = 10;
+  MODES: array[0..2] of string = ('Add', 'Add+Capacity', 'Items');
+  CAPACITIES: array[0..2] of Integer = (0, ITEMS_COUNT, ITEMS_COUNT);
 
 type
   TRunner<T> = class
@@ -25,10 +28,6 @@ type
       function ExecuteItems(const Items: TItems): Integer; virtual; abstract;
     end;
     TTestClass = class of TTest;
-  private const
-    ITERATIONS_COUNT = 10;
-    MODES: array[0..2] of string = ('Add', 'Add+Capacity', 'Items');
-    CAPACITIES: array[0..2] of Integer = (0, ITEMS_COUNT, ITEMS_COUNT);
   public
     Items: TItems;
     constructor Create(const RandomFunc: TRandomFunc);

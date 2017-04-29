@@ -6846,7 +6846,11 @@ begin
         PItem(Parent^) := Item;
         Break;
       end;
-      Parent := Pointer(@Current.FNext);
+      {$if (CompilerVersion >= 22) and (CompilerVersion <= 24)}
+        Parent := Pointer(NativeUInt(Current) + (SizeOf(TKey) + SizeOf(TValue)));
+      {$else}
+        Parent := Pointer(@Current.FNext);
+      {$ifend}
     until (False);
   end;
 
@@ -7739,7 +7743,11 @@ begin
       Exit;
     end;
 
-    Parent := Pointer(@Current.FNext);
+    {$if (CompilerVersion >= 22) and (CompilerVersion <= 24)}
+      Parent := Pointer(NativeUInt(Current) + (SizeOf(TKey) + SizeOf(TValue)));
+    {$else}
+      Parent := Pointer(@Current.FNext);
+    {$ifend}
   until (False);
 end;
 
@@ -8631,9 +8639,13 @@ begin
       Exit;
     end;
 
-    Parent := Pointer(@Current.FNext);
+    {$if (CompilerVersion >= 22) and (CompilerVersion <= 24)}
+      Parent := Pointer(NativeUInt(Current) + (SizeOf(TKey) + SizeOf(TValue)));
+    {$else}
+      Parent := Pointer(@Current.FNext);
+    {$ifend}
   until (False);
-end;
+end; 
 
 function TRapidDictionary<TKey,TValue>.TryGetValue(const Key: TKey; out Value: TValue): Boolean;
 var
