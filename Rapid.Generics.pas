@@ -281,6 +281,10 @@ type
     FItemSize: NativeInt;
     FWeak: Boolean;
 
+    // type var leak fix
+    class procedure RegisterDynamicArray(const P: Pointer); static;
+    class procedure UnregisterDynamicArray(const P: Pointer); static;
+
     // initialization/finalization
     procedure Include(AOffset: NativeInt; Value: PTypeInfo);
     procedure Initialize(Value: PTypeInfo);
@@ -1558,6 +1562,16 @@ resourcestring
   sSameArrays = 'Source and Destination arrays must not be the same';
 {$ifend}
 
+type
+  PDynArrayRec = ^TDynArrayRec;
+  TDynArrayRec = packed record
+    {$ifdef LARGEINT}
+    _Padding: Integer;
+    {$endif}
+    RefCnt: Integer;
+    Length: NativeInt;
+  end;
+
 // x86 architecture compatibility (Word mode)
 {$ifNdef CPUX86}
 function Swap(const X: NativeUInt): NativeUInt; inline;
@@ -1691,6 +1705,7 @@ end;
 
 procedure TRAIIHelper.TClearNatives.Clear;
 begin
+  TRAIIHelper.UnregisterDynamicArray(Pointer(Items));
   Items := nil;
   Count := 0;
 end;
@@ -1720,6 +1735,7 @@ end;
 
 procedure TRAIIHelper.TInitNatives.Clear;
 begin
+  TRAIIHelper.UnregisterDynamicArray(Pointer(Items));
   Items := nil;
   Count := 0;
 end;
@@ -1741,6 +1757,7 @@ end;
 
 procedure TRAIIHelper.TStaticArrays.Clear;
 begin
+  TRAIIHelper.UnregisterDynamicArray(Pointer(Items));
   Items := nil;
   Count := 0;
 end;
@@ -1758,6 +1775,18 @@ begin
 end;
 
 { TRAIIHelper }
+
+class procedure TRAIIHelper.RegisterDynamicArray(const P: Pointer);
+begin
+  if (Assigned(P)) then
+    System.RegisterExpectedMemoryLeak(Pointer(NativeInt(P) - SizeOf(TDynArrayRec)));
+end;
+
+class procedure TRAIIHelper.UnregisterDynamicArray(const P: Pointer);
+begin
+  if (Assigned(P)) then
+    System.UnregisterExpectedMemoryLeak(Pointer(NativeInt(P) - SizeOf(TDynArrayRec)));
+end;
 
 class procedure TRAIIHelper.ULStrClear(P: Pointer);
 type
@@ -1813,15 +1842,6 @@ begin
 end;
 
 class procedure TRAIIHelper.DynArrayClear(P, TypeInfo: Pointer);
-type
-  PDynArrayRec = ^TDynArrayRec;
-  TDynArrayRec = packed record
-    {$ifdef LARGEINT}
-    _Padding: Integer;
-    {$endif}
-    RefCnt: Integer;
-    Length: NativeInt;
-  end;
 var
   Rec: PDynArrayRec;
   RefCnt: Integer;
@@ -2218,6 +2238,14 @@ begin
       ClearProc := Self.ClearsProcNativeSingle;
     end;
   end;
+
+  // dynamic arrays
+  {$ifdef WEAKINSTREF}
+  TRAIIHelper.RegisterDynamicArray(Pointer(InitNatives.Items));
+  TRAIIHelper.RegisterDynamicArray(Pointer(ClearNatives.Items));
+  {$else}
+  TRAIIHelper.RegisterDynamicArray(Pointer(Natives.Items));
+  {$endif}
 end;
 
 class function TRAIIHelper.IsManagedTypeInfo(Value: PTypeInfo): Boolean;
