@@ -4112,7 +4112,7 @@ begin
       Dec(Count, SizeOf(NativeUInt));
       Inc(Left, SizeOf(NativeUInt));
       Inc(Right, SizeOf(NativeUInt));
-    until (Count > (40 + SizeOf(NativeUInt) - 1));
+    until (Count < (40 + SizeOf(NativeUInt) - 1));
 
     {$ifdef SMALLINT}
     cmp10:
@@ -4405,7 +4405,7 @@ begin
       Dec(Count, SizeOf(NativeUInt));
       Inc(Left, SizeOf(NativeUInt));
       Inc(Right, SizeOf(NativeUInt));
-    until (Count > (40 + SizeOf(NativeUInt) - 1));
+    until (Count < (40 + SizeOf(NativeUInt) - 1));
 
     {$ifdef SMALLINT}
     cmp10:
@@ -4686,7 +4686,7 @@ begin
       Dec(Count, SizeOf(NativeUInt));
       Inc(Left, SizeOf(NativeUInt));
       Inc(Right, SizeOf(NativeUInt));
-    until (Count > (40 + SizeOf(NativeUInt) - 1));
+    until (Count < (40 + SizeOf(NativeUInt) - 1));
 
     {$ifdef SMALLINT}
     cmp10:
@@ -4954,7 +4954,7 @@ begin
       Dec(Count, SizeOf(NativeUInt));
       Inc(Left, SizeOf(NativeUInt));
       Inc(Right, SizeOf(NativeUInt));
-    until (Count > (40 + SizeOf(NativeUInt) - 1));
+    until (Count < (40 + SizeOf(NativeUInt) - 1));
 
     {$ifdef SMALLINT}
     cmp10:
@@ -5288,7 +5288,7 @@ begin
       Dec(Count, SizeOf(NativeUInt));
       Inc(Left, SizeOf(NativeUInt));
       Inc(Right, SizeOf(NativeUInt));
-    until (Count > (40 + SizeOf(NativeUInt) - 1));
+    until (Count < (40 + SizeOf(NativeUInt) - 1));
 
     {$ifdef SMALLINT}
     cmp10:
@@ -5660,7 +5660,7 @@ begin
       Dec(Count, SizeOf(NativeUInt));
       Inc(Left, SizeOf(NativeUInt));
       Inc(Right, SizeOf(NativeUInt));
-    until (Count > (40 + SizeOf(NativeUInt) - 1));
+    until (Count < (40 + SizeOf(NativeUInt) - 1));
 
     {$ifdef SMALLINT}
     cmp10:
