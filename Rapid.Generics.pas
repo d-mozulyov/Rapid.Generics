@@ -7105,7 +7105,7 @@ begin
 
         if (Assigned(Left)) then
         begin
-          if (PPointer(Left^)[vmtEquals div SizeOf(Pointer)] = @TObject.Equals) then
+          if (PPointer(Pointer(Left)^)[vmtEquals div SizeOf(Pointer)] = @TObject.Equals) then
           begin
             if (Left <> Right) then goto next_item;
           end else
@@ -8148,7 +8148,7 @@ hash_calculated:
       Right := PPointer(Result)^;
       if (Assigned(Left)) then
       begin
-        if (PPointer(Left^)[vmtEquals div SizeOf(Pointer)] = @TObject.Equals) then
+        if (PPointer(Pointer(Left)^)[vmtEquals div SizeOf(Pointer)] = @TObject.Equals) then
         begin
           if (Left <> Right) then goto next_item;
         end else
@@ -17026,7 +17026,7 @@ begin
         Right := PPointer(Item)^;
         if (Assigned(Left)) then
         begin
-          if (PPointer(Left^)[vmtEquals div SizeOf(Pointer)] = @TObject.Equals) then
+          if (PPointer(Pointer(Left)^)[vmtEquals div SizeOf(Pointer)] = @TObject.Equals) then
           begin
             if (Left <> Right) then Continue;
           end else
@@ -17403,7 +17403,7 @@ begin
         Right := PPointer(Item)^;
         if (Assigned(Left)) then
         begin
-          if (PPointer(Left^)[vmtEquals div SizeOf(Pointer)] = @TObject.Equals) then
+          if (PPointer(Pointer(Left)^)[vmtEquals div SizeOf(Pointer)] = @TObject.Equals) then
           begin
             if (Left <> Right) then Continue;
           end else
