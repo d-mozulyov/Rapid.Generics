@@ -1138,6 +1138,8 @@ type
     class procedure Reverse<T>(var Values: array of T); overload; static;
     class procedure Copy<T>(const Source: array of T; var Destination: array of T; SourceIndex, DestIndex, Count: NativeInt); overload; static;
     class procedure Copy<T>(const Source: array of T; var Destination: array of T; Count: NativeInt); overload; static;
+    class function Copy<T>(const Source: array of T; SourceIndex, Count: NativeInt): TArray<T>; overload; static;
+    class function Copy<T>(const Source: array of T): TArray<T>; overload; static;
 
     class procedure Sort<T>(var Values: T; const Count: Integer); overload; static;
     class procedure Sort<T>(var Values: T; const Count: Integer; const Comparer: IComparer<T>); overload; static;
@@ -9239,16 +9241,50 @@ end;
 class procedure TArray.Copy<T>(const Source: array of T; var Destination: array of T; SourceIndex, DestIndex, Count: NativeInt);
 begin
   CheckArrays(Pointer(@Source[0]), Pointer(@Destination[0]), SourceIndex, Length(Source), DestIndex, Length(Destination), Count);
-  TRAIIHelper<T>.Create;
-  if TRAIIHelper<T>.Managed then
-    System.CopyArray(Pointer(@Destination[DestIndex]), Pointer(@Source[SourceIndex]), TypeInfo(T), Count)
-  else
-    System.Move(Pointer(@Source[SourceIndex])^, Pointer(@Destination[DestIndex])^, Count * SizeOf(T));
+  if (Count <> 0) then
+  begin
+    TRAIIHelper<T>.Create;
+    if TRAIIHelper<T>.Managed then
+      System.CopyArray(Pointer(@Destination[DestIndex]), Pointer(@Source[SourceIndex]), TypeInfo(T), Count)
+    else
+      System.Move(Pointer(@Source[SourceIndex])^, Pointer(@Destination[DestIndex])^, Count * SizeOf(T));
+  end;
 end;
 
 class procedure TArray.Copy<T>(const Source: array of T; var Destination: array of T; Count: NativeInt);
 begin
   Copy<T>(Source, Destination, 0, 0, Count);
+end;
+
+class function TArray.Copy<T>(const Source: array of T; SourceIndex, Count: NativeInt): TArray<T>;
+begin
+  if (Count < 0) or (SourceIndex + Count > Length(Source)) then
+    raise EArgumentOutOfRangeException.CreateRes(Pointer(@SArgumentOutOfRange));
+
+  if (Count <> 0) then
+  begin
+    TRAIIHelper<T>.Create;
+    if TRAIIHelper<T>.Managed then
+      System.CopyArray(Pointer(Result), Pointer(@Source[SourceIndex]), TypeInfo(T), Count)
+    else
+      System.Move(Pointer(@Source[SourceIndex])^, Pointer(@Result)^, Count * SizeOf(T));
+  end;
+end;
+
+class function TArray.Copy<T>(const Source: array of T): TArray<T>;
+var
+  Count: NativeInt;
+begin
+  Count := Length(Source);
+  SetLength(Result, Count);
+  if (Count <> 0) then
+  begin
+    TRAIIHelper<T>.Create;
+    if TRAIIHelper<T>.Managed then
+      System.CopyArray(Pointer(Result), Pointer(@Source[0]), TypeInfo(T), Count)
+    else
+      System.Move(Pointer(@Source[0])^, Pointer(@Result)^, Count * SizeOf(T));
+  end;
 end;
 
 class function TArray.SortItemPivot<T>(const I, J: Pointer): Pointer;
