@@ -1,7 +1,7 @@
 unit Rapid.Generics;
 
 {******************************************************************************}
-{ Copyright (c) 2017 Dmitry Mozulyov                                           }
+{ Copyright (c) 2018 Dmitry Mozulyov                                           }
 {                                                                              }
 { Permission is hereby granted, free of charge, to any person obtaining a copy }
 { of this software and associated documentation files (the "Software"), to deal}
@@ -20781,18 +20781,18 @@ begin
   // FInternalValueNotify
   TMethod(FInternalValueNotify).Data := Pointer(Self);
   VMTValueNotify := Self.ValueNotify;
-  if (TMethod(VMTValueNotify).Code <> @TCustomDictionary<TValue,TValue>.ValueNotify) then
+  if (TMethod(VMTValueNotify).Code <> @TCustomDictionary<TKey,TValue>.ValueNotify) then
   begin
-    TMethod(FInternalValueNotify).Code := @TCustomDictionary<TValue,TValue>.ValueNotifyCaller;
+    TMethod(FInternalValueNotify).Code := @TCustomDictionary<TKey,TValue>.ValueNotifyCaller;
   end else
   if (doOwnsValues in FOwnerships) then
   begin
     if (Assigned(Self.FOnValueNotify)) then
     begin
-      TMethod(FInternalValueNotify).Code := @TObjectDictionary<TValue,TValue>.DisposeValueEvent;
+      TMethod(FInternalValueNotify).Code := @TObjectDictionary<TKey,TValue>.DisposeValueEvent;
     end else
     begin
-      TMethod(FInternalValueNotify).Code := @TObjectDictionary<TValue,TValue>.DisposeValueOnly;
+      TMethod(FInternalValueNotify).Code := @TObjectDictionary<TKey,TValue>.DisposeValueOnly;
     end;
   end else
   begin
@@ -20802,13 +20802,13 @@ begin
   // FInternalItemNotify
   TMethod(FInternalItemNotify).Data := Self;
   if (TMethod(VMTKeyNotify).Code <> @TCustomDictionary<TKey,TValue>.KeyNotify) and
-    (TMethod(VMTValueNotify).Code <> @TCustomDictionary<TValue,TValue>.ValueNotify) then
+    (TMethod(VMTValueNotify).Code <> @TCustomDictionary<TKey,TValue>.ValueNotify) then
   begin
-    TMethod(FInternalItemNotify).Code := @TCustomDictionary<TValue,TValue>.ItemNotifyCaller;
+    TMethod(FInternalItemNotify).Code := @TCustomDictionary<TKey,TValue>.ItemNotifyCaller;
   end else
   if (Assigned(FInternalKeyNotify)) and (Assigned(FInternalValueNotify)) then
   begin
-    TMethod(FInternalItemNotify).Code := @TCustomDictionary<TValue,TValue>.ItemNotifyEvents;
+    TMethod(FInternalItemNotify).Code := @TCustomDictionary<TKey,TValue>.ItemNotifyEvents;
   end else
   if (Assigned(FInternalKeyNotify)) then
   begin
@@ -20826,16 +20826,16 @@ begin
   end else
   // if (Assigned(FInternalValueNotify)) then
   begin
-    if (TMethod(VMTValueNotify).Code <> @TCustomDictionary<TValue,TValue>.ValueNotify) then
+    if (TMethod(VMTValueNotify).Code <> @TCustomDictionary<TKey,TValue>.ValueNotify) then
     begin
-      TMethod(FInternalItemNotify).Code := @TObjectDictionary<TValue,TValue>.DisposeItemNotifyValueCaller;
+      TMethod(FInternalItemNotify).Code := @TObjectDictionary<TKey,TValue>.DisposeItemNotifyValueCaller;
     end else
     if (Assigned(Self.FOnValueNotify)) then
     begin
-      TMethod(FInternalItemNotify).Code := @TObjectDictionary<TValue,TValue>.DisposeItemNotifyValueEvent;
+      TMethod(FInternalItemNotify).Code := @TObjectDictionary<TKey,TValue>.DisposeItemNotifyValueEvent;
     end else
     begin
-      TMethod(FInternalItemNotify).Code := @TObjectDictionary<TValue,TValue>.DisposeItemNotifyValueOnly;
+      TMethod(FInternalItemNotify).Code := @TObjectDictionary<TKey,TValue>.DisposeItemNotifyValueOnly;
     end;
   end;
 end;
