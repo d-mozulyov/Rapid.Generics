@@ -2101,6 +2101,7 @@ var
 begin
   // clear
   FTypeInfo := Value;
+  FItemSize := 0;
   FWeak := False;
   {$ifdef WEAKINSTREF}
   InitNatives.Clear;
@@ -2195,8 +2196,8 @@ begin
     tkArray:
     begin
       FieldTable := PFieldTable(NativeUInt(Value) + PByte(@Value.Name)^);
-      FItemSize := FieldTable.Size;
-      FSize := FItemSize * NativeInt(FieldTable.Count);
+      FSize := FieldTable.Size;
+      FItemSize := FieldTable.Size div FieldTable.Count;
       Self.Include(0, Value);
     end;
     tkRecord:
