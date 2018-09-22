@@ -20815,14 +20815,14 @@ begin
   begin
     if (TMethod(VMTKeyNotify).Code <> @TCustomDictionary<TKey,TValue>.KeyNotify) then
     begin
-      TMethod(FInternalItemNotify).Code := @TObjectDictionary<TKey,TKey>.DisposeItemNotifyKeyCaller;
+      TMethod(FInternalItemNotify).Code := @TObjectDictionary<TKey,TValue>.DisposeItemNotifyKeyCaller;
     end else
     if (Assigned(Self.FOnKeyNotify)) then
     begin
-      TMethod(FInternalItemNotify).Code := @TObjectDictionary<TKey,TKey>.DisposeItemNotifyKeyEvent;
+      TMethod(FInternalItemNotify).Code := @TObjectDictionary<TKey,TValue>.DisposeItemNotifyKeyEvent;
     end else
     begin
-      TMethod(FInternalItemNotify).Code := @TObjectDictionary<TKey,TKey>.DisposeItemNotifyKeyOnly;
+      TMethod(FInternalItemNotify).Code := @TObjectDictionary<TKey,TValue>.DisposeItemNotifyKeyOnly;
     end;
   end else
   // if (Assigned(FInternalValueNotify)) then
@@ -20967,18 +20967,18 @@ begin
   // FInternalValueNotify
   TMethod(FInternalValueNotify).Data := Pointer(Self);
   VMTValueNotify := Self.ValueNotify;
-  if (TMethod(VMTValueNotify).Code <> @TCustomDictionary<TValue,TValue>.ValueNotify) then
+  if (TMethod(VMTValueNotify).Code <> @TCustomDictionary<TKey,TValue>.ValueNotify) then
   begin
-    TMethod(FInternalValueNotify).Code := @TCustomDictionary<TValue,TValue>.ValueNotifyCaller;
+    TMethod(FInternalValueNotify).Code := @TCustomDictionary<TKey,TValue>.ValueNotifyCaller;
   end else
   if (doOwnsValues in FOwnerships) then
   begin
     if (Assigned(Self.FOnValueNotify)) then
     begin
-      TMethod(FInternalValueNotify).Code := @TRapidObjectDictionary<TValue,TValue>.DisposeValueEvent;
+      TMethod(FInternalValueNotify).Code := @TRapidObjectDictionary<TKey,TValue>.DisposeValueEvent;
     end else
     begin
-      TMethod(FInternalValueNotify).Code := @TRapidObjectDictionary<TValue,TValue>.DisposeValueOnly;
+      TMethod(FInternalValueNotify).Code := @TRapidObjectDictionary<TKey,TValue>.DisposeValueOnly;
     end;
   end else
   begin
@@ -20988,40 +20988,40 @@ begin
   // FInternalItemNotify
   TMethod(FInternalItemNotify).Data := Self;
   if (TMethod(VMTKeyNotify).Code <> @TCustomDictionary<TKey,TValue>.KeyNotify) and
-    (TMethod(VMTValueNotify).Code <> @TCustomDictionary<TValue,TValue>.ValueNotify) then
+    (TMethod(VMTValueNotify).Code <> @TCustomDictionary<TKey,TValue>.ValueNotify) then
   begin
-    TMethod(FInternalItemNotify).Code := @TCustomDictionary<TValue,TValue>.ItemNotifyCaller;
+    TMethod(FInternalItemNotify).Code := @TCustomDictionary<TKey,TValue>.ItemNotifyCaller;
   end else
   if (Assigned(FInternalKeyNotify)) and (Assigned(FInternalValueNotify)) then
   begin
-    TMethod(FInternalItemNotify).Code := @TCustomDictionary<TValue,TValue>.ItemNotifyEvents;
+    TMethod(FInternalItemNotify).Code := @TCustomDictionary<TKey,TValue>.ItemNotifyEvents;
   end else
   if (Assigned(FInternalKeyNotify)) then
   begin
     if (TMethod(VMTKeyNotify).Code <> @TCustomDictionary<TKey,TValue>.KeyNotify) then
     begin
-      TMethod(FInternalItemNotify).Code := @TRapidObjectDictionary<TKey,TKey>.DisposeItemNotifyKeyCaller;
+      TMethod(FInternalItemNotify).Code := @TRapidObjectDictionary<TKey,TValue>.DisposeItemNotifyKeyCaller;
     end else
     if (Assigned(Self.FOnKeyNotify)) then
     begin
-      TMethod(FInternalItemNotify).Code := @TRapidObjectDictionary<TKey,TKey>.DisposeItemNotifyKeyEvent;
+      TMethod(FInternalItemNotify).Code := @TRapidObjectDictionary<TKey,TValue>.DisposeItemNotifyKeyEvent;
     end else
     begin
-      TMethod(FInternalItemNotify).Code := @TRapidObjectDictionary<TKey,TKey>.DisposeItemNotifyKeyOnly;
+      TMethod(FInternalItemNotify).Code := @TRapidObjectDictionary<TKey,TValue>.DisposeItemNotifyKeyOnly;
     end;
   end else
   // if (Assigned(FInternalValueNotify)) then
   begin
-    if (TMethod(VMTValueNotify).Code <> @TCustomDictionary<TValue,TValue>.ValueNotify) then
+    if (TMethod(VMTValueNotify).Code <> @TCustomDictionary<TKey,TValue>.ValueNotify) then
     begin
-      TMethod(FInternalItemNotify).Code := @TRapidObjectDictionary<TValue,TValue>.DisposeItemNotifyValueCaller;
+      TMethod(FInternalItemNotify).Code := @TRapidObjectDictionary<TKey,TValue>.DisposeItemNotifyValueCaller;
     end else
     if (Assigned(Self.FOnValueNotify)) then
     begin
-      TMethod(FInternalItemNotify).Code := @TRapidObjectDictionary<TValue,TValue>.DisposeItemNotifyValueEvent;
+      TMethod(FInternalItemNotify).Code := @TRapidObjectDictionary<TKey,TValue>.DisposeItemNotifyValueEvent;
     end else
     begin
-      TMethod(FInternalItemNotify).Code := @TRapidObjectDictionary<TValue,TValue>.DisposeItemNotifyValueOnly;
+      TMethod(FInternalItemNotify).Code := @TRapidObjectDictionary<TKey,TValue>.DisposeItemNotifyValueOnly;
     end;
   end;
 end;
