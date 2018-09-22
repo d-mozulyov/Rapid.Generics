@@ -2607,7 +2607,7 @@ end;
 class function TRAIIHelper<T>.GetManaged: Boolean;
 begin
   {$ifdef SMARTGENERICS}
-  Result := System.IsManagedType(T) or System.HasWeakRef(T);
+  Result := System.IsManagedType(T);
   {$else}
   Result := Assigned(FOptions.ClearProc);
   {$endif}
@@ -2617,7 +2617,7 @@ class function TRAIIHelper<T>.GetWeak: Boolean;
 begin
   {$ifdef WEAKREF}
     {$ifdef SMARTGENERICS}
-      Result := System.HasWeakRef(T);
+      Result := System.HasWeakRef(T) {$ifNdef WEAKINSTREF}and (GetTypeKind(T) <> tkMethod){$endif};
     {$else}
       Result := FOptions.FWeak;
     {$endif}
@@ -2629,7 +2629,7 @@ end;
 class procedure TRAIIHelper<T>.Init(Item: P);
 begin
   {$ifdef SMARTGENERICS}
-  if (System.IsManagedType(T) or System.HasWeakRef(T)) then
+  if (System.IsManagedType(T)) then
   {$else}
   if (Assigned(FOptions.InitProc)) then
   {$endif}
@@ -2643,7 +2643,7 @@ var
   Null: NativeInt;
 begin
   {$ifdef SMARTGENERICS}
-  if (System.IsManagedType(T) or System.HasWeakRef(T)) then
+  if (System.IsManagedType(T)) then
   {$else}
   if (Assigned(FOptions.InitProc)) then
   {$endif}
@@ -2714,7 +2714,7 @@ end;
 class procedure TRAIIHelper<T>.Clear(Item: P);
 begin
   {$ifdef SMARTGENERICS}
-  if (System.IsManagedType(T) or System.HasWeakRef(T)) then
+  if (System.IsManagedType(T)) then
   {$else}
   if (Assigned(FOptions.ClearProc)) then
   {$endif}
@@ -2730,7 +2730,7 @@ var
   {$endif}
 begin
   {$ifdef SMARTGENERICS}
-  if (System.IsManagedType(T) or System.HasWeakRef(T)) then
+  if (System.IsManagedType(T)) then
   {$else}
   if (Assigned(FOptions.ClearProc)) then
   {$endif}
@@ -6447,7 +6447,7 @@ begin
 
     {$ifdef WEAKREF}
     {$ifdef SMARTGENERICS}
-    if (System.HasWeakRef(TKey)) or (System.HasWeakRef(TValue)) then
+    if (TRAIIHelper<TKey>.Weak) or (TRAIIHelper<TValue>.Weak) then
     {$else}
     if (TRAIIHelper<TKey>.FOptions.FWeak) or (TRAIIHelper<TValue>.FOptions.FWeak) then
     {$endif}
@@ -6619,13 +6619,13 @@ begin
   // finalize array
   Item := StoredItem;
   {$ifdef SMARTGENERICS}
-  if (System.IsManagedType(TKey) or System.HasWeakRef(TKey)) then
+  if (System.IsManagedType(TKey)) then
   {$else}
   if Assigned(TRAIIHelper<TKey>.FOptions.ClearProc) then
   {$endif}
   begin
     {$ifdef SMARTGENERICS}
-    if (System.IsManagedType(TValue) or System.HasWeakRef(TValue)) then
+    if (System.IsManagedType(TValue)) then
     {$else}
     if Assigned(TRAIIHelper<TValue>.FOptions.ClearProc) then
     {$endif}
@@ -6764,7 +6764,7 @@ begin
     end;
   end else
   {$ifdef SMARTGENERICS}
-  if (System.IsManagedType(TValue) or System.HasWeakRef(TValue)) then
+  if (System.IsManagedType(TValue)) then
   {$else}
   if Assigned(TRAIIHelper<TValue>.FOptions.ClearProc) then
   {$endif}
@@ -6793,13 +6793,13 @@ begin
         ((SizeOf(TValue) >= SizeOf(NativeInt)) and (SizeOf(TValue) <= 16)) then
       begin
         {$ifdef SMARTGENERICS}
-        if (System.IsManagedType(TItem) or System.HasWeakRef(TItem)) then
+        if (System.IsManagedType(TItem)) then
         {$endif}
         Null := 0;
       end;
 
       {$ifdef SMARTGENERICS}
-      if (System.IsManagedType(TKey) or System.HasWeakRef(TKey)) then
+      if (System.IsManagedType(TKey)) then
       {$else}
       if (SizeOf(TKey) >= SizeOf(NativeInt)) then
       {$endif}
@@ -6821,7 +6821,7 @@ begin
       end;
 
       {$ifdef SMARTGENERICS}
-      if (System.IsManagedType(TValue) or System.HasWeakRef(TValue)) then
+      if (System.IsManagedType(TValue)) then
       {$else}
       if (SizeOf(TValue) >= SizeOf(NativeInt)) then
       {$endif}
@@ -6887,7 +6887,7 @@ begin
 
   {$ifdef WEAKREF}
   {$ifdef SMARTGENERICS}
-  if (System.HasWeakRef(TKey)) or (System.HasWeakRef(TValue)) then
+  if (TRAIIHelper<TKey>.Weak) or (TRAIIHelper<TValue>.Weak) then
   {$else}
   if (TRAIIHelper<TKey>.FOptions.FWeak) or (TRAIIHelper<TValue>.FOptions.FWeak) then
   {$endif}
@@ -8729,7 +8729,7 @@ var
 begin
   {$ifdef WEAKREF}
   {$ifdef SMARTGENERICS}
-  if (System.HasWeakRef(T)) then
+  if (TRAIIHelper<T>.Weak) then
   {$else}
   if (not TRAIIHelper<T>.FCreated) then TRAIIHelper<T>.InternalCreate;
   if (TRAIIHelper<T>.FOptions.FWeak) then
@@ -8925,7 +8925,7 @@ var
 begin
   {$ifdef WEAKREF}
   {$ifdef SMARTGENERICS}
-  if (System.HasWeakRef(T)) then
+  if (TRAIIHelper<T>.Weak) then
   {$else}
   if (not TRAIIHelper<T>.FCreated) then TRAIIHelper<T>.InternalCreate;
   if (TRAIIHelper<T>.FOptions.FWeak) then
@@ -9134,7 +9134,7 @@ var
 begin
   {$ifdef WEAKREF}
   {$ifdef SMARTGENERICS}
-  if (System.HasWeakRef(T)) then
+  if (TRAIIHelper<T>.Weak) then
   {$else}
   if (not TRAIIHelper<T>.FCreated) then TRAIIHelper<T>.InternalCreate;
   if (TRAIIHelper<T>.FOptions.FWeak) then
@@ -13256,7 +13256,7 @@ begin
 
   {$ifdef WEAKREF}
   {$ifdef SMARTGENERICS}
-  if (System.HasWeakRef(T)) then
+  if (TRAIIHelper<T>.Weak) then
   {$else}
   if (not TRAIIHelper<T>.FCreated) then TRAIIHelper<T>.InternalCreate;
   if (TRAIIHelper<T>.FOptions.FWeak) then
@@ -13410,7 +13410,7 @@ begin
 
     {$ifdef WEAKREF}
     {$ifdef SMARTGENERICS}
-    if (System.HasWeakRef(T)) then
+    if (TRAIIHelper<T>.Weak) then
     {$else}
     if (not TRAIIHelper<T>.FCreated) then TRAIIHelper<T>.InternalCreate;
     if (TRAIIHelper<T>.FOptions.FWeak) then
@@ -13447,7 +13447,7 @@ begin
 
     {$ifdef WEAKREF}
     {$ifdef SMARTGENERICS}
-    if (System.HasWeakRef(T)) then
+    if (TRAIIHelper<T>.Weak) then
     {$else}
     if (not TRAIIHelper<T>.FCreated) then TRAIIHelper<T>.InternalCreate;
     if (TRAIIHelper<T>.FOptions.FWeak) then
@@ -13529,7 +13529,7 @@ begin
 
   {$ifdef WEAKREF}
   {$ifdef SMARTGENERICS}
-  if (System.HasWeakRef(T)) then
+  if (TRAIIHelper<T>.Weak) then
   {$else}
   if (not TRAIIHelper<T>.FCreated) then TRAIIHelper<T>.InternalCreate;
   if (TRAIIHelper<T>.FOptions.FWeak) then
@@ -13683,7 +13683,7 @@ begin
 
     {$ifdef WEAKREF}
     {$ifdef SMARTGENERICS}
-    if (System.HasWeakRef(T)) then
+    if (TRAIIHelper<T>.Weak) then
     {$else}
     if (not TRAIIHelper<T>.FCreated) then TRAIIHelper<T>.InternalCreate;
     if (TRAIIHelper<T>.FOptions.FWeak) then
@@ -13720,7 +13720,7 @@ begin
 
     {$ifdef WEAKREF}
     {$ifdef SMARTGENERICS}
-    if (System.HasWeakRef(T)) then
+    if (TRAIIHelper<T>.Weak) then
     {$else}
     if (not TRAIIHelper<T>.FCreated) then TRAIIHelper<T>.InternalCreate;
     if (TRAIIHelper<T>.FOptions.FWeak) then
@@ -15378,7 +15378,7 @@ begin
 
   {$ifdef WEAKREF}
   {$ifdef SMARTGENERICS}
-  if (System.HasWeakRef(T)) then
+  if (TRAIIHelper<T>.Weak) then
   {$else}
   if (TRAIIHelper<T>.FOptions.FWeak) then
   {$endif}
@@ -15541,7 +15541,7 @@ begin
   end;
 
   {$ifdef SMARTGENERICS}
-  if (System.IsManagedType(T) or System.HasWeakRef(T)) then
+  if (System.IsManagedType(T)) then
   {$else}
   if Assigned(TRAIIHelper<T>.FOptions.ClearProc) then
   {$endif}
@@ -15627,7 +15627,7 @@ begin
     if (FTail <= FHead) then
     begin
       {$ifdef SMARTGENERICS}
-      if (System.IsManagedType(T) or System.HasWeakRef(T)) then
+      if (System.IsManagedType(T)) then
       {$else}
       if Assigned(TRAIIHelper<T>.FOptions.ClearProc) then
       {$endif}
@@ -15642,7 +15642,7 @@ begin
       TailCount := FCapacity.Native - FTail - 1;
 
       {$ifdef SMARTGENERICS}
-      if (System.IsManagedType(T) or System.HasWeakRef(T)) then
+      if (System.IsManagedType(T)) then
       {$else}
       if Assigned(TRAIIHelper<T>.FOptions.ClearProc) then
       {$endif}
@@ -15713,7 +15713,7 @@ begin
       GrowTo(Value);
 
     {$ifdef SMARTGENERICS}
-    if (System.IsManagedType(T) or System.HasWeakRef(T)) then
+    if (System.IsManagedType(T)) then
     {$else}
     if (Assigned(TRAIIHelper<T>.Options.InitProc)) then
     {$endif}
@@ -15842,7 +15842,7 @@ begin
         begin
           {$ifdef WEAKREF}
           {$ifdef SMARTGENERICS}
-          if (System.HasWeakRef(T)) then
+          if (TRAIIHelper<T>.Weak) then
           {$else}
           if (TRAIIHelper<T>.FOptions.FWeak) then
           {$endif}
@@ -15861,7 +15861,7 @@ begin
         Item := Pointer(@FItems[Index]);
 
         {$ifdef SMARTGENERICS}
-        if (System.IsManagedType(T) or System.HasWeakRef(T)) then
+        if (System.IsManagedType(T)) then
         {$else}
         if (SizeOf(T) >= SizeOf(NativeInt)) then
         {$endif}
@@ -15941,7 +15941,7 @@ begin
     Item := Pointer(@FItems[Count]);
 
     {$ifdef SMARTGENERICS}
-    if (System.IsManagedType(T) or System.HasWeakRef(T)) then
+    if (System.IsManagedType(T)) then
     {$else}
     if (SizeOf(T) >= SizeOf(NativeInt)) then
     {$endif}
@@ -16029,7 +16029,7 @@ begin
         Buffer{Item} := @FItems[Count];
 
         {$ifdef SMARTGENERICS}
-        if (System.IsManagedType(T) or System.HasWeakRef(T)) then
+        if (System.IsManagedType(T)) then
         {$else}
         if (Assigned(TRAIIHelper<T>.Options.InitProc)) then
         {$endif}
@@ -16112,14 +16112,14 @@ begin
           Buffer{Item} := @FItems[AIndex];
 
           {$ifdef SMARTGENERICS}
-          if (System.IsManagedType(T) or System.HasWeakRef(T)) then
+          if (System.IsManagedType(T)) then
           {$else}
           if (Assigned(TRAIIHelper<T>.Options.InitProc)) then
           {$endif}
           begin
             {$ifdef WEAKREF}
             {$ifdef SMARTGENERICS}
-            if (System.HasWeakRef(T)) then
+            if (TRAIIHelper<T>.Weak) then
             {$else}
             if (TRAIIHelper<T>.FOptions.FWeak) then
             {$endif}
@@ -16376,7 +16376,7 @@ begin
     begin
       {$ifdef WEAKREF}
       {$ifdef SMARTGENERICS}
-      if (System.HasWeakRef(T)) then
+      if (TRAIIHelper<T>.Weak) then
       {$else}
       if (TRAIIHelper<T>.FOptions.FWeak) then
       {$endif}
@@ -16439,7 +16439,7 @@ begin
       end;
 
       {$ifdef SMARTGENERICS}
-      if (System.IsManagedType(T) or System.HasWeakRef(T)) then
+      if (System.IsManagedType(T)) then
       {$else}
       if (Assigned(TRAIIHelper<T>.Options.ClearProc)) then
       {$endif}
@@ -16518,7 +16518,7 @@ begin
       begin
         {$ifdef WEAKREF}
         {$ifdef SMARTGENERICS}
-        if (System.HasWeakRef(T)) then
+        if (TRAIIHelper<T>.Weak) then
         {$else}
         if (TRAIIHelper<T>.FOptions.FWeak) then
         {$endif}
@@ -18484,7 +18484,7 @@ begin
   if (Assigned(FComparer)) then goto comparer_recall;
 
   {$ifdef WEAKREF}
-  if (System.HasWeakRef(T)) then
+  if (TRAIIHelper<T>.Weak) then
   begin
     Self.InternalWeakPack;
   end else
@@ -18796,7 +18796,7 @@ begin
 
 comparer_recall:
   {$ifdef WEAKREF}
-  if (System.HasWeakRef(T)) then
+  if (TRAIIHelper<T>.Weak) then
   begin
     Self.InternalWeakPackComparer;
   end else
@@ -19027,7 +19027,7 @@ var
 begin
   {$ifdef WEAKREF}
   {$ifdef SMARTGENERICS}
-  if (System.HasWeakRef(T)) then
+  if (TRAIIHelper<T>.Weak) then
   {$else}
   if (TRAIIHelper<T>.FOptions.FWeak) then
   {$endif}
@@ -19373,7 +19373,7 @@ begin
       Item := Pointer(@FItems[Count]);
 
       {$ifdef SMARTGENERICS}
-      if (System.IsManagedType(T) or System.HasWeakRef(T)) then
+      if (System.IsManagedType(T)) then
       {$else}
       if (SizeOf(T) >= SizeOf(NativeInt)) then
       {$endif}
@@ -19447,7 +19447,7 @@ begin
     Item := Pointer(@FItems[Count]);
 
     {$ifdef SMARTGENERICS}
-    if (System.IsManagedType(T) or System.HasWeakRef(T)) then
+    if (System.IsManagedType(T)) then
     {$else}
     if (SizeOf(T) >= SizeOf(NativeInt)) then
     {$endif}
@@ -19805,7 +19805,7 @@ begin
           Item := Pointer(@FItems[Count]);
 
           {$ifdef SMARTGENERICS}
-          if (System.IsManagedType(T) or System.HasWeakRef(T)) then
+          if (System.IsManagedType(T)) then
           {$else}
           if (SizeOf(T) >= SizeOf(NativeInt)) then
           {$endif}
@@ -19889,7 +19889,7 @@ begin
         Item := Pointer(@FItems[Count]);
 
         {$ifdef SMARTGENERICS}
-        if (System.IsManagedType(T) or System.HasWeakRef(T)) then
+        if (System.IsManagedType(T)) then
         {$else}
         if (SizeOf(T) >= SizeOf(NativeInt)) then
         {$endif}
