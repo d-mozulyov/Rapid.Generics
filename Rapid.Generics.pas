@@ -1780,14 +1780,18 @@ end;
 
 class procedure TRAIIHelper.RegisterDynamicArray(const P: Pointer);
 begin
+  {$ifdef MSWINDOWS}
   if (Assigned(P)) then
     System.RegisterExpectedMemoryLeak(Pointer(NativeInt(P) - SizeOf(TDynArrayRec)));
+  {$endif}
 end;
 
 class procedure TRAIIHelper.UnregisterDynamicArray(const P: Pointer);
 begin
+  {$ifdef MSWINDOWS}
   if (Assigned(P)) then
     System.UnregisterExpectedMemoryLeak(Pointer(NativeInt(P) - SizeOf(TDynArrayRec)));
+  {$endif}
 end;
 
 class procedure TRAIIHelper.ULStrClear(P: Pointer);
@@ -4840,8 +4844,8 @@ begin
   X := NativeUInt(Left);
   Y := NativeUInt(Right);
   if (Left = Right) then goto make_result_swaped;
-  if (Left = nil) then goto left_nil;
-  if (Right = nil) then goto right_nil;
+  if (Left = nil) then goto {$ifdef MSWINDOWS}left_nil{$else}make_result_swaped{$endif};
+  if (Right = nil) then goto {$ifdef MSWINDOWS}right_nil{$else}make_result_swaped{$endif};
 
   X := PWord(Left)^;
   Y := PWord(Right)^;
@@ -5941,7 +5945,7 @@ end;
 function TOrdinalStringComparer.Equals(const Left, Right: string): Boolean;
 {$ifNdef CPUINTEL}
 begin
-  Result := InterfaceDefaults.Equals_UStr(Left, Right);
+  Result := InterfaceDefaults.Equals_UStr(nil, Pointer(Left), Pointer(Right));
 end;
 {$else}
 asm
@@ -20476,13 +20480,13 @@ procedure TObjectList<T>.DisposeNotifyEvent(Sender: TObject; const Item: TObject
 begin
   Self.FOnNotify(Sender, Item, Action);
   if (Action = cnRemoved) then
-    Item.Free;
+    Item.{$ifdef NEXTGEN}DisposeOf{$else}Free{$endif};
 end;
 
 procedure TObjectList<T>.DisposeOnly(Sender: TObject; const Item: TObject; Action: TCollectionNotification);
 begin
   if (Action = cnRemoved) then
-    Item.Free;
+    Item.{$ifdef NEXTGEN}DisposeOf{$else}Free{$endif};
 end;
 
 procedure TObjectList<T>.SetNotifyMethods;
@@ -20543,13 +20547,13 @@ procedure TObjectStack<T>.DisposeNotifyEvent(Sender: TObject; const Item: TObjec
 begin
   Self.FOnNotify(Sender, Item, Action);
   if (Action = cnRemoved) then
-    Item.Free;
+    Item.{$ifdef NEXTGEN}DisposeOf{$else}Free{$endif};
 end;
 
 procedure TObjectStack<T>.DisposeOnly(Sender: TObject; const Item: TObject; Action: TCollectionNotification);
 begin
   if (Action = cnRemoved) then
-    Item.Free;
+    Item.{$ifdef NEXTGEN}DisposeOf{$else}Free{$endif};
 end;
 
 procedure TObjectStack<T>.SetNotifyMethods;
@@ -20610,13 +20614,13 @@ procedure TObjectQueue<T>.DisposeNotifyEvent(Sender: TObject; const Item: TObjec
 begin
   Self.FOnNotify(Sender, Item, Action);
   if (Action = cnRemoved) then
-    Item.Free;
+    Item.{$ifdef NEXTGEN}DisposeOf{$else}Free{$endif};
 end;
 
 procedure TObjectQueue<T>.DisposeOnly(Sender: TObject; const Item: TObject; Action: TCollectionNotification);
 begin
   if (Action = cnRemoved) then
-    Item.Free;
+    Item.{$ifdef NEXTGEN}DisposeOf{$else}Free{$endif};
 end;
 
 procedure TObjectQueue<T>.SetNotifyMethods;
@@ -20686,14 +20690,14 @@ procedure TObjectDictionary<TKey,TValue>.DisposeKeyEvent(Sender: TObject;
 begin
   TOnKeyNotify(TMethod(FOnKeyNotify).Code)(TMethod(FOnKeyNotify).Data, Self, Key, Action);
   if (Action = cnRemoved) then
-    Key.Free;
+    Key.{$ifdef NEXTGEN}DisposeOf{$else}Free{$endif};
 end;
 
 procedure TObjectDictionary<TKey,TValue>.DisposeKeyOnly(Sender: TObject;
   const Key: TObject; Action: TCollectionNotification);
 begin
   if (Action = cnRemoved) then
-    Key.Free;
+    Key.{$ifdef NEXTGEN}DisposeOf{$else}Free{$endif};
 end;
 
 procedure TObjectDictionary<TKey,TValue>.DisposeValueEvent(Sender: TObject;
@@ -20701,14 +20705,14 @@ procedure TObjectDictionary<TKey,TValue>.DisposeValueEvent(Sender: TObject;
 begin
   TOnValueNotify(TMethod(FOnValueNotify).Code)(TMethod(FOnValueNotify).Data, Self, Value, Action);
   if (Action = cnRemoved) then
-    Value.Free;
+    Value.{$ifdef NEXTGEN}DisposeOf{$else}Free{$endif};
 end;
 
 procedure TObjectDictionary<TKey,TValue>.DisposeValueOnly(Sender: TObject;
   const Value: TObject; Action: TCollectionNotification);
 begin
   if (Action = cnRemoved) then
-    Value.Free;
+    Value.{$ifdef NEXTGEN}DisposeOf{$else}Free{$endif};
 end;
 
 procedure TObjectDictionary<TKey,TValue>.DisposeItemNotifyKeyCaller(const Item: TItem;
@@ -20871,14 +20875,14 @@ procedure TRapidObjectDictionary<TKey,TValue>.DisposeKeyEvent(Sender: TObject;
 begin
   TOnKeyNotify(TMethod(FOnKeyNotify).Code)(TMethod(FOnKeyNotify).Data, Self, Key, Action);
   if (Action = cnRemoved) then
-    Key.Free;
+    Key.{$ifdef NEXTGEN}DisposeOf{$else}Free{$endif};
 end;
 
 procedure TRapidObjectDictionary<TKey,TValue>.DisposeKeyOnly(Sender: TObject;
   const Key: TObject; Action: TCollectionNotification);
 begin
   if (Action = cnRemoved) then
-    Key.Free;
+    Key.{$ifdef NEXTGEN}DisposeOf{$else}Free{$endif};
 end;
 
 procedure TRapidObjectDictionary<TKey,TValue>.DisposeValueEvent(Sender: TObject;
@@ -20886,14 +20890,14 @@ procedure TRapidObjectDictionary<TKey,TValue>.DisposeValueEvent(Sender: TObject;
 begin
   TOnValueNotify(TMethod(FOnValueNotify).Code)(TMethod(FOnValueNotify).Data, Self, Value, Action);
   if (Action = cnRemoved) then
-    Value.Free;
+    Value.{$ifdef NEXTGEN}DisposeOf{$else}Free{$endif};
 end;
 
 procedure TRapidObjectDictionary<TKey,TValue>.DisposeValueOnly(Sender: TObject;
   const Value: TObject; Action: TCollectionNotification);
 begin
   if (Action = cnRemoved) then
-    Value.Free;
+    Value.{$ifdef NEXTGEN}DisposeOf{$else}Free{$endif};
 end;
 
 procedure TRapidObjectDictionary<TKey,TValue>.DisposeItemNotifyKeyCaller(const Item: TItem;
