@@ -56,15 +56,27 @@ unit Rapid.Generics;
 {$POINTERMATH ON}
 {$U-}{$V+}{$B-}{$X+}{$T+}{$P+}{$H+}{$J-}{$Z1}{$A4}
 {$O+}{$R-}{$I-}{$Q-}{$W-}
-{$if Defined(CPUX86) or Defined(CPUX64)}
+{$ifdef CPUX86}
+  {$ifNdef NEXTGEN}
+    {$define CPUX86ASM}
+    {$define CPUINTELASM}
+  {$endif}
   {$define CPUINTEL}
-{$ifend}
+{$endif}
+{$ifdef CPUX64}
+  {$ifNdef NEXTGEN}
+    {$define CPUX64ASM}
+    {$define CPUINTELASM}
+  {$endif}
+  {$define CPUINTEL}
+{$endif}
 {$if Defined(CPUX64) or Defined(CPUARM64)}
   {$define LARGEINT}
 {$ifend}
 {$if (not Defined(CPUX64)) and (not Defined(CPUARM64))}
   {$define SMALLINT}
 {$ifend}
+
 (*$HPPEMIT '#pragma option -w-8022'*)
 
 interface
@@ -99,6 +111,86 @@ type
   {$if CompilerVersion <= 23}
     EListError = class(Exception);
   {$ifend}
+
+
+{ TNothing record
+  Dummy null size structure }
+
+  TNothing = packed record
+  end;
+
+
+{ TCustomObject/ICustomObject class
+  TInterfacedObject alternative (inheritor) and own interface, the differences:
+   - contains an original object instance
+   - reference count
+   - optimized atomic operations
+   - NEXTGEN-like rule of DisposeOf method, i.e. allows to call destructor before reference count set to zero
+   - data in inherited classes is 8 byte aligned (this can be useful for lock-free algorithms)
+   - allows to make TMonitor operations faster }
+
+  TCustomObject = class;
+  ICustomObject = interface
+    function Self: TCustomObject {$ifdef AUTOREFCOUNT}unsafe{$endif};
+    function Disposed: Boolean;
+    function RefCount: Integer;
+    procedure DisposeOf;
+    procedure OptimizeMonitor;
+  end;
+
+  TCustomObject = class(TInterfacedObject, IInterface, ICustomObject)
+  private
+    const
+      DISPOSED_FLAG = Integer($40000000);
+      CLEAR_DISPOSED_FLAG = not DISPOSED_FLAG;
+      DEFAULT_REF_COUNT = {$ifdef AUTOREFCOUNT}1{$else}0{$endif};
+      DUMMY_REFERENCE = 1;
+  protected
+    function GetSelf: TCustomObject {$ifdef AUTOREFCOUNT}unsafe{$endif};
+    function GetDisposed_: Boolean;
+    function GetRefCount: Integer;
+    function IInterface._AddRef = _AddRef;
+    function IInterface._Release = _Release;
+    function ICustomObject.Self = GetSelf;
+    function ICustomObject.Disposed = GetDisposed_;
+    function ICustomObject.RefCount = GetRefCount;
+
+    function GetDisposed: Boolean; inline;
+    procedure CheckDisposed; inline;
+    function _AddRef: Integer; stdcall;
+    function _Release: Integer; stdcall;
+  public
+    procedure AfterConstruction; override;
+    procedure BeforeDestruction; override;
+    procedure DisposeOf; {$if CompilerVersion >= 25}reintroduce;{$ifend}
+    {$ifdef AUTOREFCOUNT}
+    function __ObjAddRef: Integer; override;
+    function __ObjRelease: Integer; override;
+    {$endif}
+    procedure OptimizeMonitor;
+
+    property Disposed: Boolean read GetDisposed;
+  end;
+
+
+{ TLiteCustomObject class
+  Single-thread code optimized TCustomObject class }
+
+  TLiteCustomObject = class(TCustomObject, IInterface, ICustomObject)
+  protected
+    function IInterface._AddRef = _AddRef;
+    function IInterface._Release = _Release;
+    function ICustomObject._AddRef = _AddRef;
+    function ICustomObject._Release = _Release;
+
+    function _AddRef: Integer; stdcall;
+    function _Release: Integer; stdcall;
+  public
+    {$ifdef AUTOREFCOUNT}
+    function __ObjAddRef: Integer; override;
+    function __ObjRelease: Integer; override;
+    {$endif}
+  end;
 
 
 { TRAIIHelper record
@@ -495,7 +587,7 @@ type
 
   // Abstract base class for IComparer<T> implementations, and a provider
   // of default IComparer<T> implementations.
-  TComparer<T> = class(TInterfacedObject, IComparer<T>)
+  TComparer<T> = class(TCustomObject, IComparer<T>)
   public
     class function Default: IComparer<T>;
     class function Construct(const Comparison: TComparison<T>): IComparer<T>;
@@ -507,7 +599,7 @@ type
 
   // Abstract base class for IEqualityComparer<T> implementations, and a provider
   // of default IEqualityComparer<T> implementations.
-  TEqualityComparer<T> = class(TInterfacedObject, IEqualityComparer<T>)
+  TEqualityComparer<T> = class(TCustomObject, IEqualityComparer<T>)
   public
     class function Default: IEqualityComparer<T>; static;
 
@@ -594,7 +686,7 @@ type
   TCollectionNotifyEvent<T> = procedure(Sender: TObject; const Item: T;
     Action: TCollectionNotification) of object;
 
-  TEnumerator<T> = class abstract
+  TEnumerator<T> = class abstract (TCustomObject)
   protected
     function DoGetCurrent: T; virtual; abstract;
     function DoMoveNext: Boolean; virtual; abstract;
@@ -603,7 +695,7 @@ type
     function MoveNext: Boolean;
   end;
 
-  TEnumerable<T> = class abstract
+  TEnumerable<T> = class abstract (TCustomObject)
   protected
     function DoGetEnumerator: TEnumerator<T>; virtual; abstract;
   public
@@ -1414,7 +1506,7 @@ type
 
 
 
-  TThreadList<T> = class
+  TThreadList<T> = class(TCustomObject)
   private
     FList: TList<T>;
     FLock: TObject;
@@ -1432,7 +1524,7 @@ type
   end;
 
   {$if CompilerVersion >= 22}
-  TThreadedQueue<T> = class
+  TThreadedQueue<T> = class(TCustomObject)
   private
     FQueue: array of T;
     FQueueSize, FQueueOffset: Integer;
@@ -1703,6 +1795,301 @@ end;
 {$ifend}
 
 
+{ TCustomObject }
+
+function TCustomObject.GetSelf: TCustomObject;
+begin
+  Result := Self;
+end;
+
+function TCustomObject.GetDisposed_: Boolean;
+begin
+  Result := (FRefCount and DISPOSED_FLAG <> 0);
+end;
+
+function TCustomObject.GetDisposed: Boolean;
+begin
+  Result := (FRefCount and DISPOSED_FLAG <> 0);
+end;
+
+procedure TCustomObject.CheckDisposed;
+begin
+  if (FRefCount and DISPOSED_FLAG = 0) then
+    System.Error(reObjectDisposed);
+end;
+
+function TCustomObject.GetRefCount: Integer;
+begin
+  Result := Self.RefCount;
+end;
+
+procedure TCustomObject.AfterConstruction;
+begin
+  {$ifNdef AUTOREFCOUNT}
+  if (FRefCount <> 1) then
+  begin
+    AtomicDecrement(FRefCount);
+  end else
+  begin
+    FRefCount := 0;
+  end;
+  {$endif}
+end;
+
+procedure TCustomObject.BeforeDestruction;
+begin
+end;
+
+procedure TCustomObject.DisposeOf;
+type
+  TBeforeDestructionProc = procedure(Instance: Pointer);
+  TDestructorProc = procedure(Instance: Pointer; OuterMost: ShortInt);
+var
+  LRef: Integer;
+  Proc: Pointer;
+begin
+  if (Self = nil) then
+    Exit;
+
+  // no references
+  {$ifNdef AUTOREFCOUNT}
+  if (FRefCount = DEFAULT_REF_COUNT) then
+  begin
+    FRefCount := DUMMY_REFERENCE or DISPOSED_FLAG;
+    Destroy;
+    Exit;
+  end;
+  {$endif}
+
+  // has references: the instance remains alive
+  // mark disposed (exit if already disposed)
+  repeat
+    LRef := FRefCount;
+    if (LRef and DISPOSED_FLAG <> 0) then
+      Exit;
+
+    if (Cardinal(LRef) <= DEFAULT_REF_COUNT) then
+    begin
+      FRefCount := LRef or DISPOSED_FLAG;
+      Break;
+    end;
+
+    if (AtomicCmpExchange(FRefCount, LRef or DISPOSED_FLAG, LRef) = LRef) then
+      Break;
+  until (False);
+
+  // before destruction
+  Proc := PPointer(PNativeInt(Self)^ + vmtBeforeDestruction)^;
+  if (Proc <> @TCustomObject.BeforeDestruction) then
+    TBeforeDestructionProc(Proc)(Self);
+
+  // destructor
+  Proc := PPointer(PNativeInt(Self)^ + vmtDestroy)^;
+  if (Proc <> @TCustomObject.Destroy) then
+    TDestructorProc(Proc)(Self, 0);
+end;
+
+{$ifdef AUTOREFCOUNT}
+function TCustomObject.__ObjAddRef: Integer;
+begin
+  Result := FRefCount;
+  if (Cardinal(Result and CLEAR_DISPOSED_FLAG) <= DEFAULT_REF_COUNT) then
+  begin
+    Inc(Result);
+    FRefCount := Result;
+    Result := Result and CLEAR_DISPOSED_FLAG;
+  end else
+  begin
+    Result := AtomicIncrement(FRefCount);
+  end;
+end;
+{$endif}
+
+function TCustomObject._AddRef: Integer; stdcall;
+begin
+  {$ifdef AUTOREFCOUNT}
+  if (PPointer(PNativeInt(Self)^ + vmtObjAddRef)^ <> @TCustomObject.__ObjAddRef) then
+  begin
+    Result := __ObjAddRef;
+  end else
+  {$endif}
+  begin
+    Result := FRefCount;
+    if (Cardinal(Result and CLEAR_DISPOSED_FLAG) <= DEFAULT_REF_COUNT) then
+    begin
+      Inc(Result);
+      FRefCount := Result;
+      Result := Result and CLEAR_DISPOSED_FLAG;
+    end else
+    begin
+      Result := AtomicIncrement(FRefCount);
+    end;
+  end;
+end;
+
+{$ifdef AUTOREFCOUNT}
+function TCustomObject.__ObjRelease: Integer;
+begin
+  // release reference
+  Result := FRefCount;
+  if (Result and CLEAR_DISPOSED_FLAG = 1) then
+  begin
+    Dec(Result);
+    FRefCount := Result;
+    Result := 0{Result and CLEAR_DISPOSED_FLAG};
+  end else
+  begin
+    Result := AtomicDecrement(FRefCount) and CLEAR_DISPOSED_FLAG;
+    if (Result <> 0) then
+      Exit;
+  end;
+
+  // no references: destroy/freeinstance
+  if (FRefCount and DISPOSED_FLAG = 0) then
+  begin
+    FRefCount := DUMMY_REFERENCE or DISPOSED_FLAG;
+    Destroy;
+  end else
+  begin
+    FreeInstance;
+  end;
+end;
+{$endif}
+
+function TCustomObject._Release: Integer; stdcall;
+begin
+  {$ifdef AUTOREFCOUNT}
+  if (PPointer(PNativeInt(Self)^ + vmtObjRelease)^ <> @TCustomObject.__ObjRelease) then
+  begin
+    Result := __ObjRelease;
+  end else
+  {$endif}
+  begin
+    // release reference
+    Result := FRefCount;
+    if (Result and CLEAR_DISPOSED_FLAG = 1) then
+    begin
+      Dec(Result);
+      FRefCount := Result;
+      Result := 0{Result and CLEAR_DISPOSED_FLAG};
+    end else
+    begin
+      Result := AtomicDecrement(FRefCount) and CLEAR_DISPOSED_FLAG;
+      if (Result <> 0) then
+        Exit;
+    end;
+
+    // no references: destroy/freeinstance
+    if (FRefCount and DISPOSED_FLAG = 0) then
+    begin
+      FRefCount := DUMMY_REFERENCE or DISPOSED_FLAG;
+      Destroy;
+    end else
+    begin
+      FreeInstance;
+    end;
+  end;
+end;
+
+procedure TCustomObject.OptimizeMonitor;
+const
+  monFlagsMask   = NativeInt($01); // 1bits for special flags.
+  monMonitorMask = not monFlagsMask;
+  OPTIMIZED_SPIN_COUNT = 5;
+var
+  InstanceSize: Integer;
+  Value: NativeInt;
+  Field: PInteger;
+begin
+  InstanceSize := PInteger(PNativeInt(Self)^ + vmtInstanceSize)^;
+  Value := PNativeInt(NativeInt(Self) + InstanceSize + (- hfFieldSize + hfMonitorOffset))^ and monMonitorMask;
+  if (Value <> 0) then
+  begin
+    Field := PInteger(Value + (SizeOf(Integer) + SizeOf(Integer) + SizeOf(System.TThreadID) + SizeOf(Pointer)));
+    if (Field^ = OPTIMIZED_SPIN_COUNT) then
+      Exit;
+
+    if (CPUCount = 1) then
+      Exit;
+  end;
+
+  TMonitor.SetSpinCount(Self, OPTIMIZED_SPIN_COUNT);
+end;
+
+
+{ TLiteCustomObject }
+
+{$ifdef AUTOREFCOUNT}
+function TLiteCustomObject.__ObjAddRef: Integer;
+begin
+  Result := FRefCount + 1;
+  FRefCount := Result;
+  Result := Result and CLEAR_DISPOSED_FLAG;
+end;
+{$endif}
+
+function TLiteCustomObject._AddRef: Integer;
+begin
+  {$ifdef AUTOREFCOUNT}
+  if (PPointer(PNativeInt(Self)^ + vmtObjAddRef)^ <> @TLiteCustomObject.__ObjAddRef) then
+  begin
+    Result := __ObjAddRef;
+  end else
+  {$endif}
+  begin
+    Result := FRefCount + 1;
+    FRefCount := Result;
+    Result := Result and CLEAR_DISPOSED_FLAG;
+  end;
+end;
+
+{$ifdef AUTOREFCOUNT}
+function TLiteCustomObject.__ObjRelease: Integer;
+begin
+  Result := FRefCount - 1;
+  FRefCount := Result;
+  Result := Result and CLEAR_DISPOSED_FLAG;
+  if (Result <> 0) then
+    Exit;
+
+  if (FRefCount and DISPOSED_FLAG = 0) then
+  begin
+    FRefCount := DUMMY_REFERENCE or DISPOSED_FLAG;
+    Destroy;
+  end else
+  begin
+    FreeInstance;
+  end;
+end;
+{$endif}
+
+function TLiteCustomObject._Release: Integer;
+begin
+  {$ifdef AUTOREFCOUNT}
+  if (PPointer(PNativeInt(Self)^ + vmtObjRelease)^ <> @TLiteCustomObject.__ObjRelease) then
+  begin
+    Result := __ObjRelease;
+  end else
+  {$endif}
+  begin
+    Result := FRefCount - 1;
+    FRefCount := Result;
+    Result := Result and CLEAR_DISPOSED_FLAG;
+    if (Result <> 0) then
+      Exit;
+
+    if (FRefCount and DISPOSED_FLAG = 0) then
+    begin
+      FRefCount := DUMMY_REFERENCE or DISPOSED_FLAG;
+      Destroy;
+    end else
+    begin
+      FreeInstance;
+    end;
+  end;
+end;
+
+
 { TRAIIHelper.TClearNatives }
 
 procedure TRAIIHelper.TClearNatives.Clear;
@@ -1778,6 +2165,7 @@ end;
 
 { TRAIIHelper }
 
+{$WARNINGS OFF}
 class procedure TRAIIHelper.RegisterDynamicArray(const P: Pointer);
 begin
   {$ifdef MSWINDOWS}
@@ -1793,6 +2181,7 @@ begin
     System.UnregisterExpectedMemoryLeak(Pointer(NativeInt(P) - SizeOf(TDynArrayRec)));
   {$endif}
 end;
+{$WARNINGS ON}
 
 class procedure TRAIIHelper.ULStrClear(P: Pointer);
 type
@@ -1881,7 +2270,7 @@ end;
 
 {$ifdef WEAKINSTREF}
 class procedure TRAIIHelper.WeakObjClear(P: Pointer);
-{$ifdef CPUINTEL}
+{$ifdef CPUINTELASM}
 asm
   jmp System.@InstWeakClear
 end;
@@ -1897,7 +2286,7 @@ end;
 {$endif}
 
 class procedure TRAIIHelper.WeakMethodClear(P: Pointer);
-{$ifdef CPUINTEL}
+{$ifdef CPUINTELASM}
 asm
   {$ifdef CPUX86}
     sub eax, 4
@@ -1920,7 +2309,7 @@ end;
 
 {$ifdef WEAKINTFREF}
 class procedure TRAIIHelper.WeakIntfClear(P: Pointer);
-{$ifdef CPUINTEL}
+{$ifdef CPUINTELASM}
 asm
   jmp System.@IntfWeakClear
 end;
@@ -2670,7 +3059,7 @@ begin
     begin
       if (SizeOf(T) = Offset) then
       begin
-        FillChar(Item^, Count * SizeOf(T), #0);
+        FillChar(Item^, NativeInt(Count) * SizeOf(T), #0);
       end else
       for i := 1 to Count do
       begin
@@ -3109,7 +3498,7 @@ begin
 end;
 
 class function InterfaceDefaults.Compare_I4(Inst: Pointer; Left, Right: Integer): Integer;
-{$ifNdef CPUINTEL}
+{$ifNdef CPUINTELASM}
 begin
   Result := Shortint(Byte(Left >= Right) - Byte(Left <= Right));
 end;
@@ -3129,7 +3518,7 @@ end;
 {$endif}
 
 class function InterfaceDefaults.Compare_U4(Inst: Pointer; Left, Right: Cardinal): Integer;
-{$ifNdef CPUINTEL}
+{$ifNdef CPUINTELASM}
 begin
   Result := Shortint(Byte(Left >= Right) - Byte(Left <= Right));
 end;
@@ -3160,7 +3549,7 @@ begin
 end;
 
 class function InterfaceDefaults.Compare_I8(Inst: Pointer; Left, Right: Int64): Integer;
-{$if Defined(CPUX64)}
+{$if Defined(CPUX64ASM)}
 asm
   xor eax, eax
   cmp rdx, r8
@@ -3193,7 +3582,7 @@ end;
 {$ifend}
 
 class function InterfaceDefaults.Compare_U8(Inst: Pointer; Left, Right: UInt64): Integer;
-{$if Defined(CPUX64)}
+{$if Defined(CPUX64ASM)}
 asm
   xor eax, eax
   cmp rdx, r8
@@ -3299,7 +3688,7 @@ begin
 end;
 
 class function InterfaceDefaults.Compare_F4(Inst: Pointer; Left, Right: Single): Integer;
-{$if Defined(CPUX86)}
+{$if Defined(CPUX86ASM)}
 asm
   fld Left
   fcomp Right
@@ -3313,7 +3702,7 @@ asm
   cmovnz edx, ecx
   xchg eax, edx
 end;
-{$elseif Defined(CPUX64)}
+{$elseif Defined(CPUX64ASM)}
 asm
   or eax, -1
   xor edx, edx
@@ -3355,7 +3744,7 @@ begin
 end;
 
 class function InterfaceDefaults.Compare_F8(Inst: Pointer; Left, Right: Double): Integer;
-{$if Defined(CPUX86)}
+{$if Defined(CPUX86ASM)}
 asm
   fld Left
   fcomp Right
@@ -3369,7 +3758,7 @@ asm
   cmovnz edx, ecx
   xchg eax, edx
 end;
-{$elseif Defined(CPUX64)}
+{$elseif Defined(CPUX64ASM)}
 asm
   or eax, -1
   xor edx, edx
@@ -3411,7 +3800,7 @@ begin
 end;
 
 class function InterfaceDefaults.Compare_FE(Inst: Pointer; Left, Right: Extended): Integer;
-{$if Defined(CPUX86)}
+{$if Defined(CPUX86ASM)}
 asm
   fld Right
   fld Left
@@ -3426,7 +3815,7 @@ asm
   cmovnz edx, ecx
   xchg eax, edx
 end;
-{$elseif Defined(CPUX64)}
+{$elseif Defined(CPUX64ASM)}
 asm
   or eax, -1
   xor edx, edx
@@ -5932,7 +6321,7 @@ type
   end;
 
 function TOrdinalStringComparer.Compare(const Left, Right: string): Integer;
-{$ifNdef CPUINTEL}
+{$ifNdef CPUINTELASM}
 begin
   Result := InterfaceDefaults.Compare_UStr(nil, Pointer(Left), Pointer(Right));
 end;
@@ -5943,7 +6332,7 @@ end;
 {$endif}
 
 function TOrdinalStringComparer.Equals(const Left, Right: string): Boolean;
-{$ifNdef CPUINTEL}
+{$ifNdef CPUINTELASM}
 begin
   Result := InterfaceDefaults.Equals_UStr(nil, Pointer(Left), Pointer(Right));
 end;
@@ -5954,7 +6343,7 @@ end;
 {$endif}
 
 function TOrdinalStringComparer.GetHashCode(const Value: string): Integer;
-{$ifNdef CPUINTEL}
+{$ifNdef CPUINTELASM}
 begin
   Result := InterfaceDefaults.GetHashCode_UStr(nil, Pointer(Value));
 end;
