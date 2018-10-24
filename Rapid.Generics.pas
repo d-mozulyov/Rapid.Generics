@@ -44,6 +44,7 @@ unit Rapid.Generics;
   {$ifend}
   {$if CompilerVersion >= 23}
     {$define UNITSCOPENAMES}
+    {$define MONITORSUPPORT}
   {$ifend}
   {$if CompilerVersion >= 21}
     {$WEAKLINKRTTI ON}
@@ -76,7 +77,6 @@ unit Rapid.Generics;
 {$if (not Defined(CPUX64)) and (not Defined(CPUARM64))}
   {$define SMALLINT}
 {$ifend}
-
 (*$HPPEMIT '#pragma option -w-8022'*)
 
 interface
@@ -124,7 +124,7 @@ type
   TInterfacedObject alternative (inheritor) and own interface, the differences:
    - contains an original object instance
    - reference count
-   - optimized atomic operations
+   - optimized initialize, cleanup and atomic operations
    - NEXTGEN-like rule of DisposeOf method, i.e. allows to call destructor before reference count set to zero
    - data in inherited classes is 8 byte aligned (this can be useful for lock-free algorithms)
    - allows to make TMonitor operations faster }
@@ -135,7 +135,9 @@ type
     function Disposed: Boolean;
     function RefCount: Integer;
     procedure DisposeOf;
+    {$ifdef MONITORSUPPORT}
     procedure OptimizeMonitor;
+    {$endif}
   end;
 
   TCustomObject = class(TInterfacedObject, IInterface, ICustomObject)
@@ -145,6 +147,11 @@ type
       CLEAR_DISPOSED_FLAG = not DISPOSED_FLAG;
       DEFAULT_REF_COUNT = {$ifdef AUTOREFCOUNT}1{$else}0{$endif};
       DUMMY_REFERENCE = 1;
+      {$if CompilerVersion >= 32}
+      monFlagsMask   = NativeInt($01);
+      monMonitorMask = not monFlagsMask;
+      monWeakReferencedFlag = NativeInt($01);
+      {$ifend}
   protected
     function GetSelf: TCustomObject {$ifdef AUTOREFCOUNT}unsafe{$endif};
     function GetDisposed_: Boolean;
@@ -160,6 +167,10 @@ type
     function _AddRef: Integer; stdcall;
     function _Release: Integer; stdcall;
   public
+    class function NewInstance: TObject; override;
+    {$if (not Defined(WEAKREF)) or Defined(CPUINTELASM) or (CompilerVersion >= 32)}
+    procedure FreeInstance; override;
+    {$ifend}
     procedure AfterConstruction; override;
     procedure BeforeDestruction; override;
     procedure DisposeOf; {$if CompilerVersion >= 25}reintroduce;{$ifend}
@@ -167,7 +178,9 @@ type
     function __ObjAddRef: Integer; override;
     function __ObjRelease: Integer; override;
     {$endif}
+    {$ifdef MONITORSUPPORT}
     procedure OptimizeMonitor;
+    {$endif}
 
     property Disposed: Boolean read GetDisposed;
   end;
@@ -1797,6 +1810,267 @@ end;
 
 { TCustomObject }
 
+class function TCustomObject.NewInstance: TObject;
+label
+  _0, _1, _2, _3, _4, _5, _6, _7, _8;
+type
+  HugeNativeIntArray = array[0..High(Integer) div SizeOf(NativeInt) - 1] of NativeInt;
+var
+  LSize: Integer;
+  LPtr: ^HugeNativeIntArray;
+  LNull: NativeInt;
+  LClass: TClass;
+  LTable: PInterfaceTable;
+  LEntry, LTopEntry: PInterfaceEntry;
+  LValue: Pointer;
+begin
+  // allocate
+  LSize := (PInteger(PByte(Self) + vmtInstanceSize)^ + (SizeOf(NativeInt) - 1)) and (-SizeOf(NativeInt));
+  GetMem(LPtr, LSize);
+
+  // TCustomObject initialization
+  LPtr[0] := NativeInt(Self);
+  LPtr[1]{FRefCount} := 1;
+  LPtr[2] := NativeInt(PInterfaceTable(PPointer(PByte(TInterfacedObject) + vmtIntfTable)^).Entries[0].VTable);
+  LPtr[3] := NativeInt(PInterfaceTable(PPointer(PByte(TCustomObject) + vmtIntfTable)^).Entries[0].VTable);
+
+  // fill zero
+  Dec(LSize, 4 * SizeOf(NativeInt));
+  Inc(NativeInt(LPtr), 4 * SizeOf(NativeInt));
+  LSize := LSize shr {$ifdef LARGEINT}3{$else .SMALLINT}2{$endif};
+  LNull := 0;
+  case (LSize) of
+    8: goto _8;
+    7: goto _7;
+    6: goto _6;
+    5: goto _5;
+    4: goto _4;
+    3: goto _3;
+    2: goto _2;
+    1: goto _1;
+    0: goto _0;
+  else
+    FillChar(LPtr^, LSize shl {$ifdef LARGEINT}3{$else .SMALLINT}2{$endif}, #0);
+    goto _0;
+  end;
+  _8: LPtr[7] := LNull;
+  _7: LPtr[6] := LNull;
+  _6: LPtr[5] := LNull;
+  _5: LPtr[4] := LNull;
+  _4: LPtr[3] := LNull;
+  _3: LPtr[2] := LNull;
+  _2: LPtr[1] := LNull;
+  _1: LPtr[0] := LNull;
+  _0: Dec(NativeInt(LPtr), 4 * SizeOf(NativeInt));
+
+  // interfaces
+  LClass := Self;
+  if (LClass <> TCustomObject) then
+  repeat
+    LTable := PInterfaceTable(PPointer(PByte(LClass) + vmtIntfTable)^);
+    if (Assigned(LTable)) then
+    begin
+      LTopEntry := @LTable.Entries[LTable.EntryCount];
+      LEntry := @LTable.Entries[0];
+      if (LEntry <> LTopEntry) then
+      repeat
+        LValue := LEntry.VTable;
+        if (Assigned(LValue)) then
+          PPointer(PByte(LPtr) + LEntry.IOffset)^ := LValue;
+
+        Inc(LEntry);
+      until (LEntry = LTopEntry);
+    end;
+
+    LClass := TClass(PPointer(PPointer(PByte(LClass) + vmtParent)^)^);
+  until (LClass = TCustomObject);
+
+  // result
+  Result := Pointer(LPtr);
+end;
+
+
+{$if Defined(WEAKREF) and Defined(CPUINTELASM)}
+procedure _CleanupInstance(Instance: Pointer);
+asm
+  jmp System.@CleanupInstance
+end;
+{$ifend}
+
+{$if (not Defined(WEAKREF)) or Defined(CPUINTELASM) or (CompilerVersion >= 32)}
+procedure TCustomObject.FreeInstance;
+label
+  next_class, free_memory;
+var
+  LClass: TClass;
+  LTypeInfo: PTypeInfo;
+  LSize: Integer;
+  {$ifdef MONITORSUPPORT}
+  LMonitor, LMonitorFlags: NativeInt;
+  LLockEvent: Pointer;
+  {$endif}
+  FieldTable: TRAIIHelper.PFieldTable;
+  Field, TopField: TRAIIHelper.PFieldInfo;
+  {$ifdef WEAKREF}
+  WeakMode: Boolean;
+  {$endif}
+  LPtr: Pointer;
+begin
+  // monitor start, weak references
+  {$ifdef MONITORSUPPORT} // XE2+
+  LSize := PInteger(PNativeInt(Self)^ + vmtInstanceSize)^;
+  LMonitorFlags := PNativeInt(PByte(Self) + LSize + (- hfFieldSize + hfMonitorOffset))^;
+  {$if CompilerVersion >= 32}
+  if (LMonitorFlags and monWeakReferencedFlag <> 0) then
+  {$ifend}
+  {$endif}
+  {$ifdef WEAKREF}
+  begin
+    {$ifdef CPUINTELASM}
+    _CleanupInstance(Pointer(Self));
+    {$else .NEXTGEN}
+    Self.CleanupInstance;
+    goto free_memory;
+    {$endif}
+  end;
+  {$endif}
+
+  // monitor finish
+  {$ifdef MONITORSUPPORT}
+  LMonitor  := LMonitorFlags {$if CompilerVersion >= 32}and monMonitorMask{$ifend};
+  if (LMonitor <> 0) then
+  begin
+    LLockEvent := PPointer(LMonitor + (SizeOf(Integer) + SizeOf(Integer) + SizeOf(System.TThreadID)))^;
+    if Assigned(LLockEvent) then
+    begin
+      MonitorSupport.FreeSyncObject(LLockEvent);
+    end;
+
+    FreeMem(Pointer(LMonitor));
+  end;
+  {$endif}
+
+  // fields
+  LClass := PPointer(Self)^;
+  if (LClass <> TCustomObject) then
+  repeat
+    LTypeInfo := PPointer(PByte(LClass) + vmtInitTable)^;
+    if (not Assigned(LTypeInfo)) then
+      goto next_class;
+
+    FieldTable := Pointer(PByte(LTypeInfo) + PByte(@LTypeInfo.Name)^);
+    if (FieldTable.Count = 0) then
+      goto next_class;
+
+    TopField := @FieldTable.Fields[FieldTable.Count];
+    Field := @FieldTable.Fields[0];
+    repeat
+      {$ifdef WEAKREF}
+      WeakMode := False;
+      {$endif}
+
+      LPtr := PByte(Self) + NativeInt(Field.Offset);
+      {$ifdef WEAKREF}
+      if (Field.TypeInfo = nil) then
+      begin
+        WeakMode := True;
+      end;
+      if (not WeakMode) then
+      begin
+      {$endif}
+        case (Field.TypeInfo^.Kind) of
+          tkVariant:
+          begin
+            if Assigned(PPointer(LPtr)^) then
+              TRAIIHelper.VarClear(LPtr);
+          end;
+          {$ifdef AUTOREFCOUNT}
+          tkClass:
+          begin
+            if Assigned(PPointer(LPtr)^) then
+              TRAIIHelper.RefObjClear(LPtr);
+          end;
+          {$endif}
+          {$ifdef WEAKINSTREF}
+          tkMethod:
+          begin
+            Inc(NativeInt(LPtr), SizeOf(Pointer));
+            if Assigned(PPointer(LPtr)^) then
+              TRAIIHelper.WeakMethodClear(LPtr);
+          end;
+          {$endif}
+          {$ifdef MSWINDOWS}
+          tkWString:
+          begin
+            if Assigned(PPointer(LPtr)^) then
+              TRAIIHelper.WStrClear(LPtr);
+          end;
+          {$else}
+          tkWString,
+          {$endif}
+          tkLString, tkUString:
+          begin
+            if Assigned(PPointer(LPtr)^) then
+              TRAIIHelper.ULStrClear(LPtr);
+          end;
+          tkInterface:
+          begin
+            if Assigned(PPointer(LPtr)^) then
+              TRAIIHelper.IntfClear(LPtr);
+          end;
+          tkDynArray:
+          begin
+            if Assigned(PPointer(LPtr)^) then
+              TRAIIHelper.DynArrayClear(LPtr, Field.TypeInfo);
+          end;
+          tkArray{static array}:
+          begin
+            System.FinalizeArray(LPtr, Field.TypeInfo, FieldTable.Count);
+          end;
+          tkRecord:
+          begin
+            System.FinalizeRecord(LPtr, Field.TypeInfo);
+          end;
+        end;
+      {$ifdef WEAKREF}
+      end else
+      case Field.TypeInfo^.Kind of
+      {$ifdef WEAKINTFREF}
+        tkInterface:
+        begin
+          if Assigned(PPointer(LPtr)^) then
+            TRAIIHelper.WeakIntfClear(LPtr);
+        end;
+      {$endif}
+      {$ifdef WEAKINSTREF}
+        tkClass:
+        begin
+          if Assigned(PPointer(LPtr)^) then
+            TRAIIHelper.WeakObjClear(LPtr);
+        end;
+        tkMethod:
+        begin
+          Inc(NativeInt(LPtr), SizeOf(Pointer));
+          if Assigned(PPointer(LPtr)^) then
+            TRAIIHelper.WeakMethodClear(LPtr);
+        end;
+      {$endif}
+      end;
+      {$endif .WEAKREF}
+
+      Inc(Field);
+    until (Field = TopField);
+
+  next_class:
+    LClass := TClass(PPointer(PPointer(PByte(LClass) + vmtParent)^)^);
+  until (LClass = TCustomObject);
+
+  // memory
+free_memory:
+  FreeMem(Pointer(Self));
+end;
+{$ifend}
+
 function TCustomObject.GetSelf: TCustomObject;
 begin
   Result := Self;
@@ -1991,22 +2265,24 @@ begin
   end;
 end;
 
+{$ifdef MONITORSUPPORT}
 procedure TCustomObject.OptimizeMonitor;
 const
-  monFlagsMask   = NativeInt($01); // 1bits for special flags.
-  monMonitorMask = not monFlagsMask;
   OPTIMIZED_SPIN_COUNT = 5;
 var
-  InstanceSize: Integer;
-  Value: NativeInt;
-  Field: PInteger;
+  LSize: Integer;
+  LMonitor: NativeInt;
+  LField: PInteger;
 begin
-  InstanceSize := PInteger(PNativeInt(Self)^ + vmtInstanceSize)^;
-  Value := PNativeInt(NativeInt(Self) + InstanceSize + (- hfFieldSize + hfMonitorOffset))^ and monMonitorMask;
-  if (Value <> 0) then
+  LSize := PInteger(PNativeInt(Self)^ + vmtInstanceSize)^;
+  LMonitor := PNativeInt(PByte(Self) + LSize + (- hfFieldSize + hfMonitorOffset))^;
+  {$if CompilerVersion >= 32}
+  LMonitor := LMonitor and monMonitorMask;
+  {$ifend}
+  if (LMonitor <> 0) then
   begin
-    Field := PInteger(Value + (SizeOf(Integer) + SizeOf(Integer) + SizeOf(System.TThreadID) + SizeOf(Pointer)));
-    if (Field^ = OPTIMIZED_SPIN_COUNT) then
+    LField := PInteger(LMonitor + (SizeOf(Integer) + SizeOf(Integer) + SizeOf(System.TThreadID) + SizeOf(Pointer)));
+    if (LField^ = OPTIMIZED_SPIN_COUNT) then
       Exit;
 
     if (CPUCount = 1) then
@@ -2015,6 +2291,7 @@ begin
 
   TMonitor.SetSpinCount(Self, OPTIMIZED_SPIN_COUNT);
 end;
+{$endif}
 
 
 { TLiteCustomObject }
@@ -2434,7 +2711,7 @@ begin
         for i := 0 to FieldTable.Count - 1 do
         begin
           ChildOffset := AOffset + NativeInt(FieldTable.Fields[i].Offset);
-        {$ifdef WEAKREF}
+          {$ifdef WEAKREF}
           if FieldTable.Fields[i].TypeInfo = nil then
           begin
             WeakMode := True;
@@ -2443,9 +2720,9 @@ begin
           end;
           if (not WeakMode) then
           begin
-        {$endif}
+          {$endif}
             Self.Include(ChildOffset, FieldTable.Fields[i].TypeInfo^);
-        {$ifdef WEAKREF}
+          {$ifdef WEAKREF}
           end else
           case FieldTable.Fields[i].TypeInfo^.Kind of
           {$ifdef WEAKINTFREF}
@@ -2474,7 +2751,7 @@ begin
             end;
           {$endif}
           end;
-        {$endif}
+          {$endif .WEAKREF}
         end;
       end;
     end;
