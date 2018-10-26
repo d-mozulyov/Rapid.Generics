@@ -726,10 +726,35 @@ type
   PObject = ^TObject;
 
 
+{ Lightweight optimized enumerator routine }
+
+  TLiteEnumeratorData<T> = record
+    {$ifdef AUTOREFCOUNT}[Unsafe]{$endif} Owner: TObject;
+    Current: T;
+    Tag: NativeInt;
+    Reserved: NativeInt;
+    procedure Init(const AOwner: TObject); inline;
+  end;
+
+  TLiteEnumerable<T> = class(TCustomObject)
+{ public
+    type
+      TEnumerator = record
+        Data: TLiteEnumeratorData<T>;
+        property Current: T read Data.Current;
+        function MoveNext: Boolean;
+      end;
+
+    function GetEnumerator: TEnumerator; }
+  public
+    function ToArray: TArray<T>; virtual; abstract;
+  end;
+
+
 { TCustomDictionary<TKey,TValue> class
   Basic class for TDictionary<TKey,TValue>, TRapidDictionary<TKey,TValue> }
 
-  TCustomDictionary<TKey,TValue> = class(TEnumerable<TPair<TKey,TValue>>)
+  TCustomDictionary<TKey,TValue> = class(TLiteEnumerable<TPair<TKey,TValue>>)
   public type
     PItem = ^TItem;
     TItem = packed record
@@ -746,70 +771,42 @@ type
     TItemList = array[0..0] of TItem;
     PItemList = ^TItemList;
 
-    TPairEnumerator = class(TEnumerator<TPair<TKey,TValue>>)
-    private
-      FDictionary: TCustomDictionary<TKey,TValue>;
-      FIndex: NativeInt;
-      function GetCurrent: TPair<TKey,TValue>; inline;
-    protected
-      function DoGetCurrent: TPair<TKey,TValue>; override;
-      function DoMoveNext: Boolean; override;
-    public
-      constructor Create(const ADictionary: TCustomDictionary<TKey,TValue>);
-      property Current: TPair<TKey,TValue> read GetCurrent;
+    TPairEnumerator = record
+      Data: TLiteEnumeratorData<TPair<TKey,TValue>>;
+      property Current: TPair<TKey,TValue> read Data.Current;
       function MoveNext: Boolean; inline;
     end;
 
-    TKeyEnumerator = class(TEnumerator<TKey>)
-    private
-      FDictionary: TCustomDictionary<TKey,TValue>;
-      FIndex: NativeInt;
-      function GetCurrent: TKey;
-    protected
-      function DoGetCurrent: TKey; override;
-      function DoMoveNext: Boolean; override;
-    public
-      constructor Create(const ADictionary: TCustomDictionary<TKey,TValue>);
-      property Current: TKey read GetCurrent;
-      function MoveNext: Boolean;
+    TKeyEnumerator = record
+      Data: TLiteEnumeratorData<TKey>;
+      property Current: TKey read Data.Current;
+      function MoveNext: Boolean; inline;
     end;
 
-    TValueEnumerator = class(TEnumerator<TValue>)
-    private
-      FDictionary: TCustomDictionary<TKey,TValue>;
-      FIndex: NativeInt;
-      function GetCurrent: TValue;
-    protected
-      function DoGetCurrent: TValue; override;
-      function DoMoveNext: Boolean; override;
-    public
-      constructor Create(const ADictionary: TCustomDictionary<TKey,TValue>);
-      property Current: TValue read GetCurrent;
-      function MoveNext: Boolean;
+    TValueEnumerator = record
+      Data: TLiteEnumeratorData<TValue>;
+      property Current: TValue read Data.Current;
+      function MoveNext: Boolean; inline;
     end;
 
-    TKeyCollection = class(TEnumerable<TKey>)
+    TKeyCollection = class(TLiteEnumerable<TKey>)
     private
-      {$ifdef WEAKREF}[Weak]{$endif} FDictionary: TCustomDictionary<TKey,TValue>;
+      {$ifdef AUTOREFCOUNT}[Unsafe]{$endif} FDictionary: TCustomDictionary<TKey,TValue>;
       function GetCount: Integer; inline;
-    protected
-      function DoGetEnumerator: TEnumerator<TKey>; override;
     public
       constructor Create(const ADictionary: TCustomDictionary<TKey,TValue>);
-      function GetEnumerator: TKeyEnumerator; reintroduce;
+      function GetEnumerator: TKeyEnumerator;
       function ToArray: TArray<TKey>; override; final;
       property Count: Integer read GetCount;
     end;
 
-    TValueCollection = class(TEnumerable<TValue>)
+    TValueCollection = class(TLiteEnumerable<TValue>)
     private
-      {$ifdef WEAKREF}[Weak]{$endif} FDictionary: TCustomDictionary<TKey,TValue>;
+      {$ifdef AUTOREFCOUNT}[Unsafe]{$endif} FDictionary: TCustomDictionary<TKey,TValue>;
       function GetCount: Integer; inline;
-    protected
-      function DoGetEnumerator: TEnumerator<TValue>; override;
     public
       constructor Create(const ADictionary: TCustomDictionary<TKey,TValue>);
-      function GetEnumerator: TValueEnumerator; reintroduce;
+      function GetEnumerator: TValueEnumerator;
       function ToArray: TArray<TValue>; override; final;
       property Count: Integer read GetCount;
     end;
@@ -843,8 +840,7 @@ type
     procedure DisposeItem(Item: Pointer{PItem});
     procedure DoCleanupItems(Item: PItem; Count: NativeInt); virtual;
 
-    // enumarators
-    function DoGetEnumerator: TEnumerator<TPair<TKey,TValue>>; override;
+    // enumerators
     function GetKeys: TKeyCollection; inline;
     function GetValues: TValueCollection; inline;
 
@@ -892,7 +888,7 @@ type
     procedure TrimExcess;
     function ContainsValue(const Value: TValue): Boolean;
 
-    function GetEnumerator: TPairEnumerator; reintroduce;
+    function GetEnumerator: TPairEnumerator;
     function ToArray: TArray<TPair<TKey,TValue>>; override; final;
 
     property Keys: TKeyCollection read GetKeys;
@@ -1297,24 +1293,16 @@ type
 { TCustomList<T> class
   Basic class for TList<T>, TQueue<T>, TStack<T> }
 
-  TCustomList<T> = class(TEnumerable<T>)
+  TCustomList<T> = class(TLiteEnumerable<T>)
   public type
     TItem = T;
     PItem = ^TItem;
     TItemList = array[0..0] of TItem;
     PItemList = ^TItemList;
 
-    TEnumerator = class(TEnumerator<T>)
-    private
-      FList: TCustomList<T>;
-      FIndex: NativeInt;
-      function GetCurrent: T; inline;
-    protected
-      function DoGetCurrent: T; override;
-      function DoMoveNext: Boolean; override;
-    public
-      constructor Create(const AList: TCustomList<T>);
-      property Current: T read GetCurrent;
+    TEnumerator = record
+      Data: TLiteEnumeratorData<T>;
+      property Current: T read Data.Current;
       function MoveNext: Boolean; inline;
     end;
   protected
@@ -1332,7 +1320,6 @@ type
     procedure SetCapacity(Value: Integer);
     procedure Grow;
     procedure GrowTo(Value: Integer);
-    function DoGetEnumerator: TEnumerator<T>; override;
     procedure SetOnNotify(const Value: TCollectionNotifyEvent<T>);
     procedure Notify(const Item: T; Action: TCollectionNotification); virtual;
     procedure NotifyCaller(Sender: TObject; const Item: T; Action: TCollectionNotification);
@@ -1345,7 +1332,7 @@ type
     procedure Clear;
     procedure TrimExcess; inline;
     function ToArray: TArray<T>; override; final;
-    function GetEnumerator: TEnumerator; reintroduce; inline;
+    function GetEnumerator: TEnumerator;
 
     property Count: Integer read FCount.Int;
     property Capacity: Integer read FCapacity.Int write SetCapacity;
@@ -6811,118 +6798,89 @@ begin
   Value := AValue;
 end;
 
+{ TLiteEnumeratorData<T> }
+
+procedure TLiteEnumeratorData<T>.Init(const AOwner: TObject);
+begin
+  Owner := AOwner;
+  Tag := -1;
+  Reserved := -1;
+end;
+
 { TCustomDictionary<TKey,TValue>.TPairEnumerator }
 
-constructor TCustomDictionary<TKey,TValue>.TPairEnumerator.Create(const ADictionary: TCustomDictionary<TKey,TValue>);
-begin
-  inherited Create;
-  FIndex := -1;
-  FDictionary := ADictionary;
-end;
-
-function TCustomDictionary<TKey,TValue>.TPairEnumerator.DoGetCurrent: TPair<TKey,TValue>;
-begin
-  Result := GetCurrent;
-end;
-
-function TCustomDictionary<TKey,TValue>.TPairEnumerator.DoMoveNext: Boolean;
-begin
-  Result := MoveNext;
-end;
-
-function TCustomDictionary<TKey,TValue>.TPairEnumerator.GetCurrent: TPair<TKey,TValue>;
+(*function TCustomDictionary<TKey,TValue>.TPairEnumerator.GetCurrent: TPair<TKey,TValue>;
 var
   Item: PItem;
 begin
   Item := @FDictionary.FItems[FIndex];
   Result.Key := Item.Key;
   Result.Value := Item.Value;
-end;
+end;  *)
 
 function TCustomDictionary<TKey,TValue>.TPairEnumerator.MoveNext: Boolean;
 var
   N: NativeInt;
+  Item: PItem;
 begin
-  N := FIndex + 1;
-  if (N < FDictionary.FCount.Native) then
+  N := Data.Tag + 1;
+
+  with TCustomDictionary<TKey,TValue>(Data.Owner) do
   begin
-    FIndex := N;
-    Exit(True);
+    if (N < FCount.Native) then
+    begin
+      Data.Tag := N;
+
+      Item := @FItems[N];
+      Data.Current.Key := Item.Key;
+      Data.Current.Value := Item.Value;
+
+      Exit(True);
+    end;
   end;
+
   Result := False;
 end;
 
 { TCustomDictionary<TKey,TValue>.TKeyEnumerator }
 
-constructor TCustomDictionary<TKey,TValue>.TKeyEnumerator.Create(const ADictionary: TCustomDictionary<TKey,TValue>);
-begin
-  inherited Create;
-  FIndex := -1;
-  FDictionary := ADictionary;
-end;
-
-function TCustomDictionary<TKey,TValue>.TKeyEnumerator.DoGetCurrent: TKey;
-begin
-  Result := GetCurrent;
-end;
-
-function TCustomDictionary<TKey,TValue>.TKeyEnumerator.DoMoveNext: Boolean;
-begin
-  Result := MoveNext;
-end;
-
-function TCustomDictionary<TKey,TValue>.TKeyEnumerator.GetCurrent: TKey;
-begin
-  Result := FDictionary.FItems[FIndex].Key;
-end;
-
 function TCustomDictionary<TKey,TValue>.TKeyEnumerator.MoveNext: Boolean;
 var
   N: NativeInt;
 begin
-  N := FIndex + 1;
-  if (N < FDictionary.FCount.Native) then
+  N := Data.Tag + 1;
+
+  with TCustomDictionary<TKey,TValue>(Data.Owner) do
   begin
-    FIndex := N;
-    Exit(True);
+    if (N < FCount.Native) then
+    begin
+      Data.Tag := N;
+      Data.Current := FItems[N].Key;
+      Exit(True);
+    end;
   end;
+
   Result := False;
 end;
 
 { TCustomDictionary<TKey,TValue>.TValueEnumerator }
 
-constructor TCustomDictionary<TKey,TValue>.TValueEnumerator.Create(const ADictionary: TCustomDictionary<TKey,TValue>);
-begin
-  inherited Create;
-  FIndex := -1;
-  FDictionary := ADictionary;
-end;
-
-function TCustomDictionary<TKey,TValue>.TValueEnumerator.DoGetCurrent: TValue;
-begin
-  Result := GetCurrent;
-end;
-
-function TCustomDictionary<TKey,TValue>.TValueEnumerator.DoMoveNext: Boolean;
-begin
-  Result := MoveNext;
-end;
-
-function TCustomDictionary<TKey,TValue>.TValueEnumerator.GetCurrent: TValue;
-begin
-  Result := FDictionary.FItems[FIndex].Value;
-end;
-
 function TCustomDictionary<TKey,TValue>.TValueEnumerator.MoveNext: Boolean;
 var
   N: NativeInt;
 begin
-  N := FIndex + 1;
-  if (N < FDictionary.FCount.Native) then
+  N := Data.Tag + 1;
+
+  with TCustomDictionary<TKey,TValue>(Data.Owner) do
   begin
-    FIndex := N;
-    Exit(True);
+    if (N < FCount.Native) then
+    begin
+      Data.Tag := N;
+      Data.Current := FItems[N].Value;
+      Exit(True);
+    end;
   end;
+
   Result := False;
 end;
 
@@ -6934,11 +6892,6 @@ begin
   FDictionary := ADictionary;
 end;
 
-function TCustomDictionary<TKey,TValue>.TKeyCollection.DoGetEnumerator: TEnumerator<TKey>;
-begin
-  Result := GetEnumerator;
-end;
-
 function TCustomDictionary<TKey,TValue>.TKeyCollection.GetCount: Integer;
 begin
   Result := FDictionary.FCount.Int;
@@ -6946,7 +6899,7 @@ end;
 
 function TCustomDictionary<TKey,TValue>.TKeyCollection.GetEnumerator: TKeyEnumerator;
 begin
-  Result := TKeyEnumerator.Create(FDictionary);
+  Result.Data.Init(Self);
 end;
 
 function TCustomDictionary<TKey,TValue>.TKeyCollection.ToArray: TArray<TKey>;
@@ -6976,11 +6929,6 @@ begin
   FDictionary := ADictionary;
 end;
 
-function TCustomDictionary<TKey,TValue>.TValueCollection.DoGetEnumerator: TEnumerator<TValue>;
-begin
-  Result := GetEnumerator;
-end;
-
 function TCustomDictionary<TKey,TValue>.TValueCollection.GetCount: Integer;
 begin
   Result := FDictionary.FCount.Int;
@@ -6988,7 +6936,7 @@ end;
 
 function TCustomDictionary<TKey,TValue>.TValueCollection.GetEnumerator: TValueEnumerator;
 begin
-  Result := TValueEnumerator.Create(FDictionary);
+  Result.Data.Init(Self);
 end;
 
 function TCustomDictionary<TKey,TValue>.TValueCollection.ToArray: TArray<TValue>;
@@ -7012,14 +6960,9 @@ end;
 
 { TCustomDictionary<TKey,TValue> }
 
-function TCustomDictionary<TKey,TValue>.DoGetEnumerator: TEnumerator<TPair<TKey,TValue>>;
-begin
-  Result := GetEnumerator;
-end;
-
 function TCustomDictionary<TKey,TValue>.GetEnumerator: TPairEnumerator;
 begin
-  Result := TPairEnumerator.Create(Self);
+  Result.Data.Init(Self);
 end;
 
 function TCustomDictionary<TKey,TValue>.GetKeys: TKeyCollection;
@@ -15958,45 +15901,24 @@ end;
 
 { TCustomList<T>.TEnumerator }
 
-constructor TCustomList<T>.TEnumerator.Create(const AList: TCustomList<T>);
-begin
-  inherited Create;
-  FIndex := -1;
-  FList := AList;
-end;
-
-function TCustomList<T>.TEnumerator.DoGetCurrent: T;
-begin
-  Result := GetCurrent;
-end;
-
-function TCustomList<T>.TEnumerator.DoMoveNext: Boolean;
-begin
-  Result := MoveNext;
-end;
-
-function TCustomList<T>.TEnumerator.GetCurrent: T;
-var
-  Index, Cap: NativeInt;
-begin
-  with FList do
-  begin
-    Index := FTail + FIndex;
-    Cap := FCapacity.Native;
-    if (Index > Cap) then Dec(Index, Cap);
-    Result := FItems[Index];
-  end;
-end;
-
 function TCustomList<T>.TEnumerator.MoveNext: Boolean;
 var
-  N: NativeInt;
+  N, Cap: NativeInt;
 begin
-  N := FIndex + 1;
-  if (N < FList.FCount.Native) then
+  N := Data.Tag + 1;
+  with TCustomList<T>(Data.Owner) do
   begin
-    FIndex := N;
-    Exit(True);
+    if (N < FCount.Native) then
+    begin
+      Data.Tag := N;
+
+      Inc(N, FTail);
+      Cap := FCapacity.Native;
+      if (N > Cap) then Dec(N, Cap);
+      Data.Current := FItems[N];
+
+      Exit(True);
+    end;
   end;
   Result := False;
 end;
@@ -16274,14 +16196,9 @@ begin
   end;
 end;
 
-function TCustomList<T>.DoGetEnumerator: TEnumerator<T>;
-begin
-  Result := GetEnumerator;
-end;
-
 function TCustomList<T>.GetEnumerator: TEnumerator;
 begin
-  Result := TEnumerator.Create(Self);
+  Result.Data.Init(Self);
 end;
 
 function TCustomList<T>.ToArray: TArray<T>;
