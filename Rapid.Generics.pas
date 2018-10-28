@@ -173,10 +173,16 @@ type
     {$ifend}
     procedure AfterConstruction; override;
     procedure BeforeDestruction; override;
+    {$ifNdef AUTOREFCOUNT}
+    procedure Free; reintroduce; inline;
+    {$endif}
     procedure DisposeOf; {$if CompilerVersion >= 25}reintroduce;{$ifend}
     {$ifdef AUTOREFCOUNT}
     function __ObjAddRef: Integer; override;
     function __ObjRelease: Integer; override;
+    {$else}
+    function __ObjAddRef: Integer; inline;
+    function __ObjRelease: Integer; inline;
     {$endif}
     {$ifdef MONITORSUPPORT}
     procedure OptimizeMonitor;
@@ -699,21 +705,49 @@ type
   TCollectionNotifyEvent<T> = procedure(Sender: TObject; const Item: T;
     Action: TCollectionNotification) of object;
 
-  TEnumerator<T> = class abstract (TCustomObject)
+  TEnumerator_ = class abstract (TCustomObject, IEnumerator)
   protected
-    function DoGetCurrent: T; virtual; abstract;
+    function IEnumerator.GetCurrent = DoGetCurrentObject;
+    function IEnumerator.MoveNext = DoMoveNext;
+    procedure IEnumerator.Reset = DoReset;
+    function DoGetCurrentObject: TObject; virtual; abstract;
     function DoMoveNext: Boolean; virtual; abstract;
+    procedure DoReset; virtual;
   public
-    property Current: T read DoGetCurrent;
+    procedure Reset;
     function MoveNext: Boolean;
+    property Current: TObject read DoGetCurrentObject;
   end;
 
-  TEnumerable<T> = class abstract (TCustomObject)
+  TEnumerator<T> = class abstract (TEnumerator_, IEnumerator<T>)
   protected
+    function IEnumerator<T>.GetCurrent = DoGetCurrent;
+    function IEnumerator<T>.MoveNext = DoMoveNext;
+    function DoGetCurrentObject: TObject; override;
+    function DoGetCurrent: T; virtual; abstract;
+  public
+    property Current: T read DoGetCurrent;
+    property CurrentObject: TObject read DoGetCurrentObject;
+  end;
+
+  TEnumerable_ = class abstract (TCustomObject, IEnumerable)
+  protected
+    function IEnumerable.GetEnumerator = GetObjectEnumerator;
+    function GetObjectEnumerator: IEnumerator;
+    function DoGetObjectEnumerator: TEnumerator_; virtual; abstract;
+  public
+    function GetEnumerator: TEnumerator_;
+  end;
+
+  TEnumerable<T> = class abstract (TEnumerable_, IEnumerable<T>)
+  protected
+    function IEnumerable<T>.GetEnumerator = GetEnumerator_;
+    function DoGetObjectEnumerator: TEnumerator_; override;
+    function GetEnumerator_: IEnumerator<T>;
     function DoGetEnumerator: TEnumerator<T>; virtual; abstract;
   public
     destructor Destroy; override;
-    function GetEnumerator: TEnumerator<T>;
+    function GetEnumerator: TEnumerator<T>; reintroduce;
     function ToArray: TArray<T>; virtual;
   end;
 
@@ -736,7 +770,19 @@ type
     procedure Init(const AOwner: TObject); inline;
   end;
 
-  TLiteEnumerable<T> = class(TCustomObject)
+  TLiteEnumerator<T> = record
+    Data: TLiteEnumeratorData<T>;
+    DoMoveNext: function(var AData: TLiteEnumeratorData<T>): Boolean;
+    property Current: T read Data.Current;
+    function MoveNext: Boolean; inline;
+  end;
+
+  ILiteEnumerable<T> = interface
+    function GetEnumerator: TLiteEnumerator<T>;
+    function ToArray: TArray<T>;
+  end;
+
+  TLiteEnumerable<T> = class(TCustomObject, ILiteEnumerable<T>)
 { public
     type
       TEnumerator = record
@@ -746,6 +792,9 @@ type
       end;
 
     function GetEnumerator: TEnumerator; }
+  protected
+    function ILiteEnumerable<T>.GetEnumerator = DoGetEnumerator;
+    function DoGetEnumerator: TLiteEnumerator<T>; virtual; abstract;
   public
     function ToArray: TArray<T>; virtual; abstract;
   end;
@@ -790,8 +839,9 @@ type
     end;
 
     TKeyCollection = class(TLiteEnumerable<TKey>)
-    private
+    protected
       {$ifdef AUTOREFCOUNT}[Unsafe]{$endif} FDictionary: TCustomDictionary<TKey,TValue>;
+      function DoGetEnumerator: TLiteEnumerator<TKey>; override;
       function GetCount: Integer; inline;
     public
       constructor Create(const ADictionary: TCustomDictionary<TKey,TValue>);
@@ -801,8 +851,9 @@ type
     end;
 
     TValueCollection = class(TLiteEnumerable<TValue>)
-    private
+    protected
       {$ifdef AUTOREFCOUNT}[Unsafe]{$endif} FDictionary: TCustomDictionary<TKey,TValue>;
+      function DoGetEnumerator: TLiteEnumerator<TValue>; override;
       function GetCount: Integer; inline;
     public
       constructor Create(const ADictionary: TCustomDictionary<TKey,TValue>);
@@ -841,8 +892,11 @@ type
     procedure DoCleanupItems(Item: PItem; Count: NativeInt); virtual;
 
     // enumerators
-    function GetKeys: TKeyCollection; inline;
-    function GetValues: TValueCollection; inline;
+    function DoGetEnumerator: TLiteEnumerator<TPair<TKey,TValue>>; override;
+    function InitKeyCollection: TKeyCollection {$ifdef AUTOREFCOUNT}unsafe{$endif};
+    function InitValueCollection: TValueCollection {$ifdef AUTOREFCOUNT}unsafe{$endif};
+    function GetKeys: TKeyCollection {$ifdef AUTOREFCOUNT}unsafe{$endif}; inline;
+    function GetValues: TValueCollection {$ifdef AUTOREFCOUNT}unsafe{$endif}; inline;
 
     // helpers
     class function IntfMethod(Intf: Pointer; MethodNum: NativeUInt = 3): TMethod; inline; static;
@@ -1303,7 +1357,7 @@ type
     TEnumerator = record
       Data: TLiteEnumeratorData<T>;
       property Current: T read Data.Current;
-      function MoveNext: Boolean; inline;
+      function MoveNext: Boolean;
     end;
   protected
     FItems: PItemList;
@@ -1324,6 +1378,7 @@ type
     procedure Notify(const Item: T; Action: TCollectionNotification); virtual;
     procedure NotifyCaller(Sender: TObject; const Item: T; Action: TCollectionNotification);
     procedure SetNotifyMethods; virtual;
+    function DoGetEnumerator: TLiteEnumerator<T>; override;
 
     property List: PItemList read FItems;
   public
@@ -1651,10 +1706,11 @@ type
 
 implementation
 
-{$if CompilerVersion <= 27}
 resourcestring
+  {$if CompilerVersion <= 27}
   sSameArrays = 'Source and Destination arrays must not be the same';
-{$ifend}
+  {$ifend}
+  SMethodNotSupported = 'Method %s not supported';
 
 type
   PDynArrayRec = ^TDynArrayRec;
@@ -1935,7 +1991,8 @@ begin
 
     FreeMem(Pointer(LMonitor));
   end;
-  {$endif}
+
+  {$endif}
 
   // fields
   LClass := PPointer(Self)^;
@@ -2101,6 +2158,13 @@ procedure TCustomObject.BeforeDestruction;
 begin
 end;
 
+{$ifNdef AUTOREFCOUNT}
+procedure TCustomObject.Free;
+begin
+  DisposeOf;
+end;
+{$endif}
+
 procedure TCustomObject.DisposeOf;
 type
   TBeforeDestructionProc = procedure(Instance: Pointer);
@@ -2150,8 +2214,8 @@ begin
     TDestructorProc(Proc)(Self, 0);
 end;
 
-{$ifdef AUTOREFCOUNT}
 function TCustomObject.__ObjAddRef: Integer;
+{$ifdef AUTOREFCOUNT}
 begin
   Result := FRefCount;
   if (Cardinal(Result and CLEAR_DISPOSED_FLAG) <= DEFAULT_REF_COUNT) then
@@ -2163,6 +2227,10 @@ begin
   begin
     Result := AtomicIncrement(FRefCount);
   end;
+end;
+{$else}
+begin
+  Result := _AddRef;
 end;
 {$endif}
 
@@ -2188,8 +2256,8 @@ begin
   end;
 end;
 
-{$ifdef AUTOREFCOUNT}
 function TCustomObject.__ObjRelease: Integer;
+{$ifdef AUTOREFCOUNT}
 begin
   // release reference
   Result := FRefCount;
@@ -2214,6 +2282,10 @@ begin
   begin
     FreeInstance;
   end;
+end;
+{$else}
+begin
+  Result := _Release;
 end;
 {$endif}
 
@@ -6746,18 +6818,72 @@ begin
 end;
 
 
-{ TEnumerator<T> }
+{ TEnumerator_ }
 
-function TEnumerator<T>.MoveNext: Boolean;
+procedure TEnumerator_.Reset;
+begin
+  DoReset;
+end;
+
+procedure TEnumerator_.DoReset;
+begin
+  raise ENotSupportedException.CreateResFmt(Pointer(@SMethodNotSupported), ['Reset']);
+end;
+
+function TEnumerator_.MoveNext: Boolean;
 begin
   Result := DoMoveNext;
 end;
+
+{ TEnumerator<T> }
+
+function TEnumerator<T>.DoGetCurrentObject: TObject;
+begin
+  if ({$ifdef SMARTGENERICS}GetTypeKind(T){$else}PTypeInfo(TypeInfo(T)).Kind{$endif} = tkClass) then
+  begin
+    T(Pointer(@Result)^) := DoGetCurrent;
+  end else
+  begin
+    Result := nil;
+  end;
+end;
+
+
+{ TEnumerable_ }
+
+function TEnumerable_.GetObjectEnumerator: IEnumerator;
+begin
+  Result := DoGetObjectEnumerator;
+end;
+
+function TEnumerable_.GetEnumerator: TEnumerator_;
+begin
+  Result := DoGetObjectEnumerator;
+end;
+
+{ TEnumerable<T> }
 
 // The overridden destructor that simply invokes 'inherited' is
 // required to instantiate the destructor for C++ code
 destructor TEnumerable<T>.Destroy;
 begin
   inherited;
+end;
+
+function TEnumerable<T>.DoGetObjectEnumerator: TEnumerator_;
+begin
+  if ({$ifdef SMARTGENERICS}GetTypeKind(T){$else}PTypeInfo(TypeInfo(T)).Kind{$endif} = tkClass) then
+  begin
+    Result := DoGetEnumerator;
+  end else
+  begin
+    Result := nil;
+  end;
+end;
+
+function TEnumerable<T>.GetEnumerator_: IEnumerator<T>;
+begin
+  Result := DoGetEnumerator;
 end;
 
 function TEnumerable<T>.GetEnumerator: TEnumerator<T>;
@@ -6807,16 +6933,14 @@ begin
   Reserved := -1;
 end;
 
-{ TCustomDictionary<TKey,TValue>.TPairEnumerator }
+{ TLiteEnumerator<T> }
 
-(*function TCustomDictionary<TKey,TValue>.TPairEnumerator.GetCurrent: TPair<TKey,TValue>;
-var
-  Item: PItem;
+function TLiteEnumerator<T>.MoveNext: Boolean;
 begin
-  Item := @FDictionary.FItems[FIndex];
-  Result.Key := Item.Key;
-  Result.Value := Item.Value;
-end;  *)
+  Result := DoMoveNext(Data);
+end;
+
+{ TCustomDictionary<TKey,TValue>.TPairEnumerator }
 
 function TCustomDictionary<TKey,TValue>.TPairEnumerator.MoveNext: Boolean;
 var
@@ -6897,6 +7021,12 @@ begin
   Result := FDictionary.FCount.Int;
 end;
 
+function TCustomDictionary<TKey,TValue>.TKeyCollection.DoGetEnumerator: TLiteEnumerator<TKey>;
+begin
+  Result.Data.Init(Self);
+  Pointer(@Result.DoMoveNext) := @TKeyEnumerator.MoveNext;
+end;
+
 function TCustomDictionary<TKey,TValue>.TKeyCollection.GetEnumerator: TKeyEnumerator;
 begin
   Result.Data.Init(Self);
@@ -6934,6 +7064,12 @@ begin
   Result := FDictionary.FCount.Int;
 end;
 
+function TCustomDictionary<TKey,TValue>.TValueCollection.DoGetEnumerator: TLiteEnumerator<TValue>;
+begin
+  Result.Data.Init(Self);
+  Pointer(@Result.DoMoveNext) := @TValueEnumerator.MoveNext;
+end;
+
 function TCustomDictionary<TKey,TValue>.TValueCollection.GetEnumerator: TValueEnumerator;
 begin
   Result.Data.Init(Self);
@@ -6960,23 +7096,55 @@ end;
 
 { TCustomDictionary<TKey,TValue> }
 
+function TCustomDictionary<TKey,TValue>.DoGetEnumerator: TLiteEnumerator<TPair<TKey,TValue>>;
+begin
+  Result.Data.Init(Self);
+  Pointer(@Result.DoMoveNext) := @TPairEnumerator.MoveNext;
+end;
+
 function TCustomDictionary<TKey,TValue>.GetEnumerator: TPairEnumerator;
 begin
   Result.Data.Init(Self);
 end;
 
+function TCustomDictionary<TKey,TValue>.InitKeyCollection: TKeyCollection;
+begin
+  FKeyCollection := TKeyCollection.Create(Self);
+  {$ifNdef AUTOREFCOUNT}
+  FKeyCollection._AddRef;
+  {$endif}
+  Result := FKeyCollection;
+end;
+
+function TCustomDictionary<TKey,TValue>.InitValueCollection: TValueCollection;
+begin
+  FValueCollection := TValueCollection.Create(Self);
+  {$ifNdef AUTOREFCOUNT}
+  FValueCollection._AddRef;
+  {$endif}
+  Result := FValueCollection;
+end;
+
 function TCustomDictionary<TKey,TValue>.GetKeys: TKeyCollection;
 begin
-  if FKeyCollection = nil then
-    FKeyCollection := TKeyCollection.Create(Self);
-  Result := FKeyCollection;
+  if (not Assigned(FKeyCollection)) then
+  begin
+    Result := InitKeyCollection;
+  end else
+  begin
+    Result := FKeyCollection;
+  end;
 end;
 
 function TCustomDictionary<TKey,TValue>.GetValues: TValueCollection;
 begin
-  if FValueCollection = nil then
-    FValueCollection := TValueCollection.Create(Self);
-  Result := FValueCollection;
+  if (not Assigned(FValueCollection)) then
+  begin
+    Result := InitValueCollection;
+  end else
+  begin
+    Result := FValueCollection;
+  end;
 end;
 
 function TCustomDictionary<TKey,TValue>.ToArray: TArray<TPair<TKey,TValue>>;
@@ -7023,8 +7191,13 @@ destructor TCustomDictionary<TKey,TValue>.Destroy;
 begin
   Clear;
   ReallocMem(FItems, 0);
+  {$ifdef AUTOREFCOUNT}
   FKeyCollection.Free;
   FValueCollection.Free;
+  {$else}
+  if (Assigned(FKeyCollection)) then FKeyCollection._Release;
+  if (Assigned(FValueCollection)) then FValueCollection._Release;
+  {$endif}
   ClearMethod(FInternalKeyNotify);
   ClearMethod(FInternalValueNotify);
   ClearMethod(FInternalItemNotify);
@@ -15923,7 +16096,6 @@ begin
   Result := False;
 end;
 
-
 { TCustomList<T> }
 
 constructor TCustomList<T>.Create;
@@ -16194,6 +16366,12 @@ begin
   begin
     TMethod(FInternalNotify) := TMethod(Self.FOnNotify);
   end;
+end;
+
+function TCustomList<T>.DoGetEnumerator: TLiteEnumerator<T>;
+begin
+  Result.Data.Init(Self);
+  Pointer(@Result.DoMoveNext) := @TEnumerator.MoveNext;
 end;
 
 function TCustomList<T>.GetEnumerator: TEnumerator;
