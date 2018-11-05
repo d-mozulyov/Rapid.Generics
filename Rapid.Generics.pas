@@ -108,6 +108,9 @@ type
   {$if CompilerVersion <= 27}
     TWaitResult = (wrSignaled, wrTimeout, wrAbandoned, wrError, wrIOCompletion);
   {$ifend}
+  {$if CompilerVersion <= 24}
+    EObjectDisposed = class(Exception);
+  {$ifend}
   {$if CompilerVersion <= 23}
     EListError = class(Exception);
   {$ifend}
@@ -140,8 +143,8 @@ type
     {$endif}
   end;
 
-  TCustomObject = class(TInterfacedObject, IInterface, ICustomObject)
-  private
+  TCustomObject = class(TInterfacedObject, ICustomObject)
+  protected
     const
       DISPOSED_FLAG = Integer($40000000);
       CLEAR_DISPOSED_FLAG = not DISPOSED_FLAG;
@@ -152,20 +155,37 @@ type
       monMonitorMask = not monFlagsMask;
       monWeakReferencedFlag = NativeInt($01);
       {$ifend}
+      {$ifNdef AUTOREFCOUNT}
+      vmtObjAddRef = 0;
+      vmtObjRelease = SizeOf(Pointer);
+      {$endif}
+    type
+      IInterfaceTable = array[0..2] of Pointer;
+      ICustomObjectTable = array[0..6 {$ifdef MONITORSUPPORT}+ 1{$endif}] of Pointer;
+    class var
+      FInterfaceTable: IInterfaceTable;
+
+    class procedure CreateIntfTables; static;
+    class function IntfQueryInterface(const Self: PByte; const IID: TGUID; out Obj): HResult; stdcall; static;
+    class function IntfAddRef(const Self: PByte): Integer; stdcall; static;
+    class function IntfRelease(const Self: PByte): Integer; stdcall; static;
   protected
     function GetSelf: TCustomObject {$ifdef AUTOREFCOUNT}unsafe{$endif};
     function GetDisposed_: Boolean;
     function GetRefCount: Integer;
-    function IInterface._AddRef = _AddRef;
-    function IInterface._Release = _Release;
+    function ICustomObject.QueryInterface = QueryInterface;
+    function ICustomObject._AddRef = _AddRef;
+    function ICustomObject._Release = _Release;
     function ICustomObject.Self = GetSelf;
     function ICustomObject.Disposed = GetDisposed_;
     function ICustomObject.RefCount = GetRefCount;
 
+    class function CreateEObjectDisposed: EObjectDisposed; static;
     function GetDisposed: Boolean; inline;
     procedure CheckDisposed; inline;
-    function _AddRef: Integer; stdcall;
-    function _Release: Integer; stdcall;
+    function QueryInterface(const IID: TGUID; out Obj): HResult; stdcall; inline;
+    function _AddRef: Integer; stdcall; inline;
+    function _Release: Integer; stdcall; inline;
   public
     class function NewInstance: TObject; override;
     {$if (not Defined(WEAKREF)) or Defined(CPUINTELASM) or (CompilerVersion >= 32)}
@@ -177,17 +197,11 @@ type
     procedure Free; reintroduce; inline;
     {$endif}
     procedure DisposeOf; {$if CompilerVersion >= 25}reintroduce;{$ifend}
-    {$ifdef AUTOREFCOUNT}
-    function __ObjAddRef: Integer; override;
-    function __ObjRelease: Integer; override;
-    {$else}
-    function __ObjAddRef: Integer; inline;
-    function __ObjRelease: Integer; inline;
-    {$endif}
+    function __ObjAddRef: Integer; {$ifdef AUTOREFCOUNT}override{$else}virtual{$endif};
+    function __ObjRelease: Integer; {$ifdef AUTOREFCOUNT}override{$else}virtual{$endif};
     {$ifdef MONITORSUPPORT}
     procedure OptimizeMonitor;
     {$endif}
-
     property Disposed: Boolean read GetDisposed;
   end;
 
@@ -195,20 +209,23 @@ type
 { TLiteCustomObject class
   Single-thread code optimized TCustomObject class }
 
-  TLiteCustomObject = class(TCustomObject, IInterface, ICustomObject)
+  TLiteCustomObject = class(TCustomObject)
   protected
-    function IInterface._AddRef = _AddRef;
-    function IInterface._Release = _Release;
-    function ICustomObject._AddRef = _AddRef;
-    function ICustomObject._Release = _Release;
+    class var
+      FInterfaceTable: TCustomObject.IInterfaceTable;
+      FCustomObjectTable: TCustomObject.ICustomObjectTable;
 
-    function _AddRef: Integer; stdcall;
-    function _Release: Integer; stdcall;
+    class procedure CreateIntfTables; static;
+    class function IntfAddRef(const Self: PByte): Integer; stdcall; static;
+    class function IntfRelease(const Self: PByte): Integer; stdcall; static;
+    class function CustomObjectAddRef(const Self: PByte): Integer; stdcall; static;
+    class function CustomObjectRelease(const Self: PByte): Integer; stdcall; static;
+    function _AddRef: Integer; stdcall; inline;
+    function _Release: Integer; stdcall; inline;
   public
-    {$ifdef AUTOREFCOUNT}
+    class function NewInstance: TObject; override;
     function __ObjAddRef: Integer; override;
     function __ObjRelease: Integer; override;
-    {$endif}
   end;
 
 
@@ -760,9 +777,9 @@ type
   PObject = ^TObject;
 
 
-{ Lightweight optimized enumerator routine }
+{ Collection and lightweight optimized enumerator routine }
 
-  TLiteEnumeratorData<T> = record
+  TCollectionEnumeratorData<T> = record
     {$ifdef AUTOREFCOUNT}[Unsafe]{$endif} Owner: TObject;
     Current: T;
     Tag: NativeInt;
@@ -770,31 +787,41 @@ type
     procedure Init(const AOwner: TObject); inline;
   end;
 
-  TLiteEnumerator<T> = record
-    Data: TLiteEnumeratorData<T>;
-    DoMoveNext: function(var AData: TLiteEnumeratorData<T>): Boolean;
+  TCollectionEnumerator<T> = record
+    Data: TCollectionEnumeratorData<T>;
+    Intf: IInterface;
+    DoMoveNext: function(var AData: TCollectionEnumeratorData<T>): Boolean;
+    {$if CompilerVersion <= 22}
+    function GetCurrent: T; inline;
+    property Current: T read GetCurrent;
+    {$else}
     property Current: T read Data.Current;
+    {$ifend}
     function MoveNext: Boolean; inline;
   end;
 
-  ILiteEnumerable<T> = interface
-    function GetEnumerator: TLiteEnumerator<T>;
+  ICollection<T> = interface(ICustomObject)
+    function GetCount: Integer;
+    function GetEnumerator: TCollectionEnumerator<T>;
     function ToArray: TArray<T>;
+    property Count: Integer read GetCount;
   end;
 
-  TLiteEnumerable<T> = class(TCustomObject, ILiteEnumerable<T>)
+  TCollection<T> = class(TCustomObject, ICollection<T>)
 { public
     type
       TEnumerator = record
-        Data: TLiteEnumeratorData<T>;
+        Data: TCollectionEnumeratorData<T>;
         property Current: T read Data.Current;
         function MoveNext: Boolean;
       end;
 
     function GetEnumerator: TEnumerator; }
   protected
-    function ILiteEnumerable<T>.GetEnumerator = DoGetEnumerator;
-    function DoGetEnumerator: TLiteEnumerator<T>; virtual; abstract;
+    function ICollection<T>.GetCount = DoGetCount;
+    function ICollection<T>.GetEnumerator = DoGetEnumerator;
+    function DoGetCount: Integer; virtual; abstract;
+    function DoGetEnumerator: TCollectionEnumerator<T>; virtual; abstract;
   public
     function ToArray: TArray<T>; virtual; abstract;
   end;
@@ -803,7 +830,7 @@ type
 { TCustomDictionary<TKey,TValue> class
   Basic class for TDictionary<TKey,TValue>, TRapidDictionary<TKey,TValue> }
 
-  TCustomDictionary<TKey,TValue> = class(TLiteEnumerable<TPair<TKey,TValue>>)
+  TCustomDictionary<TKey,TValue> = class(TCollection<TPair<TKey,TValue>>)
   public type
     PItem = ^TItem;
     TItem = packed record
@@ -821,28 +848,44 @@ type
     PItemList = ^TItemList;
 
     TPairEnumerator = record
-      Data: TLiteEnumeratorData<TPair<TKey,TValue>>;
+      Data: TCollectionEnumeratorData<TPair<TKey,TValue>>;
+      {$if CompilerVersion <= 22}
+      function GetCurrent: TPair<TKey,TValue>; inline;
+      property Current: TPair<TKey,TValue> read GetCurrent;
+      {$else}
       property Current: TPair<TKey,TValue> read Data.Current;
+      {$ifend}
       function MoveNext: Boolean; inline;
     end;
 
     TKeyEnumerator = record
-      Data: TLiteEnumeratorData<TKey>;
+      Data: TCollectionEnumeratorData<TKey>;
+      {$if CompilerVersion <= 22}
+      function GetCurrent: TKey; inline;
+      property Current: TKey read GetCurrent;
+      {$else}
       property Current: TKey read Data.Current;
+      {$ifend}
       function MoveNext: Boolean; inline;
     end;
 
     TValueEnumerator = record
-      Data: TLiteEnumeratorData<TValue>;
+      Data: TCollectionEnumeratorData<TValue>;
+      {$if CompilerVersion <= 22}
+      function GetCurrent: TValue; inline;
+      property Current: TValue read GetCurrent;
+      {$else}
       property Current: TValue read Data.Current;
+      {$ifend}
       function MoveNext: Boolean; inline;
     end;
 
-    TKeyCollection = class(TLiteEnumerable<TKey>)
+    TKeyCollection = class(TCollection<TKey>)
     protected
       {$ifdef AUTOREFCOUNT}[Unsafe]{$endif} FDictionary: TCustomDictionary<TKey,TValue>;
-      function DoGetEnumerator: TLiteEnumerator<TKey>; override;
+      function DoGetCount: Integer; override;
       function GetCount: Integer; inline;
+      function DoGetEnumerator: TCollectionEnumerator<TKey>; override;
     public
       constructor Create(const ADictionary: TCustomDictionary<TKey,TValue>);
       function GetEnumerator: TKeyEnumerator;
@@ -850,11 +893,12 @@ type
       property Count: Integer read GetCount;
     end;
 
-    TValueCollection = class(TLiteEnumerable<TValue>)
+    TValueCollection = class(TCollection<TValue>)
     protected
       {$ifdef AUTOREFCOUNT}[Unsafe]{$endif} FDictionary: TCustomDictionary<TKey,TValue>;
-      function DoGetEnumerator: TLiteEnumerator<TValue>; override;
+      function DoGetCount: Integer; override;
       function GetCount: Integer; inline;
+      function DoGetEnumerator: TCollectionEnumerator<TValue>; override;
     public
       constructor Create(const ADictionary: TCustomDictionary<TKey,TValue>);
       function GetEnumerator: TValueEnumerator;
@@ -892,7 +936,8 @@ type
     procedure DoCleanupItems(Item: PItem; Count: NativeInt); virtual;
 
     // enumerators
-    function DoGetEnumerator: TLiteEnumerator<TPair<TKey,TValue>>; override;
+    function DoGetCount: Integer; override;
+    function DoGetEnumerator: TCollectionEnumerator<TPair<TKey,TValue>>; override;
     function InitKeyCollection: TKeyCollection {$ifdef AUTOREFCOUNT}unsafe{$endif};
     function InitValueCollection: TValueCollection {$ifdef AUTOREFCOUNT}unsafe{$endif};
     function GetKeys: TKeyCollection {$ifdef AUTOREFCOUNT}unsafe{$endif}; inline;
@@ -1347,7 +1392,7 @@ type
 { TCustomList<T> class
   Basic class for TList<T>, TQueue<T>, TStack<T> }
 
-  TCustomList<T> = class(TLiteEnumerable<T>)
+  TCustomList<T> = class(TCollection<T>)
   public type
     TItem = T;
     PItem = ^TItem;
@@ -1355,8 +1400,13 @@ type
     PItemList = ^TItemList;
 
     TEnumerator = record
-      Data: TLiteEnumeratorData<T>;
+      Data: TCollectionEnumeratorData<T>;
+      {$if CompilerVersion <= 22}
+      function GetCurrent: T; inline;
+      property Current: T read GetCurrent;
+      {$else}
       property Current: T read Data.Current;
+      {$ifend}
       function MoveNext: Boolean;
     end;
   protected
@@ -1378,7 +1428,8 @@ type
     procedure Notify(const Item: T; Action: TCollectionNotification); virtual;
     procedure NotifyCaller(Sender: TObject; const Item: T; Action: TCollectionNotification);
     procedure SetNotifyMethods; virtual;
-    function DoGetEnumerator: TLiteEnumerator<T>; override;
+    function DoGetCount: Integer; override;
+    function DoGetEnumerator: TCollectionEnumerator<T>; override;
 
     property List: PItemList read FItems;
   public
@@ -1708,6 +1759,9 @@ implementation
 
 resourcestring
   {$if CompilerVersion <= 27}
+  SObjectDisposed = 'Method called on disposed object';
+  {$ifend}
+  {$if CompilerVersion <= 27}
   sSameArrays = 'Source and Destination arrays must not be the same';
   {$ifend}
   SMethodNotSupported = 'Method %s not supported';
@@ -1874,7 +1928,7 @@ begin
   // TCustomObject initialization
   LPtr[0] := NativeInt(Self);
   LPtr[1]{FRefCount} := 1;
-  LPtr[2] := NativeInt(PInterfaceTable(PPointer(PByte(TInterfacedObject) + vmtIntfTable)^).Entries[0].VTable);
+  LPtr[2] := NativeInt(@TCustomObject.FInterfaceTable);
   LPtr[3] := NativeInt(PInterfaceTable(PPointer(PByte(TCustomObject) + vmtIntfTable)^).Entries[0].VTable);
 
   // fill zero
@@ -1932,11 +1986,22 @@ begin
   Result := Pointer(LPtr);
 end;
 
-
 {$if Defined(WEAKREF) and Defined(CPUINTELASM)}
 procedure _CleanupInstance(Instance: Pointer);
 asm
   jmp System.@CleanupInstance
+end;
+{$ifend}
+
+{$if Defined(CPUINTELASM)}
+procedure FinalizeRecord(P: Pointer; TypeInfo: Pointer);
+asm
+  jmp System.@FinalizeRecord
+end;
+{$elseif CompilerVersion < 31}
+procedure FinalizeRecord(P: Pointer; TypeInfo: Pointer); inline;
+begin
+  System.FinalizeArray(P, TypeInfo, 1);
 end;
 {$ifend}
 
@@ -1991,7 +2056,6 @@ begin
 
     FreeMem(Pointer(LMonitor));
   end;
-
   {$endif}
 
   // fields
@@ -2073,7 +2137,7 @@ begin
           end;
           tkRecord:
           begin
-            System.FinalizeRecord(LPtr, Field.TypeInfo);
+            FinalizeRecord(LPtr, Field.TypeInfo);
           end;
         end;
       {$ifdef WEAKREF}
@@ -2120,6 +2184,11 @@ begin
   Result := Self;
 end;
 
+class function TCustomObject.CreateEObjectDisposed: EObjectDisposed;
+begin
+  Result := EObjectDisposed.CreateRes(Pointer(@SObjectDisposed));
+end;
+
 function TCustomObject.GetDisposed_: Boolean;
 begin
   Result := (FRefCount and DISPOSED_FLAG <> 0);
@@ -2133,7 +2202,7 @@ end;
 procedure TCustomObject.CheckDisposed;
 begin
   if (FRefCount and DISPOSED_FLAG = 0) then
-    System.Error(reObjectDisposed);
+    raise CreateEObjectDisposed;
 end;
 
 function TCustomObject.GetRefCount: Integer;
@@ -2164,6 +2233,14 @@ begin
   DisposeOf;
 end;
 {$endif}
+
+function TCustomObject.QueryInterface(const IID: TGUID; out Obj): HResult;
+begin
+  if GetInterface(IID, Obj) then
+    Result := 0
+  else
+    Result := E_NOINTERFACE;
+end;
 
 procedure TCustomObject.DisposeOf;
 type
@@ -2215,7 +2292,6 @@ begin
 end;
 
 function TCustomObject.__ObjAddRef: Integer;
-{$ifdef AUTOREFCOUNT}
 begin
   Result := FRefCount;
   if (Cardinal(Result and CLEAR_DISPOSED_FLAG) <= DEFAULT_REF_COUNT) then
@@ -2223,25 +2299,16 @@ begin
     Inc(Result);
     FRefCount := Result;
     Result := Result and CLEAR_DISPOSED_FLAG;
+    Exit;
   end else
   begin
     Result := AtomicIncrement(FRefCount);
   end;
 end;
-{$else}
-begin
-  Result := _AddRef;
-end;
-{$endif}
 
 function TCustomObject._AddRef: Integer; stdcall;
 begin
-  {$ifdef AUTOREFCOUNT}
-  if (PPointer(PNativeInt(Self)^ + vmtObjAddRef)^ <> @TCustomObject.__ObjAddRef) then
-  begin
-    Result := __ObjAddRef;
-  end else
-  {$endif}
+  if (PPointer(PNativeInt(Self)^ + vmtObjAddRef)^ = @TCustomObject.__ObjAddRef) then
   begin
     Result := FRefCount;
     if (Cardinal(Result and CLEAR_DISPOSED_FLAG) <= DEFAULT_REF_COUNT) then
@@ -2249,28 +2316,32 @@ begin
       Inc(Result);
       FRefCount := Result;
       Result := Result and CLEAR_DISPOSED_FLAG;
+      Exit;
     end else
     begin
       Result := AtomicIncrement(FRefCount);
+      Exit;
     end;
+  end else
+  begin
+    Result := __ObjAddRef;
   end;
 end;
 
 function TCustomObject.__ObjRelease: Integer;
-{$ifdef AUTOREFCOUNT}
 begin
   // release reference
   Result := FRefCount;
-  if (Result and CLEAR_DISPOSED_FLAG = 1) then
-  begin
-    Dec(Result);
-    FRefCount := Result;
-    Result := 0{Result and CLEAR_DISPOSED_FLAG};
-  end else
+  if (Result and CLEAR_DISPOSED_FLAG <> 1) then
   begin
     Result := AtomicDecrement(FRefCount) and CLEAR_DISPOSED_FLAG;
     if (Result <> 0) then
       Exit;
+  end else
+  begin
+    Dec(Result);
+    FRefCount := Result;
+    Result := 0{Result and CLEAR_DISPOSED_FLAG};
   end;
 
   // no references: destroy/freeinstance
@@ -2278,25 +2349,16 @@ begin
   begin
     FRefCount := DUMMY_REFERENCE or DISPOSED_FLAG;
     Destroy;
+    Exit;
   end else
   begin
     FreeInstance;
   end;
 end;
-{$else}
-begin
-  Result := _Release;
-end;
-{$endif}
 
 function TCustomObject._Release: Integer; stdcall;
 begin
-  {$ifdef AUTOREFCOUNT}
-  if (PPointer(PNativeInt(Self)^ + vmtObjRelease)^ <> @TCustomObject.__ObjRelease) then
-  begin
-    Result := __ObjRelease;
-  end else
-  {$endif}
+  if (PPointer(PNativeInt(Self)^ + vmtObjRelease)^ = @TCustomObject.__ObjRelease) then
   begin
     // release reference
     Result := FRefCount;
@@ -2317,10 +2379,15 @@ begin
     begin
       FRefCount := DUMMY_REFERENCE or DISPOSED_FLAG;
       Destroy;
+      Exit;
     end else
     begin
       FreeInstance;
+      Exit;
     end;
+  end else
+  begin
+    Result := __ObjRelease;
   end;
 end;
 
@@ -2352,34 +2419,66 @@ begin
 end;
 {$endif}
 
+class procedure TCustomObject.CreateIntfTables;
+begin
+  TCustomObject.FInterfaceTable[0] := @TCustomObject.IntfQueryInterface;
+  TCustomObject.FInterfaceTable[1] := @TCustomObject.IntfAddRef;
+  TCustomObject.FInterfaceTable[2] := @TCustomObject.IntfRelease;
+end;
+
+class function TCustomObject.IntfQueryInterface(const Self: PByte;
+  const IID: TGUID; out Obj): HResult; stdcall;
+begin
+  with TCustomObject(Self - 2 * SizeOf(Pointer)) do
+    Result := QueryInterface(IID, Obj);
+end;
+
+class function TCustomObject.IntfAddRef(const Self: PByte): Integer; stdcall;
+begin
+  with TCustomObject(Self - 2 * SizeOf(Pointer)) do
+    Result := _AddRef;
+end;
+
+class function TCustomObject.IntfRelease(const Self: PByte): Integer; stdcall;
+begin
+  with TCustomObject(Self - 2 * SizeOf(Pointer)) do
+    Result := _Release;
+end;
+
 
 { TLiteCustomObject }
 
-{$ifdef AUTOREFCOUNT}
+class function TLiteCustomObject.NewInstance: TObject;
+type
+  HugePointerArray = array[0..High(Integer) div SizeOf(NativeInt) - 1] of Pointer;
+  PHugePointerArray = ^HugePointerArray;
+begin
+  Result := inherited NewInstance;
+  PHugePointerArray(Result)[2] := @TLiteCustomObject.FInterfaceTable;
+  PHugePointerArray(Result)[3] := @TLiteCustomObject.FCustomObjectTable;
+end;
+
 function TLiteCustomObject.__ObjAddRef: Integer;
 begin
   Result := FRefCount + 1;
   FRefCount := Result;
   Result := Result and CLEAR_DISPOSED_FLAG;
 end;
-{$endif}
 
 function TLiteCustomObject._AddRef: Integer;
 begin
-  {$ifdef AUTOREFCOUNT}
-  if (PPointer(PNativeInt(Self)^ + vmtObjAddRef)^ <> @TLiteCustomObject.__ObjAddRef) then
-  begin
-    Result := __ObjAddRef;
-  end else
-  {$endif}
+  if (PPointer(PNativeInt(Self)^ + vmtObjAddRef)^ = @TLiteCustomObject.__ObjAddRef) then
   begin
     Result := FRefCount + 1;
     FRefCount := Result;
     Result := Result and CLEAR_DISPOSED_FLAG;
+    Exit;
+  end else
+  begin
+    Result := __ObjAddRef;
   end;
 end;
 
-{$ifdef AUTOREFCOUNT}
 function TLiteCustomObject.__ObjRelease: Integer;
 begin
   Result := FRefCount - 1;
@@ -2392,21 +2491,16 @@ begin
   begin
     FRefCount := DUMMY_REFERENCE or DISPOSED_FLAG;
     Destroy;
+    Exit;
   end else
   begin
     FreeInstance;
   end;
 end;
-{$endif}
 
 function TLiteCustomObject._Release: Integer;
 begin
-  {$ifdef AUTOREFCOUNT}
-  if (PPointer(PNativeInt(Self)^ + vmtObjRelease)^ <> @TLiteCustomObject.__ObjRelease) then
-  begin
-    Result := __ObjRelease;
-  end else
-  {$endif}
+  if (PPointer(PNativeInt(Self)^ + vmtObjRelease)^ = @TLiteCustomObject.__ObjRelease) then
   begin
     Result := FRefCount - 1;
     FRefCount := Result;
@@ -2418,11 +2512,54 @@ begin
     begin
       FRefCount := DUMMY_REFERENCE or DISPOSED_FLAG;
       Destroy;
+      Exit;
     end else
     begin
       FreeInstance;
+      Exit;
     end;
+  end else
+  begin
+    Result := __ObjRelease;
   end;
+end;
+
+class procedure TLiteCustomObject.CreateIntfTables;
+var
+  LTable: PInterfaceTable;
+begin
+  TLiteCustomObject.FInterfaceTable := TCustomObject.FInterfaceTable;
+  TLiteCustomObject.FInterfaceTable[1] := @TLiteCustomObject.IntfAddRef;
+  TLiteCustomObject.FInterfaceTable[2] := @TLiteCustomObject.IntfRelease;
+
+  LTable := PInterfaceTable(PPointer(PByte(TCustomObject) + vmtIntfTable)^);
+  System.Move(LTable.Entries[0].VTable^, TLiteCustomObject.FCustomObjectTable, SizeOf(TLiteCustomObject.FCustomObjectTable));
+  TLiteCustomObject.FCustomObjectTable[1] := @TLiteCustomObject.CustomObjectAddRef;
+  TLiteCustomObject.FCustomObjectTable[2] := @TLiteCustomObject.CustomObjectRelease;
+end;
+
+class function TLiteCustomObject.IntfAddRef(const Self: PByte): Integer; stdcall;
+begin
+  with TLiteCustomObject(Self - 2 * SizeOf(Pointer)) do
+    Result := _AddRef;
+end;
+
+class function TLiteCustomObject.IntfRelease(const Self: PByte): Integer; stdcall;
+begin
+  with TLiteCustomObject(Self - 2 * SizeOf(Pointer)) do
+    Result := _Release;
+end;
+
+class function TLiteCustomObject.CustomObjectAddRef(const Self: PByte): Integer; stdcall;
+begin
+  with TLiteCustomObject(Self - 3 * SizeOf(Pointer)) do
+    Result := _AddRef;
+end;
+
+class function TLiteCustomObject.CustomObjectRelease(const Self: PByte): Integer; stdcall;
+begin
+  with TLiteCustomObject(Self - 3 * SizeOf(Pointer)) do
+    Result := _Release;
 end;
 
 
@@ -6924,23 +7061,37 @@ begin
   Value := AValue;
 end;
 
-{ TLiteEnumeratorData<T> }
+{ TCollectionEnumeratorData<T> }
 
-procedure TLiteEnumeratorData<T>.Init(const AOwner: TObject);
+procedure TCollectionEnumeratorData<T>.Init(const AOwner: TObject);
 begin
   Owner := AOwner;
   Tag := -1;
   Reserved := -1;
 end;
 
-{ TLiteEnumerator<T> }
+{ TCollectionEnumerator<T> }
 
-function TLiteEnumerator<T>.MoveNext: Boolean;
+{$if CompilerVersion <= 22}
+function TCollectionEnumerator<T>.GetCurrent: T;
+begin
+  Result := Data.Current;
+end;
+{$ifend}
+
+function TCollectionEnumerator<T>.MoveNext: Boolean;
 begin
   Result := DoMoveNext(Data);
 end;
 
 { TCustomDictionary<TKey,TValue>.TPairEnumerator }
+
+{$if CompilerVersion <= 22}
+function TCustomDictionary<TKey,TValue>.TPairEnumerator.GetCurrent: TPair<TKey,TValue>;
+begin
+  Result := Data.Current;
+end;
+{$ifend}
 
 function TCustomDictionary<TKey,TValue>.TPairEnumerator.MoveNext: Boolean;
 var
@@ -6968,6 +7119,13 @@ end;
 
 { TCustomDictionary<TKey,TValue>.TKeyEnumerator }
 
+{$if CompilerVersion <= 22}
+function TCustomDictionary<TKey,TValue>.TKeyEnumerator.GetCurrent: TKey;
+begin
+  Result := Data.Current;
+end;
+{$ifend}
+
 function TCustomDictionary<TKey,TValue>.TKeyEnumerator.MoveNext: Boolean;
 var
   N: NativeInt;
@@ -6988,6 +7146,13 @@ begin
 end;
 
 { TCustomDictionary<TKey,TValue>.TValueEnumerator }
+
+{$if CompilerVersion <= 22}
+function TCustomDictionary<TKey,TValue>.TValueEnumerator: TValue;
+begin
+  Result := Data.Current;
+end;
+{$ifend}
 
 function TCustomDictionary<TKey,TValue>.TValueEnumerator.MoveNext: Boolean;
 var
@@ -7016,12 +7181,17 @@ begin
   FDictionary := ADictionary;
 end;
 
+function TCustomDictionary<TKey,TValue>.TKeyCollection.DoGetCount: Integer;
+begin
+  Result := FDictionary.FCount.Int;
+end;
+
 function TCustomDictionary<TKey,TValue>.TKeyCollection.GetCount: Integer;
 begin
   Result := FDictionary.FCount.Int;
 end;
 
-function TCustomDictionary<TKey,TValue>.TKeyCollection.DoGetEnumerator: TLiteEnumerator<TKey>;
+function TCustomDictionary<TKey,TValue>.TKeyCollection.DoGetEnumerator: TCollectionEnumerator<TKey>;
 begin
   Result.Data.Init(Self);
   Pointer(@Result.DoMoveNext) := @TKeyEnumerator.MoveNext;
@@ -7059,12 +7229,17 @@ begin
   FDictionary := ADictionary;
 end;
 
+function TCustomDictionary<TKey,TValue>.TValueCollection.DoGetCount: Integer;
+begin
+  Result := FDictionary.FCount.Int;
+end;
+
 function TCustomDictionary<TKey,TValue>.TValueCollection.GetCount: Integer;
 begin
   Result := FDictionary.FCount.Int;
 end;
 
-function TCustomDictionary<TKey,TValue>.TValueCollection.DoGetEnumerator: TLiteEnumerator<TValue>;
+function TCustomDictionary<TKey,TValue>.TValueCollection.DoGetEnumerator: TCollectionEnumerator<TValue>;
 begin
   Result.Data.Init(Self);
   Pointer(@Result.DoMoveNext) := @TValueEnumerator.MoveNext;
@@ -7096,7 +7271,12 @@ end;
 
 { TCustomDictionary<TKey,TValue> }
 
-function TCustomDictionary<TKey,TValue>.DoGetEnumerator: TLiteEnumerator<TPair<TKey,TValue>>;
+function TCustomDictionary<TKey,TValue>.DoGetCount: Integer;
+begin
+  Result := FCount.Int;
+end;
+
+function TCustomDictionary<TKey,TValue>.DoGetEnumerator: TCollectionEnumerator<TPair<TKey,TValue>>;
 begin
   Result.Data.Init(Self);
   Pointer(@Result.DoMoveNext) := @TPairEnumerator.MoveNext;
@@ -16368,7 +16548,12 @@ begin
   end;
 end;
 
-function TCustomList<T>.DoGetEnumerator: TLiteEnumerator<T>;
+function TCustomList<T>.DoGetCount: Integer;
+begin
+  Result := FCount.Int;
+end;
+
+function TCustomList<T>.DoGetEnumerator: TCollectionEnumerator<T>;
 begin
   Result.Data.Init(Self);
   Pointer(@Result.DoMoveNext) := @TEnumerator.MoveNext;
@@ -21791,6 +21976,10 @@ begin
   end;
 end;
 
+
+initialization
+  TCustomObject.CreateIntfTables;
+  TLiteCustomObject.CreateIntfTables;
 
 end.
 
