@@ -82,6 +82,8 @@ unit Rapid.Generics;
 interface
   uses {$ifdef MSWINDOWS}
          {$ifdef UNITSCOPENAMES}Winapi.Windows{$else}Windows{$endif},
+       {$else .POSIX}
+         Posix.Time, Posix.Sched, System.TimeSpan, System.DateUtils,
        {$endif}
        {$ifdef USE_LIBICU}
          System.Internal.ICU,
@@ -120,6 +122,47 @@ type
   Dummy null size structure }
 
   TNothing = packed record
+  end;
+
+
+{ TOSTime record
+  Extremely fast UTC-based system timer (Windows FILETIME format)
+  Contains 64-bit value representing the number of 100-nanosecond intervals since January 1, 1601 }
+
+  TOSTime = record
+  private
+    class var
+      FLOCAL_DELTA: Int64;
+    {$ifdef POSIX}
+      FCLOCK_REALTIME_DELTA: Int64;
+      FCLOCK_REALTIME_LOCAL_DELTA: Int64;
+    const
+      CLOCK_REALTIME_COARSE = 5;
+      CLOCK_MONOTONIC_COARSE = 6;
+    class function InternalClockGetTime(const ClockId: Integer): Int64; static; inline;
+    {$endif}
+  public
+    const
+      MICROSECOND = Int64(10);
+      MILLISECOND = MICROSECOND * 1000;
+      SECOND = MILLISECOND * 1000;
+      MINUT = SECOND * 60;
+      HOUR = MINUT * 60;
+      DAY = HOUR * 24;
+      DATETIME_DELTA = -109205;
+
+    class property LOCAL_DELTA: Int64 read FLOCAL_DELTA;
+  private
+    class procedure Initialize; static;
+    class function GetNow: Int64; static;
+    class function GetUTCNow: Int64; static;
+    class function GetTickCount: Cardinal; static; {$ifdef MSWINDOWS}inline;{$endif}
+  public
+    class function ToDateTime(const ATimeStamp: Int64): TDateTime; static;
+    class function ToString(const ATimeStamp: Int64): string; static;
+    class property TickCount: Cardinal read GetTickCount;
+    class property Now: Int64 read GetNow;
+    class property UTCNow: Int64 read GetUTCNow;
   end;
 
 
@@ -469,6 +512,7 @@ type
   private
     class var
       FCreated: Boolean;
+      FSpinlock: Byte;
       FOptions: TRAIIHelper;
 
     class function GetManaged: Boolean; static; inline;
@@ -1755,6 +1799,108 @@ type
   end;
 
 
+{ TSyncYield record
+  Improves the performance of spin loops by providing the processor with a hint
+  displaying that the current code is in a spin loop }
+
+  PSyncYield = ^TSyncYield;
+  TSyncYield = packed record
+  private
+    FCount: Byte;
+  public
+    class function Create: TSyncYield; static; inline;
+    procedure Reset; inline;
+    procedure Execute;
+
+    property Count: Byte read FCount write FCount;
+  end;
+
+
+{ TSyncSpinlock record
+  The simplest and sufficiently fast synchronization primitive
+  Accepts only two values: locked and unlocked }
+
+  PSyncSpinlock = ^TSyncSpinlock;
+  TSyncSpinlock = record
+  private
+    {$if CompilerVersion >= 29}[Volatile]{$ifend}
+    FValue: Byte;
+    function GetLocked: Boolean; inline;
+  public
+    class function Create: TSyncSpinlock; static;
+
+    function TryEnter: Boolean;
+    function Enter(const ATimeout: Cardinal): Boolean; overload;
+    procedure Enter; overload;
+    procedure Leave;
+
+    property Locked: Boolean read GetLocked;
+  end;
+
+
+{ TSyncLocker record
+  Synchronization primitive, minimizes thread serialization to gain
+  read access to a resource shared among threads while still providing complete
+  exclusivity to callers needing write access to the shared resource }
+
+  PSyncLocker = ^TSyncLocker;
+  TSyncLocker = record
+  private
+    {$if CompilerVersion >= 29}[Volatile]{$ifend}
+    FValue: Integer;
+    function GetLocked: Boolean; inline;
+    function GetLockedRead: Boolean; inline;
+    function GetLockedExclusive: Boolean; inline;
+  public
+    class function Create: TSyncLocker; static;
+
+    function TryEnterRead: Boolean;
+    function TryEnterExclusive: Boolean;
+    function EnterRead(const ATimeout: Cardinal): Boolean; overload;
+    function EnterExclusive(const ATimeout: Cardinal): Boolean; overload;
+
+    procedure EnterRead; overload;
+    procedure EnterExclusive; overload;
+    procedure LeaveRead;
+    procedure LeaveExclusive;
+
+    property Locked: Boolean read GetLocked;
+    property LockedRead: Boolean read GetLockedRead;
+    property LockedExclusive: Boolean read GetLockedExclusive;
+  end;
+
+
+{ TSyncSmallLocker record
+  One-byte implementation of TSyncLocker }
+
+  PSyncSmallLocker = ^TSyncSmallLocker;
+  TSyncSmallLocker = record
+  private
+    {$if CompilerVersion >= 29}[Volatile]{$ifend}
+    FValue: Byte;
+    function GetLocked: Boolean; inline;
+    function GetLockedRead: Boolean; inline;
+    function GetLockedExclusive: Boolean; inline;
+    class function InternalCAS(var AValue: Byte; const NewValue, Comparand: Byte): Boolean; static; {$ifNdef CPUINTELASM}inline;{$endif}
+  public
+    class function Create: TSyncSmallLocker; static;
+
+    function TryEnterRead: Boolean;
+    function TryEnterExclusive: Boolean;
+    function EnterRead(const ATimeout: Cardinal): Boolean; overload;
+    function EnterExclusive(const ATimeout: Cardinal): Boolean; overload;
+
+    procedure EnterRead; overload;
+    procedure EnterExclusive; overload;
+    procedure LeaveRead;
+    procedure LeaveExclusive;
+
+    property Locked: Boolean read GetLocked;
+    property LockedRead: Boolean read GetLockedRead;
+    property LockedExclusive: Boolean read GetLockedExclusive;
+  end;
+
+
 implementation
 
 resourcestring
@@ -1903,6 +2049,105 @@ asm // StackAlignSafe
         FWAIT
 end;
 {$ifend}
+
+
+{ TOSTime }
+
+{$ifdef POSIX}
+class function TOSTime.InternalClockGetTime(const ClockId: Integer): Int64;
+var
+  TimeSpec: Posix.Time.timespec;
+begin
+  clock_gettime(ClockId, @TimeSpec);
+  Result := TimeSpec.tv_sec * SECOND + Trunc(TimeSpec.tv_nsec * (1 / 100));
+end;
+{$endif}
+
+class procedure TOSTime.Initialize;
+{$ifdef MSWINDOWS}
+var
+  UTCTime, LocalTime: TFileTime;
+begin
+  GetSystemTimeAsFileTime(UTCTime);
+  FileTimeToLocalFileTime(UTCTime, LocalTime);
+  FLOCAL_DELTA := Int64(LocalTime) - Int64(UTCTime);
+end;
+{$else .POSIX}
+var
+  i: Integer;
+  Delta: Int64;
+begin
+  FLOCAL_DELTA := TTimeZone.Local.UtcOffset.Ticks;
+
+  FCLOCK_REALTIME_DELTA := InternalClockGetTime(CLOCK_REALTIME_COARSE) - InternalClockGetTime(CLOCK_MONOTONIC_COARSE);
+  for i := 1 to 10 do
+  begin
+    Delta := InternalClockGetTime(CLOCK_REALTIME_COARSE) - InternalClockGetTime(CLOCK_MONOTONIC_COARSE);
+    if (Delta < FCLOCK_REALTIME_DELTA) then
+      FCLOCK_REALTIME_DELTA := Delta;
+  end;
+  FCLOCK_REALTIME_DELTA := FCLOCK_REALTIME_DELTA + 134774 * DAY;
+  FCLOCK_REALTIME_LOCAL_DELTA := FCLOCK_REALTIME_DELTA + FLOCAL_DELTA;
+end;
+{$endif}
+
+class function TOSTime.GetTickCount: Cardinal;
+{$ifdef MSWINDOWS}
+begin
+  Result := Winapi.Windows.GetTickCount;
+end;
+{$else .POSIX}
+var
+  TimeSpec: Posix.Time.timespec;
+begin
+  clock_gettime(CLOCK_MONOTONIC_COARSE, @TimeSpec);
+  Result := Cardinal(TimeSpec.tv_sec * 1000 + Round(TimeSpec.tv_nsec * (1 / 1000000)));
+end;
+{$endif}
+
+class function TOSTime.GetNow: Int64;
+{$ifdef MSWINDOWS}
+var
+  FileTime: TFileTime;
+begin
+  GetSystemTimeAsFileTime(FileTime);
+  Result := Int64(FileTime) + FLOCAL_DELTA;
+end;
+{$else .POSIX}
+begin
+  Result := InternalClockGetTime(CLOCK_MONOTONIC_COARSE) + FCLOCK_REALTIME_LOCAL_DELTA;
+end;
+{$endif}
+
+class function TOSTime.GetUTCNow: Int64;
+{$ifdef MSWINDOWS}
+var
+  FileTime: TFileTime;
+begin
+  GetSystemTimeAsFileTime(FileTime);
+  Result := Int64(FileTime);
+end;
+{$else .POSIX}
+begin
+  Result := InternalClockGetTime(CLOCK_MONOTONIC_COARSE) + FCLOCK_REALTIME_DELTA;
+end;
+{$endif}
+
+class function TOSTime.ToDateTime(const ATimeStamp: Int64): TDateTime;
+begin
+  Result := ATimeStamp * (1 / TOSTime.DAY) + DATETIME_DELTA;
+end;
+
+class function TOSTime.ToString(const ATimeStamp: Int64): string;
+var
+  DateTime: TDateTime;
+  Year, Month, Day, Hour, Minut, Second, MilliSecond: Word;
+begin
+  DateTime := ToDateTime(ATimeStamp);
+  DecodeDate(DateTime, Year, Month, Day);
+  DecodeTime(DateTime, Hour, Minut, Second, MilliSecond);
+  Result := Format('%.4d-%.2u-%.2u %.2u:%.2u:%.2u.%.3u', [Year, Month, Day, Hour, Minut, Second, MilliSecond]);
+end;
 
 
 { TCustomObject }
@@ -3465,9 +3710,29 @@ begin
 end;
 
 class procedure TRAIIHelper<T>.InternalCreate;
+var
+  Yield: TSyncYield;
+  Spinlock: PSyncSpinlock;
 begin
-  FOptions.TypeInfo := TypeInfo(T);
-  FCreated := True;
+  Spinlock := Pointer(@FSpinlock);
+  if (Spinlock.TryEnter) then
+  begin
+    try
+      if (not FCreated) then
+      begin
+        FOptions.TypeInfo := TypeInfo(T);
+        FCreated := True;
+      end;
+    finally
+      Spinlock.Leave;
+    end;
+  end else
+  begin
+    Yield := TSyncYield.Create;
+    repeat
+      Yield.Execute;
+    until (FCreated);
+  end;
 end;
 
 class function TRAIIHelper<T>.GetManaged: Boolean;
@@ -21976,8 +22241,560 @@ begin
   end;
 end;
 
+{ TSyncYield }
+
+class function TSyncYield.Create: TSyncYield;
+begin
+  Result.FCount := 0;
+end;
+
+procedure TSyncYield.Reset;
+begin
+  Self.FCount := 0;
+end;
+
+procedure TSyncYield.Execute;
+var
+  LCount: Integer;
+begin
+  LCount := FCount;
+  Inc(LCount);
+  FCount := LCount;
+  Dec(LCount);
+
+  case (LCount and 7) of
+    0..4: System.YieldProcessor;
+    5, 6:
+    begin
+      {$ifdef MSWINDOWS}
+        SwitchToThread;
+      {$else .POSIX}
+        sched_yield;
+      {$endif}
+    end;
+  else
+    Sleep(1);
+  end;
+end;
+
+
+{ TSyncSpinlock }
+
+class function TSyncSpinlock.Create: TSyncSpinlock;
+begin
+  Result.FValue := 0;
+end;
+
+function TSyncSpinlock.GetLocked: Boolean;
+begin
+  Result := (FValue <> 0);
+end;
+
+function TSyncSpinlock.TryEnter: Boolean;
+{$ifdef CPUINTELASM}
+asm
+  {$ifdef CPUX86}
+  xchg eax, ecx
+  {$endif}
+  mov edx, 1
+  xor eax, eax
+
+  {$ifdef CPUX86}
+    cmp byte ptr [ECX].TSyncSpinlock.FValue, 0
+    jne @done
+    lock xchg byte ptr [ECX].TSyncSpinlock.FValue, dl
+  {$else .CPUX64}
+    cmp byte ptr [RCX].TSyncSpinlock.FValue, 0
+    jne @done
+    lock xchg byte ptr [RCX].TSyncSpinlock.FValue, dl
+  {$endif}
+@done:
+  sete al
+end;
+{$else .NEXTGEN}
+begin
+  Result := (FValue = 0) and
+    (AtomicCmpExchange(FValue, 1, 0) = 0);
+end;
+{$endif}
+
+function TSyncSpinlock.Enter(const ATimeout: Cardinal): Boolean;
+var
+  Yield: TSyncYield;
+  Timeout, TimeStart, TimeFinish, TimeDelta: Cardinal;
+begin
+  case (ATimeout) of
+    0:
+    begin
+      Result := TryEnter;
+    end;
+    INFINITE:
+    begin
+      Enter;
+      Result := True;
+    end;
+  else
+    Timeout := ATimeout;
+    Yield := TSyncYield.Create;
+    TimeStart := TOSTime.TickCount;
+    repeat
+      Result := TryEnter;
+      if (Result) then
+        Exit;
+
+      TimeFinish := TOSTime.TickCount;
+      TimeDelta := TimeFinish - TimeStart;
+      if (TimeDelta >= Timeout) then
+        Break;
+      Dec(Timeout, TimeDelta);
+      TimeStart := TimeFinish;
+
+      Yield.Execute;
+    until (False);
+
+    Result := False;
+  end;
+end;
+
+procedure TSyncSpinlock.Enter;
+var
+  Yield: TSyncYield;
+begin
+  if (not TryEnter) then
+  begin
+    Yield := TSyncYield.Create;
+    repeat
+      Yield.Execute;
+    until (TryEnter);
+  end;
+end;
+
+procedure TSyncSpinlock.Leave;
+begin
+  FValue := 0;
+end;
+
+
+{ TSyncLocker }
+
+class function TSyncLocker.Create: TSyncLocker;
+begin
+  Result.FValue := 0;
+end;
+
+function TSyncLocker.GetLocked: Boolean;
+begin
+  Result := (FValue <> 0);
+end;
+
+function TSyncLocker.GetLockedRead: Boolean;
+var
+  LValue: Integer;
+begin
+  LValue := FValue;
+  Result := (LValue <> 0) and (LValue and 1 = 0);
+end;
+
+function TSyncLocker.GetLockedExclusive: Boolean;
+begin
+  Result := (FValue and 1 <> 0);
+end;
+
+function TSyncLocker.TryEnterRead: Boolean;
+var
+  LValue: Integer;
+begin
+  LValue := FValue;
+  if (LValue and 1 = 0) then
+  begin
+    LValue := AtomicIncrement(FValue, 2);
+    if (LValue and 1 = 0) then
+    begin
+      Result := True;
+      Exit;
+    end else
+    begin
+      AtomicDecrement(FValue, 2)
+    end;
+  end;
+
+  Result := False;
+end;
+
+function TSyncLocker.TryEnterExclusive: Boolean;
+var
+  LValue: Integer;
+  Yield: TSyncYield;
+begin
+  repeat
+    LValue := FValue;
+    if (LValue and 1 <> 0) then
+      Break;
+
+    if (AtomicCmpExchange(FValue, LValue + 1, LValue) = LValue) then
+    begin
+      Yield := TSyncYield.Create;
+
+      repeat
+        if (FValue and -2 = 0) then
+          Break;
+
+        Yield.Execute;
+      until (False);
+
+      Result := True;
+      Exit;
+    end;
+  until (False);
+
+  Result := False;
+end;
+
+function TSyncLocker.EnterRead(const ATimeout: Cardinal): Boolean;
+var
+  Yield: TSyncYield;
+  Timeout, TimeStart, TimeFinish, TimeDelta: Cardinal;
+begin
+  case (ATimeout) of
+    0:
+    begin
+      Result := TryEnterRead;
+    end;
+    INFINITE:
+    begin
+      EnterRead;
+      Result := True;
+    end;
+  else
+    Timeout := ATimeout;
+    Yield := TSyncYield.Create;
+    TimeStart := TOSTime.TickCount;
+    repeat
+      Result := TryEnterRead;
+      if (Result) then
+        Exit;
+
+      TimeFinish := TOSTime.TickCount;
+      TimeDelta := TimeFinish - TimeStart;
+      if (TimeDelta >= Timeout) then
+        Break;
+      Dec(Timeout, TimeDelta);
+      TimeStart := TimeFinish;
+
+      Yield.Execute;
+    until (False);
+
+    Result := False;
+  end;
+end;
+
+function TSyncLocker.EnterExclusive(const ATimeout: Cardinal): Boolean;
+var
+  Yield: TSyncYield;
+  Timeout, TimeStart, TimeFinish, TimeDelta: Cardinal;
+begin
+  case (ATimeout) of
+    0:
+    begin
+      Result := TryEnterExclusive;
+    end;
+    INFINITE:
+    begin
+      EnterExclusive;
+      Result := True;
+    end;
+  else
+    Timeout := ATimeout;
+    Yield := TSyncYield.Create;
+    TimeStart := TOSTime.TickCount;
+    repeat
+      Result := TryEnterExclusive;
+      if (Result) then
+        Exit;
+
+      TimeFinish := TOSTime.TickCount;
+      TimeDelta := TimeFinish - TimeStart;
+      if (TimeDelta >= Timeout) then
+        Break;
+      Dec(Timeout, TimeDelta);
+      TimeStart := TimeFinish;
+
+      Yield.Execute;
+    until (False);
+
+    Result := False;
+  end;
+end;
+
+procedure TSyncLocker.EnterRead;
+var
+  Yield: TSyncYield;
+begin
+  if (not TryEnterRead) then
+  begin
+    Yield := TSyncYield.Create;
+    repeat
+      Yield.Execute;
+    until (TryEnterRead);
+  end;
+end;
+
+procedure TSyncLocker.EnterExclusive;
+var
+  Yield: TSyncYield;
+begin
+  if (not TryEnterExclusive) then
+  begin
+    Yield := TSyncYield.Create;
+    repeat
+      Yield.Execute;
+    until (TryEnterExclusive);
+  end;
+end;
+
+procedure TSyncLocker.LeaveRead;
+begin
+  AtomicDecrement(FValue, 2);
+end;
+
+procedure TSyncLocker.LeaveExclusive;
+begin
+  AtomicDecrement(FValue, 1);
+end;
+
+
+{ TSyncSmallLocker }
+
+class function TSyncSmallLocker.Create: TSyncSmallLocker;
+begin
+  Result.FValue := 0;
+end;
+
+function TSyncSmallLocker.GetLocked: Boolean;
+begin
+  Result := (FValue <> 0);
+end;
+
+function TSyncSmallLocker.GetLockedRead: Boolean;
+var
+  LValue: Integer;
+begin
+  LValue := FValue;
+  Result := (LValue <> 0) and (LValue and 1 = 0);
+end;
+
+function TSyncSmallLocker.GetLockedExclusive: Boolean;
+begin
+  Result := (FValue and 1 <> 0);
+end;
+
+class function TSyncSmallLocker.InternalCAS(var AValue: Byte; const NewValue, Comparand: Byte): Boolean;
+{$ifdef CPUINTELASM}
+asm
+  {$ifdef CPUX86}
+    xchg eax, ecx
+    cmp byte ptr [ECX].TSyncSpinlock.FValue, al
+    jne @done
+    lock xchg byte ptr [ECX].TSyncSpinlock.FValue, dl
+  {$else .CPUX64}
+    xchg rax, r8
+    cmp byte ptr [RCX].TSyncSpinlock.FValue, al
+    jne @done
+    lock xchg byte ptr [RCX].TSyncSpinlock.FValue, dl
+  {$endif}
+@done:
+  sete al
+end;
+{$else .NEXTGEN}
+begin
+  Result := (AValue = Comparand) and (AtomicCmpExchange(AValue, NewValue, Comparand) = Comparand);
+end;
+{$endif}
+
+function TSyncSmallLocker.TryEnterRead: Boolean;
+var
+  LValue: Integer;
+begin
+  repeat
+    LValue := FValue;
+    if (LValue and 1 <> 0) or (LValue = 254) then
+      Break;
+
+    if (InternalCAS(FValue, LValue + 2, LValue)) then
+    begin
+      Result := True;
+      Exit;
+    end;
+  until (False);
+
+  Result := False;
+end;
+
+function TSyncSmallLocker.TryEnterExclusive: Boolean;
+var
+  LValue: Integer;
+  Yield: TSyncYield;
+begin
+  repeat
+    LValue := FValue;
+    if (LValue and 1 <> 0) then
+      Break;
+
+    if (InternalCAS(FValue, LValue + 1, LValue)) then
+    begin
+      Yield := TSyncYield.Create;
+
+      repeat
+        if (FValue and -2 = 0) then
+          Break;
+
+        Yield.Execute;
+      until (False);
+
+      Result := True;
+      Exit;
+    end;
+  until (False);
+
+  Result := False;
+end;
+
+function TSyncSmallLocker.EnterRead(const ATimeout: Cardinal): Boolean;
+var
+  Yield: TSyncYield;
+  Timeout, TimeStart, TimeFinish, TimeDelta: Cardinal;
+begin
+  case (ATimeout) of
+    0:
+    begin
+      Result := TryEnterRead;
+    end;
+    INFINITE:
+    begin
+      EnterRead;
+      Result := True;
+    end;
+  else
+    Timeout := ATimeout;
+    Yield := TSyncYield.Create;
+    TimeStart := TOSTime.TickCount;
+    repeat
+      Result := TryEnterRead;
+      if (Result) then
+        Exit;
+
+      TimeFinish := TOSTime.TickCount;
+      TimeDelta := TimeFinish - TimeStart;
+      if (TimeDelta >= Timeout) then
+        Break;
+      Dec(Timeout, TimeDelta);
+      TimeStart := TimeFinish;
+
+      Yield.Execute;
+    until (False);
+
+    Result := False;
+  end;
+end;
+
+function TSyncSmallLocker.EnterExclusive(const ATimeout: Cardinal): Boolean;
+var
+  Yield: TSyncYield;
+  Timeout, TimeStart, TimeFinish, TimeDelta: Cardinal;
+begin
+  case (ATimeout) of
+    0:
+    begin
+      Result := TryEnterExclusive;
+    end;
+    INFINITE:
+    begin
+      EnterExclusive;
+      Result := True;
+    end;
+  else
+    Timeout := ATimeout;
+    Yield := TSyncYield.Create;
+    TimeStart := TOSTime.TickCount;
+    repeat
+      Result := TryEnterExclusive;
+      if (Result) then
+        Exit;
+
+      TimeFinish := TOSTime.TickCount;
+      TimeDelta := TimeFinish - TimeStart;
+      if (TimeDelta >= Timeout) then
+        Break;
+      Dec(Timeout, TimeDelta);
+      TimeStart := TimeFinish;
+
+      Yield.Execute;
+    until (False);
+
+    Result := False;
+  end;
+end;
+
+procedure TSyncSmallLocker.EnterRead;
+var
+  Yield: TSyncYield;
+begin
+  if (not TryEnterRead) then
+  begin
+    Yield := TSyncYield.Create;
+    repeat
+      Yield.Execute;
+    until (TryEnterRead);
+  end;
+end;
+
+procedure TSyncSmallLocker.EnterExclusive;
+var
+  Yield: TSyncYield;
+begin
+  if (not TryEnterExclusive) then
+  begin
+    Yield := TSyncYield.Create;
+    repeat
+      Yield.Execute;
+    until (TryEnterExclusive);
+  end;
+end;
+
+procedure TSyncSmallLocker.LeaveRead;
+{$ifdef CPUINTELASM}
+asm
+  or edx, -2
+  {$ifdef CPUX86}
+  lock xadd [EAX].FValue, dl
+  {$else .CPUARM}
+  lock xadd [RCX].FValue, dl
+  {$endif}
+end;
+{$else .NEXTGEN}
+begin
+  AtomicDecrement(FValue, 2);
+end;
+{$endif}
+
+procedure TSyncSmallLocker.LeaveExclusive;
+{$ifdef CPUINTELASM}
+asm
+  or edx, -1
+  {$ifdef CPUX86}
+  lock xadd [EAX].FValue, dl
+  {$else .CPUARM}
+  lock xadd [RCX].FValue, dl
+  {$endif}
+end;
+{$else .NEXTGEN}
+begin
+  AtomicDecrement(FValue, 1);
+end;
+{$endif}
 
 initialization
+  TOSTime.Initialize;
   TCustomObject.CreateIntfTables;
   TLiteCustomObject.CreateIntfTables;
 
