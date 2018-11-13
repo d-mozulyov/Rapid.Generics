@@ -1522,6 +1522,7 @@ type
     FComparer: IComparer<T>;
 
     function GetItem(Index: Integer): T; inline;
+    procedure ReplaceItemNotify(Index: Integer; const Value: T);
     procedure SetItem(Index: Integer; const Value: T); inline;
     function ItemValue(const Item: T): NativeInt;
     {$ifdef WEAKREF}
@@ -1655,6 +1656,8 @@ type
   end;
 
 
+{ TThreadList, TThreadedQueue classes
+  Deprected synchronized routine }
 
   TThreadList<T> = class(TCustomObject)
   private
@@ -1703,6 +1706,10 @@ type
     property TotalItemsPopped: LongWord read FTotalItemsPopped;
   end;
   {$ifend}
+
+
+{  TObjectList, TObjectStack, TObjectDictionary, TRapidObjectDictionary
+   Class-oriented containers }
 
   TObjectList<T: class> = class(TList<T>)
   protected
@@ -16957,11 +16964,36 @@ begin
   end;
 end;
 
+procedure TList<T>.ReplaceItemNotify(Index: Integer; const Value: T);
+var
+  Item: ^T;
+begin
+  Item := @FItems[Index];
+
+  if (TMethod(FInternalNotify).Code = @TCustomList<T>.NotifyCaller) then
+  begin
+    Self.Notify(Item^, cnRemoved);
+    Item^ := Value;
+    Self.Notify(Value, cnAdded);
+  end else
+  begin
+    FInternalNotify(Self, Item^, cnRemoved);
+    Item^ := Value;
+    FInternalNotify(Self, Value, cnAdded);
+  end;
+end;
+
 procedure TList<T>.SetItem(Index: Integer; const Value: T);
 begin
   if (Cardinal(Index) < Cardinal(FCount.Int)) then
   begin
-    FItems[Index] := Value;
+    if (not Assigned(FInternalNotify)) then
+    begin
+      FItems[Index] := Value;
+    end else
+    begin
+      ReplaceItemNotify(Index, Value);
+    end;
   end else
   begin
     raise OutOfRangeException;
