@@ -125,6 +125,43 @@ type
   end;
 
 
+{ TRecord record
+  Universal structure }
+
+  TRecord<T1,T2,T3,T4> = packed record
+    Field1: T1;
+    Field2: T2;
+    Field3: T3;
+    Field4: T4;
+  end;
+
+  TRecord<T1,T2,T3> = packed record
+    Field1: T1;
+    Field2: T2;
+    Field3: T3;
+  end;
+
+  TRecord<T1,T2> = packed record
+    Field1: T1;
+    Field2: T2;
+  end;
+
+
+{ TProcedure/TFunction
+  Universal references }
+
+  TProcedure = reference to procedure;
+  TProcedure<T> = reference to procedure (const Arg1: T);
+  TProcedure<T1,T2> = reference to procedure (const Arg1: T1; const Arg2: T2);
+  TProcedure<T1,T2,T3> = reference to procedure (const Arg1: T1; const Arg2: T2; const Arg3: T3);
+  TProcedure<T1,T2,T3,T4> = reference to procedure (const Arg1: T1; const Arg2: T2; const Arg3: T3; const Arg4: T4);
+  TFunction<TResult> = reference to function: TResult;
+  TFunction<T,TResult> = reference to function (const Arg1: T): TResult;
+  TFunction<T1,T2,TResult> = reference to function (const Arg1: T1;const  Arg2: T2): TResult;
+  TFunction<T1,T2,T3,TResult> = reference to function (const Arg1: T1; const Arg2: T2; const Arg3: T3): TResult;
+  TFunction<T1,T2,T3,T4,TResult> = reference to function (const Arg1: T1; const Arg2: T2; const Arg3: T3; const Arg4: T4): TResult;
+
+
 { TOSTime record
   Extremely fast UTC-based system timer (Windows FILETIME format)
   Contains 64-bit value representing the number of 100-nanosecond intervals since January 1, 1601 }
