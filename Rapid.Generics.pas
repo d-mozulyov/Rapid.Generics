@@ -511,12 +511,26 @@ type
     procedure Initialize(Value: PTypeInfo);
     function GetTypeData: PTypeData; inline;
     class function IsManagedTypeInfo(Value: PTypeInfo): Boolean; static;
-    class procedure InitsProcNativeSingle(const Self: TRAIIHelper; P: Pointer); static;
-    class procedure InitsProcNatives(const Self: TRAIIHelper; P: Pointer); static;
-    class procedure InitsProc(const Self: TRAIIHelper; P: Pointer); static;
-    class procedure ClearsProcNativeSingle(const Self: TRAIIHelper; P: Pointer); static;
-    class procedure ClearsProcNatives(const Self: TRAIIHelper; P: Pointer); static;
-    class procedure ClearsProc(const Self: TRAIIHelper; P: Pointer); static;
+    class function InitsProcNativeOne(const Self: TRAIIHelper; P: Pointer): Pointer; static;
+    class procedure InitsArrayProcNativeOne(const Self: TRAIIHelper; P, Overflow: Pointer; ItemSize: NativeUInt); static;
+    class function InitsProcNativeTwo(const Self: TRAIIHelper; P: Pointer): Pointer; static;
+    class procedure InitsArrayProcNativeTwo(const Self: TRAIIHelper; P, Overflow: Pointer; ItemSize: NativeUInt); static;
+    class function InitsProcNativeThree(const Self: TRAIIHelper; P: Pointer): Pointer; static;
+    class procedure InitsArrayProcNativeThree(const Self: TRAIIHelper; P, Overflow: Pointer; ItemSize: NativeUInt); static;
+    class function InitsProcNatives(const Self: TRAIIHelper; P: Pointer): Pointer; static;
+    class procedure InitsArrayProcNatives(const Self: TRAIIHelper; P, Overflow: Pointer; ItemSize: NativeUInt); static;
+    class function InitsProc(const Self: TRAIIHelper; P: Pointer): Pointer; static;
+    class procedure InitsArrayProc(const Self: TRAIIHelper; P, Overflow: Pointer; ItemSize: NativeUInt); static;
+    class function ClearsProcNativeOne(const Self: TRAIIHelper; P: Pointer): Pointer; static;
+    class procedure ClearsArrayProcNativeOne(const Self: TRAIIHelper; P, Overflow: Pointer; ItemSize: NativeUInt); static;
+    class function ClearsProcNativeTwo(const Self: TRAIIHelper; P: Pointer): Pointer; static;
+    class procedure ClearsArrayProcNativeTwo(const Self: TRAIIHelper; P, Overflow: Pointer; ItemSize: NativeUInt); static;
+    class function ClearsProcNativeThree(const Self: TRAIIHelper; P: Pointer): Pointer; static;
+    class procedure ClearsArrayProcNativeThree(const Self: TRAIIHelper; P, Overflow: Pointer; ItemSize: NativeUInt); static;
+    class function ClearsProcNatives(const Self: TRAIIHelper; P: Pointer): Pointer; static;
+    class procedure ClearsArrayProcNatives(const Self: TRAIIHelper; P, Overflow: Pointer; ItemSize: NativeUInt); static;
+    class function ClearsProc(const Self: TRAIIHelper; P: Pointer): Pointer; static;
+    class procedure ClearsArrayProc(const Self: TRAIIHelper; P, Overflow: Pointer; ItemSize: NativeUInt); static;
 
     // TClearNativeProc-anonyms
     class procedure ULStrClear(P: Pointer); static;
@@ -544,8 +558,10 @@ type
       Natives: TNatives;
     {$endif}
     StaticArrays: TStaticArrays;
-    InitProc: procedure(const Self: TRAIIHelper; P: Pointer);
-    ClearProc: procedure(const Self: TRAIIHelper; P: Pointer);
+    InitProc: function(const Self: TRAIIHelper; P: Pointer): Pointer;
+    ClearProc: function(const Self: TRAIIHelper; P: Pointer): Pointer;
+    InitArrayProc: procedure(const Self: TRAIIHelper; P, Overflow: Pointer; ItemSize: NativeUInt);
+    ClearArrayProc: procedure(const Self: TRAIIHelper; P, Overflow: Pointer; ItemSize: NativeUInt);
 
     property TypeInfo: PTypeInfo read FTypeInfo write Initialize;
     property TypeData: PTypeData read GetTypeData;
@@ -553,32 +569,84 @@ type
     property ItemSize: NativeInt read FItemSize;
     property Weak: Boolean read FWeak;
   end;
+  PRAIIHelper = ^TRAIIHelper;
 
   TRAIIHelper<T> = record
   public type
     P = ^T;
     TArrayT = array[0..0] of T;
     PArrayT = ^TArrayT;
+    TData = TRAIIHelper.TData16;
+    PData = ^TData;
   private
     class var
       FCreated: Boolean;
       FSpinlock: Byte;
       FOptions: TRAIIHelper;
 
+    class procedure InternalCreate; static;
     class function GetManaged: Boolean; static; inline;
     class function GetWeak: Boolean; static; inline;
-    class procedure InternalCreate; static;
   public
     class procedure Create; static; inline;
-    class procedure Init(Item: P); static; inline;
-    class procedure InitArray(Items: P; Count: NativeUInt; Offset: NativeUInt = 0); static;
-    class procedure Clear(Item: P); static; inline;
-    class procedure ClearArray(Items: P; Count: NativeUInt; Offset: NativeUInt = 0); static;
+    class function Init(Item: Pointer): Pointer; static; inline;
+    class procedure Clear(Item: Pointer); static; inline;
+    class function ClearItem(Item: Pointer): Pointer; static; inline;
+    class procedure InitArray(Item, OverflowItem: Pointer; ItemSize: NativeUInt); overload; static;
+    class procedure InitArray(Item, OverflowItem: Pointer); overload; static; inline;
+    class procedure InitArray(Item: Pointer; Count, ItemSize: NativeUInt); overload; static; inline;
+    class procedure InitArray(Item: Pointer; Count: NativeUInt); overload; static; inline;
+    class procedure ClearArray(Item, OverflowItem: Pointer; ItemSize: NativeUInt); overload; static;
+    class procedure ClearArray(Item, OverflowItem: Pointer); overload; static; inline;
+    class procedure ClearArray(Item: Pointer; Count, ItemSize: NativeUInt); overload; static; inline;
+    class procedure ClearArray(Item: Pointer; Count: NativeUInt); overload; static; inline;
 
     class property Created: Boolean read FCreated;
     class property Managed: Boolean read GetManaged;
     class property Weak: Boolean read GetWeak;
     class property Options: TRAIIHelper read FOptions;
+  end;
+
+  TRAIIHelper<T1,T2,T3,T4> = record
+  public type
+    T = TRecord<T1,T2,T3,T4>;
+    P = ^T;
+    TArrayT = array[0..0] of T;
+    PArrayT = ^TArrayT;
+    TData1 = TRAIIHelper.TData16;
+    TData2 = TRAIIHelper.TData16<T1>;
+    TData3 = TRAIIHelper.TData16<TRecord<T1,T2>>;
+    TData4 = TRAIIHelper.TData16<TRecord<T1,T2,T3>>;
+    PData1 = ^TData1;
+    PData2 = ^TData2;
+    PData3 = ^TData3;
+    PData4 = ^TData4;
+  private
+    class var
+      FCreated: Boolean;
+
+    class procedure InternalCreate; static;
+    class function GetManaged: Boolean; static; inline;
+    class function GetWeak: Boolean; static; inline;
+    class function GetOptions: PRAIIHelper; static; inline;
+  public
+    class procedure Create; static; inline;
+    class function Init(Item: Pointer): Pointer; static; inline;
+    class procedure Clear(Item: Pointer); static; inline;
+    class function ClearItem(Item: Pointer): Pointer; static; inline;
+    class procedure InitArray(Item, OverflowItem: Pointer; ItemSize: NativeUInt); overload; static;
+    class procedure InitArray(Item, OverflowItem: Pointer); overload; static; inline;
+    class procedure InitArray(Item: Pointer; Count, ItemSize: NativeUInt); overload; static; inline;
+    class procedure InitArray(Item: Pointer; Count: NativeUInt); overload; static; inline;
+    class procedure ClearArray(Item, OverflowItem: Pointer; ItemSize: NativeUInt); overload; static;
+    class procedure ClearArray(Item, OverflowItem: Pointer); overload; static; inline;
+    class procedure ClearArray(Item: Pointer; Count, ItemSize: NativeUInt); overload; static; inline;
+    class procedure ClearArray(Item: Pointer; Count: NativeUInt); overload; static; inline;
+
+    class property Created: Boolean read FCreated;
+    class property Managed: Boolean read GetManaged;
+    class property Weak: Boolean read GetWeak;
+    class property Options: PRAIIHelper read GetOptions;
   end;
 
 
@@ -2325,6 +2393,7 @@ var
   WeakMode: Boolean;
   {$endif}
   LPtr: Pointer;
+  VType: Integer;
 begin
   // monitor start, weak references
   {$ifdef MONITORSUPPORT} // XE2+
@@ -2391,8 +2460,10 @@ begin
         case (Field.TypeInfo^.Kind) of
           tkVariant:
           begin
-            if Assigned(PPointer(LPtr)^) then
-              TRAIIHelper.VarClear(LPtr);
+            VType := Word(LPtr^);
+            if (VType and TRAIIHelper.varDeepData <> 0) and (VType <> varBoolean) and
+              (Cardinal(VType - (varUnknown + 1)) > (varUInt64 - varUnknown - 1)) then
+              System.VarClear(Variant(LPtr^));
           end;
           {$ifdef AUTOREFCOUNT}
           tkClass:
@@ -3003,12 +3074,9 @@ var
   VType: Integer;
 begin
   VType := PVarData(P).VType;
-  if (VType and varDeepData <> 0) then
-  case VType of
-    varBoolean, varUnknown+1..varUInt64: ;
-  else
+  if (VType and varDeepData <> 0) and (VType <> varBoolean) and
+    (Cardinal(VType - (varUnknown + 1)) > (varUInt64 - varUnknown - 1)) then
     System.VarClear(PVariant(P)^);
-  end;
 end;
 
 class procedure TRAIIHelper.DynArrayClear(P, TypeInfo: Pointer);
@@ -3280,6 +3348,8 @@ begin
   StaticArrays.Clear;
   InitProc := nil;
   ClearProc := nil;
+  InitArrayProc := nil;
+  ClearArrayProc := nil;
 
   // type data
   TypeData := Pointer(Value);
@@ -3382,32 +3452,56 @@ begin
   if (StaticArrays.Count <> 0) then
   begin
     InitProc := Self.InitsProc;
+    InitArrayProc := Self.InitsArrayProc;
   end else
-  if ({$ifdef WEAKINSTREF}InitNatives{$else}Natives{$endif}.Count <> 0) then
-  begin
-    if ({$ifdef WEAKINSTREF}InitNatives{$else}Natives{$endif}.Count > 1) then
+  case ({$ifdef WEAKINSTREF}InitNatives{$else}Natives{$endif}.Count) of
+    0: ;
+    1:
     begin
-      InitProc := Self.InitsProcNatives;
-    end else
-    begin
-      InitProc := Self.InitsProcNativeSingle;
+      InitProc := Self.InitsProcNativeOne;
+      InitArrayProc := Self.InitsArrayProcNativeOne;
     end;
+    2:
+    begin
+      InitProc := Self.InitsProcNativeTwo;
+      InitArrayProc := Self.InitsArrayProcNativeTwo;
+    end;
+    3:
+    begin
+      InitProc := Self.InitsProcNativeThree;
+      InitArrayProc := Self.InitsArrayProcNativeThree;
+    end;
+  else
+    InitProc := Self.InitsProcNatives;
+    InitArrayProc := Self.InitsArrayProcNatives;
   end;
 
   // finalization
   if (StaticArrays.Count <> 0) then
   begin
     ClearProc := Self.ClearsProc;
+    ClearArrayProc := Self.ClearsArrayProc;
   end else
-  if ({$ifdef WEAKINSTREF}ClearNatives{$else}Natives{$endif}.Count <> 0) then
-  begin
-    if ({$ifdef WEAKINSTREF}ClearNatives{$else}Natives{$endif}.Count > 1) then
+  case ({$ifdef WEAKINSTREF}ClearNatives{$else}Natives{$endif}.Count) of
+    0: ;
+    1:
     begin
-      ClearProc := Self.ClearsProcNatives;
-    end else
-    begin
-      ClearProc := Self.ClearsProcNativeSingle;
+      ClearProc := Self.ClearsProcNativeOne;
+      ClearArrayProc := Self.ClearsArrayProcNativeOne;
     end;
+    2:
+    begin
+      ClearProc := Self.ClearsProcNativeTwo;
+      ClearArrayProc := Self.ClearsArrayProcNativeTwo;
+    end;
+    3:
+    begin
+      ClearProc := Self.ClearsProcNativeThree;
+      ClearArrayProc := Self.ClearsArrayProcNativeThree;
+    end;
+  else
+    ClearProc := Self.ClearsProcNatives;
+    ClearArrayProc := Self.ClearsArrayProcNatives;
   end;
 
   // dynamic arrays
@@ -3490,13 +3584,119 @@ begin
   end;
 end;
 
-class procedure TRAIIHelper.InitsProcNativeSingle(const Self: TRAIIHelper; P: Pointer);
+class function TRAIIHelper.InitsProcNativeOne(const Self: TRAIIHelper; P: Pointer): Pointer;
 begin
   Inc(NativeInt(P), Self.{$ifdef WEAKINSTREF}InitNatives{$else}Natives{$endif}.ItemSingle.Offset);
   PNativeInt(P)^ := 0;
+  Result := P;
 end;
 
-class procedure TRAIIHelper.InitsProcNatives(const Self: TRAIIHelper; P: Pointer);
+class procedure TRAIIHelper.InitsArrayProcNativeOne(const Self: TRAIIHelper;
+  P, Overflow: Pointer; ItemSize: NativeUInt);
+var
+  Offset: NativeInt;
+  Null: NativeInt;
+  LItemSize: NativeInt;
+begin
+  Offset := Self.{$ifdef WEAKINSTREF}InitNatives{$else}Natives{$endif}.ItemSingle.Offset;
+  Inc(NativeInt(P), Offset);
+  Inc(NativeInt(Overflow), Offset);
+
+  LItemSize := ItemSize;
+  Null := 0;
+  if (P <> Overflow) then
+  repeat
+    PNativeInt(P)^ := Null;
+    Inc(NativeUInt(P), LItemSize);
+  until (P = Overflow);
+end;
+
+class function TRAIIHelper.InitsProcNativeTwo(const Self: TRAIIHelper; P: Pointer): Pointer;
+var
+  Null: NativeInt;
+  Item: ^{$ifdef WEAKINSTREF}TInitNativeRec{$else}TNativeRec{$endif};
+begin
+  Item := Pointer(Self.{$ifdef WEAKINSTREF}InitNatives{$else}Natives{$endif}.Items);
+  Null := 0;
+
+  PNativeInt(NativeInt(P) + Item.Offset)^ := Null;
+  Inc(Item);
+  PNativeInt(NativeInt(P) + Item.Offset)^ := Null;
+
+  Result := P;
+end;
+
+class procedure TRAIIHelper.InitsArrayProcNativeTwo(const Self: TRAIIHelper;
+  P, Overflow: Pointer; ItemSize: NativeUInt);
+var
+  Ptr: PNativeInt;
+  Item: ^{$ifdef WEAKINSTREF}TInitNativeRec{$else}TNativeRec{$endif};
+  StoredItem: Pointer;
+begin
+  StoredItem := Pointer(Self.{$ifdef WEAKINSTREF}InitNatives{$else}Natives{$endif}.Items);
+
+  if (P <> Overflow) then
+  repeat
+    Item := StoredItem;
+
+    Ptr := P;
+    Inc(NativeInt(Ptr), Item.Offset);
+    Ptr^ := 0;
+    Inc(Item);
+    Ptr := P;
+    Inc(NativeInt(Ptr), Item.Offset);
+    Ptr^ := 0;
+
+    Inc(NativeUInt(P), ItemSize);
+  until (P = Overflow);
+end;
+
+class function TRAIIHelper.InitsProcNativeThree(const Self: TRAIIHelper; P: Pointer): Pointer;
+var
+  Null: NativeInt;
+  Item: ^{$ifdef WEAKINSTREF}TInitNativeRec{$else}TNativeRec{$endif};
+begin
+  Item := Pointer(Self.{$ifdef WEAKINSTREF}InitNatives{$else}Natives{$endif}.Items);
+  Null := 0;
+
+  PNativeInt(NativeInt(P) + Item.Offset)^ := Null;
+  Inc(Item);
+  PNativeInt(NativeInt(P) + Item.Offset)^ := Null;
+  Inc(Item);
+  PNativeInt(NativeInt(P) + Item.Offset)^ := Null;
+
+  Result := P;
+end;
+
+class procedure TRAIIHelper.InitsArrayProcNativeThree(const Self: TRAIIHelper;
+  P, Overflow: Pointer; ItemSize: NativeUInt);
+var
+  Ptr: PNativeInt;
+  Item: ^{$ifdef WEAKINSTREF}TInitNativeRec{$else}TNativeRec{$endif};
+  StoredItem: Pointer;
+begin
+  StoredItem := Pointer(Self.{$ifdef WEAKINSTREF}InitNatives{$else}Natives{$endif}.Items);
+
+  if (P <> Overflow) then
+  repeat
+    Item := StoredItem;
+
+    Ptr := P;
+    Inc(NativeInt(Ptr), Item.Offset);
+    Ptr^ := 0;
+    Inc(Item);
+    Ptr := P;
+    Inc(NativeInt(Ptr), Item.Offset);
+    Ptr^ := 0;
+    Ptr := P;
+    Inc(NativeInt(Ptr), Item.Offset);
+    Ptr^ := 0;
+
+    Inc(NativeUInt(P), ItemSize);
+  until (P = Overflow);
+end;
+
+class function TRAIIHelper.InitsProcNatives(const Self: TRAIIHelper; P: Pointer): Pointer;
 label
   _1, _2, _3, _4, _5, _6, _7, _8, _9, _10, _11;
 var
@@ -3511,11 +3711,13 @@ begin
     11:
     begin
     _11:
+      Dec(Count, 10);
       repeat
         PNativeInt(NativeInt(P) + Item.Offset)^ := Null;
         Dec(Count);
         Inc(Item);
       until (Count = 0);
+      goto _10;
     end;
     10:
     begin
@@ -3589,9 +3791,121 @@ begin
   else
     goto _11;
   end;
+
+  Result := P;
 end;
 
-class procedure TRAIIHelper.InitsProc(const Self: TRAIIHelper; P: Pointer);
+class procedure TRAIIHelper.InitsArrayProcNatives(const Self: TRAIIHelper;
+  P, Overflow: Pointer; ItemSize: NativeUInt);
+label
+  _1, _2, _3, _4, _5, _6, _7, _8, _9, _10, _11;
+var
+  Count, Null: NativeInt;
+  Item: ^{$ifdef WEAKINSTREF}TInitNativeRec{$else}TNativeRec{$endif};
+  Stored: record
+    Item: Pointer;
+    Count: NativeInt;
+  end;
+begin
+  Stored.Item := Pointer(Self.{$ifdef WEAKINSTREF}InitNatives{$else}Natives{$endif}.Items);
+  Stored.Count := Self.{$ifdef WEAKINSTREF}InitNatives{$else}Natives{$endif}.Count;
+
+  if (P <> Overflow) then
+  repeat
+    Item := Stored.Item;
+    Count := Stored.Count;
+    Null := 0;
+
+    case Count of
+      11:
+      begin
+      _11:
+        Dec(Count, 10);
+        repeat
+          PNativeInt(NativeInt(P) + Item.Offset)^ := Null;
+          Dec(Count);
+          Inc(Item);
+        until (Count = 0);
+        goto _10;
+      end;
+      10:
+      begin
+      _10:
+        PNativeInt(NativeInt(P) + Item.Offset)^ := Null;
+        Inc(Item);
+        goto _9;
+      end;
+      9:
+      begin
+      _9:
+        PNativeInt(NativeInt(P) + Item.Offset)^ := Null;
+        Inc(Item);
+        goto _8;
+      end;
+      8:
+      begin
+      _8:
+        PNativeInt(NativeInt(P) + Item.Offset)^ := Null;
+        Inc(Item);
+        goto _7;
+      end;
+      7:
+      begin
+      _7:
+        PNativeInt(NativeInt(P) + Item.Offset)^ := Null;
+        Inc(Item);
+        goto _6;
+      end;
+      6:
+      begin
+      _6:
+        PNativeInt(NativeInt(P) + Item.Offset)^ := Null;
+        Inc(Item);
+        goto _5;
+      end;
+      5:
+      begin
+      _5:
+        PNativeInt(NativeInt(P) + Item.Offset)^ := Null;
+        Inc(Item);
+        goto _4;
+      end;
+      4:
+      begin
+      _4:
+        PNativeInt(NativeInt(P) + Item.Offset)^ := Null;
+        Inc(Item);
+        goto _3;
+      end;
+      3:
+      begin
+      _3:
+        PNativeInt(NativeInt(P) + Item.Offset)^ := Null;
+        Inc(Item);
+        goto _2;
+      end;
+      2:
+      begin
+      _2:
+        PNativeInt(NativeInt(P) + Item.Offset)^ := Null;
+        Inc(Item);
+        goto _1;
+      end;
+      1:
+      begin
+      _1:
+        PNativeInt(NativeInt(P) + Item.Offset)^ := Null;
+      end;
+      0: ;
+    else
+      goto _11;
+    end;
+
+    Inc(NativeUInt(P), ItemSize);
+  until (P = Overflow);
+end;
+
+class function TRAIIHelper.InitsProc(const Self: TRAIIHelper; P: Pointer): Pointer;
 var
   i: NativeInt;
   Item: ^{$ifdef WEAKINSTREF}TInitNativeRec{$else}TNativeRec{$endif};
@@ -3611,9 +3925,40 @@ begin
       StaticArrayRec.StaticTypeInfo, StaticArrayRec.Count);
     Inc(StaticArrayRec);
   end;
+
+  Result := P;
 end;
 
-class procedure TRAIIHelper.ClearsProcNativeSingle(const Self: TRAIIHelper; P: Pointer);
+class procedure TRAIIHelper.InitsArrayProc(const Self: TRAIIHelper;
+  P, Overflow: Pointer; ItemSize: NativeUInt);
+var
+  Item, OverflowItem: ^TClearNativeRec;
+  StaticArrayRec, OverflowStaticArrayRec: ^TStaticArrayRec;
+begin
+  if (P <> Overflow) then
+  repeat
+    Item := Pointer(Self.{$ifdef WEAKINSTREF}InitNatives{$else}Natives{$endif}.Items);
+    OverflowItem := Item + Self.{$ifdef WEAKINSTREF}InitNatives{$else}Natives{$endif}.Count;
+    if (Item <> OverflowItem) then
+    repeat
+      PNativeInt(NativeInt(P) + Item.Offset)^ := 0;
+      Inc(Item);
+    until (Item = OverflowItem);
+
+    StaticArrayRec := Pointer(Self.StaticArrays.Items);
+    OverflowStaticArrayRec := StaticArrayRec + Self.StaticArrays.Count;
+    if (StaticArrayRec <> OverflowStaticArrayRec) then
+    repeat
+      System.InitializeArray(Pointer(NativeInt(P) + StaticArrayRec.Offset),
+        StaticArrayRec.StaticTypeInfo, StaticArrayRec.Count);
+      Inc(StaticArrayRec);
+    until (StaticArrayRec = OverflowStaticArrayRec);
+
+    Inc(NativeUInt(P), ItemSize);
+  until (P = Overflow);
+end;
+
+class function TRAIIHelper.ClearsProcNativeOne(const Self: TRAIIHelper; P: Pointer): Pointer;
 var
   Value: PNativeInt;
 begin
@@ -3623,9 +3968,116 @@ begin
     Self.{$ifdef WEAKINSTREF}ClearNatives{$else}Natives{$endif}.ItemSingle.ClearNativeProc(Value,
       Self.{$ifdef WEAKINSTREF}ClearNatives{$else}Natives{$endif}.ItemSingle.DynTypeInfo);
   end;
+
+  Result := P;
 end;
 
-class procedure TRAIIHelper.ClearsProcNatives(const Self: TRAIIHelper; P: Pointer);
+class procedure TRAIIHelper.ClearsArrayProcNativeOne(const Self: TRAIIHelper;
+  P, Overflow: Pointer; ItemSize: NativeUInt);
+var
+  Offset: NativeInt;
+  ClearNativeProc: TClearNativeProc;
+  DynTypeInfo: PTypeInfo;
+  Value: PNativeInt;
+begin
+  Offset := Self.{$ifdef WEAKINSTREF}ClearNatives{$else}Natives{$endif}.ItemSingle.Offset;
+  ClearNativeProc := Self.{$ifdef WEAKINSTREF}ClearNatives{$else}Natives{$endif}.ItemSingle.ClearNativeProc;
+  DynTypeInfo := Self.{$ifdef WEAKINSTREF}ClearNatives{$else}Natives{$endif}.ItemSingle.DynTypeInfo;
+  if (P <> Overflow) then
+  repeat
+    Value := Pointer(NativeInt(P) + Offset);
+    if (Value^ <> 0) then
+      ClearNativeProc(Value, DynTypeInfo);
+
+    Inc(NativeUInt(P), ItemSize);
+  until (P = Overflow);
+end;
+
+class function TRAIIHelper.ClearsProcNativeTwo(const Self: TRAIIHelper; P: Pointer): Pointer;
+var
+  Value: PNativeInt;
+  Item: ^{$ifdef WEAKINSTREF}TClearNativeRec{$else}TNativeRec{$endif};
+begin
+  Item := Pointer(Self.{$ifdef WEAKINSTREF}ClearNatives{$else}Natives{$endif}.Items);
+
+  Value := Pointer(NativeInt(P) + Item.Offset);
+  if (Value^ <> 0) then Item.ClearNativeProc(Value, Item.DynTypeInfo);
+  Inc(Item);
+  Value := Pointer(NativeInt(P) + Item.Offset);
+  if (Value^ <> 0) then Item.ClearNativeProc(Value, Item.DynTypeInfo);
+
+  Result := P;
+end;
+
+class procedure TRAIIHelper.ClearsArrayProcNativeTwo(const Self: TRAIIHelper;
+  P, Overflow: Pointer; ItemSize: NativeUInt);
+var
+  Value: PNativeInt;
+  Item: ^{$ifdef WEAKINSTREF}TClearNativeRec{$else}TNativeRec{$endif};
+  StoredItem: Pointer;
+begin
+  StoredItem := Pointer(Self.{$ifdef WEAKINSTREF}ClearNatives{$else}Natives{$endif}.Items);
+
+  if (P <> Overflow) then
+  repeat
+    Item := StoredItem;
+
+    Value := Pointer(NativeInt(P) + Item.Offset);
+    if (Value^ <> 0) then Item.ClearNativeProc(Value, Item.DynTypeInfo);
+    Inc(Item);
+    Value := Pointer(NativeInt(P) + Item.Offset);
+    if (Value^ <> 0) then Item.ClearNativeProc(Value, Item.DynTypeInfo);
+
+    Inc(NativeUInt(P), ItemSize);
+  until (P = Overflow);
+end;
+
+class function TRAIIHelper.ClearsProcNativeThree(const Self: TRAIIHelper; P: Pointer): Pointer;
+var
+  Value: PNativeInt;
+  Item: ^{$ifdef WEAKINSTREF}TClearNativeRec{$else}TNativeRec{$endif};
+begin
+  Item := Pointer(Self.{$ifdef WEAKINSTREF}ClearNatives{$else}Natives{$endif}.Items);
+
+  Value := Pointer(NativeInt(P) + Item.Offset);
+  if (Value^ <> 0) then Item.ClearNativeProc(Value, Item.DynTypeInfo);
+  Inc(Item);
+  Value := Pointer(NativeInt(P) + Item.Offset);
+  if (Value^ <> 0) then Item.ClearNativeProc(Value, Item.DynTypeInfo);
+  Inc(Item);
+  Value := Pointer(NativeInt(P) + Item.Offset);
+  if (Value^ <> 0) then Item.ClearNativeProc(Value, Item.DynTypeInfo);
+
+  Result := P;
+end;
+
+class procedure TRAIIHelper.ClearsArrayProcNativeThree(const Self: TRAIIHelper;
+  P, Overflow: Pointer; ItemSize: NativeUInt);
+var
+  Value: PNativeInt;
+  Item: ^{$ifdef WEAKINSTREF}TClearNativeRec{$else}TNativeRec{$endif};
+  StoredItem: Pointer;
+begin
+  StoredItem := Pointer(Self.{$ifdef WEAKINSTREF}ClearNatives{$else}Natives{$endif}.Items);
+
+  if (P <> Overflow) then
+  repeat
+    Item := StoredItem;
+
+    Value := Pointer(NativeInt(P) + Item.Offset);
+    if (Value^ <> 0) then Item.ClearNativeProc(Value, Item.DynTypeInfo);
+    Inc(Item);
+    Value := Pointer(NativeInt(P) + Item.Offset);
+    if (Value^ <> 0) then Item.ClearNativeProc(Value, Item.DynTypeInfo);
+    Inc(Item);
+    Value := Pointer(NativeInt(P) + Item.Offset);
+    if (Value^ <> 0) then Item.ClearNativeProc(Value, Item.DynTypeInfo);
+
+    Inc(NativeUInt(P), ItemSize);
+  until (P = Overflow);
+end;
+
+class function TRAIIHelper.ClearsProcNatives(const Self: TRAIIHelper; P: Pointer): Pointer;
 label
   _1, _2, _3, _4, _5, _6, _7, _8, _9, _10, _11;
 var
@@ -3640,12 +4092,14 @@ begin
     11:
     begin
     _11:
+      Dec(Count, 10);
       repeat
         Value := Pointer(NativeInt(P) + Item.Offset);
         if (Value^ <> 0) then Item.ClearNativeProc(Value, Item.DynTypeInfo);
         Dec(Count);
         Inc(Item);
       until (Count = 0);
+      goto _10;
     end;
     10:
     begin
@@ -3729,9 +4183,131 @@ begin
   else
     goto _11;
   end;
+
+  Result := P;
 end;
 
-class procedure TRAIIHelper.ClearsProc(const Self: TRAIIHelper; P: Pointer);
+class procedure TRAIIHelper.ClearsArrayProcNatives(const Self: TRAIIHelper;
+  P, Overflow: Pointer; ItemSize: NativeUInt);
+label
+  _1, _2, _3, _4, _5, _6, _7, _8, _9, _10, _11;
+var
+  Count: NativeInt;
+  Value: PNativeInt;
+  Item, OverflowItem: ^{$ifdef WEAKINSTREF}TClearNativeRec{$else}TNativeRec{$endif};
+  Stored: record
+    Item: Pointer;
+    Count: NativeInt;
+  end;
+begin
+  Stored.Item := Pointer(Self.{$ifdef WEAKINSTREF}ClearNatives{$else}Natives{$endif}.Items);
+  Stored.Count := Self.{$ifdef WEAKINSTREF}ClearNatives{$else}Natives{$endif}.Count;
+
+  if (P <> Overflow) then
+  repeat
+    Item := Stored.Item;
+    Count := Stored.Count;
+
+    case Count of
+      11:
+      begin
+      _11:
+        OverflowItem := Item + (Count - 10);
+        repeat
+          Value := Pointer(NativeInt(P) + Item.Offset);
+          if (Value^ <> 0) then Item.ClearNativeProc(Value, Item.DynTypeInfo);
+          Inc(Item);
+        until (Item = OverflowItem);
+        goto _10;
+      end;
+      10:
+      begin
+      _10:
+        Value := Pointer(NativeInt(P) + Item.Offset);
+        if (Value^ <> 0) then Item.ClearNativeProc(Value, Item.DynTypeInfo);
+        Inc(Item);
+        goto _9;
+      end;
+      9:
+      begin
+      _9:
+        Value := Pointer(NativeInt(P) + Item.Offset);
+        if (Value^ <> 0) then Item.ClearNativeProc(Value, Item.DynTypeInfo);
+        Inc(Item);
+        goto _8;
+      end;
+      8:
+      begin
+      _8:
+        Value := Pointer(NativeInt(P) + Item.Offset);
+        if (Value^ <> 0) then Item.ClearNativeProc(Value, Item.DynTypeInfo);
+        Inc(Item);
+        goto _7;
+      end;
+      7:
+      begin
+      _7:
+        Value := Pointer(NativeInt(P) + Item.Offset);
+        if (Value^ <> 0) then Item.ClearNativeProc(Value, Item.DynTypeInfo);
+        Inc(Item);
+        goto _6;
+      end;
+      6:
+      begin
+      _6:
+        Value := Pointer(NativeInt(P) + Item.Offset);
+        if (Value^ <> 0) then Item.ClearNativeProc(Value, Item.DynTypeInfo);
+        Inc(Item);
+        goto _5;
+      end;
+      5:
+      begin
+      _5:
+        Value := Pointer(NativeInt(P) + Item.Offset);
+        if (Value^ <> 0) then Item.ClearNativeProc(Value, Item.DynTypeInfo);
+        Inc(Item);
+        goto _4;
+      end;
+      4:
+      begin
+      _4:
+        Value := Pointer(NativeInt(P) + Item.Offset);
+        if (Value^ <> 0) then Item.ClearNativeProc(Value, Item.DynTypeInfo);
+        Inc(Item);
+        goto _3;
+      end;
+      3:
+      begin
+      _3:
+        Value := Pointer(NativeInt(P) + Item.Offset);
+        if (Value^ <> 0) then Item.ClearNativeProc(Value, Item.DynTypeInfo);
+        Inc(Item);
+        goto _2;
+      end;
+      2:
+      begin
+      _2:
+        Value := Pointer(NativeInt(P) + Item.Offset);
+        if (Value^ <> 0) then Item.ClearNativeProc(Value, Item.DynTypeInfo);
+        Inc(Item);
+        goto _1;
+      end;
+      1:
+      begin
+      _1:
+        Value := Pointer(NativeInt(P) + Item.Offset);
+        if (Value^ <> 0) then Item.ClearNativeProc(Value, Item.DynTypeInfo);
+      end;
+      0: ;
+    else
+      goto _11;
+    end;
+
+    Inc(NativeUInt(P), ItemSize);
+  until (P = Overflow);
+end;
+
+class function TRAIIHelper.ClearsProc(const Self: TRAIIHelper; P: Pointer): Pointer;
 var
   i: NativeInt;
   Value: PNativeInt;
@@ -3756,6 +4332,42 @@ begin
       StaticArrayRec.StaticTypeInfo, StaticArrayRec.Count);
     Inc(StaticArrayRec);
   end;
+
+  Result := P;
+end;
+
+class procedure TRAIIHelper.ClearsArrayProc(const Self: TRAIIHelper;
+  P, Overflow: Pointer; ItemSize: NativeUInt);
+var
+  Value: PNativeInt;
+  Item, OverflowItem: ^TClearNativeRec;
+  StaticArrayRec, OverflowStaticArrayRec: ^TStaticArrayRec;
+begin
+  if (P <> Overflow) then
+  repeat
+    Item := Pointer(Self.{$ifdef WEAKINSTREF}ClearNatives{$else}Natives{$endif}.Items);
+    OverflowItem := Item + Self.{$ifdef WEAKINSTREF}ClearNatives{$else}Natives{$endif}.Count;
+    if (Item <> OverflowItem) then
+    repeat
+      Value := Pointer(NativeInt(P) + Item.Offset);
+      if (Value^ <> 0) then
+      begin
+        Item.ClearNativeProc(Value, Item.DynTypeInfo);
+      end;
+      Inc(Item);
+    until (Item = OverflowItem);
+
+    StaticArrayRec := Pointer(Self.StaticArrays.Items);
+    OverflowStaticArrayRec := StaticArrayRec + Self.StaticArrays.Count;
+    if (StaticArrayRec <> OverflowStaticArrayRec) then
+    repeat
+      System.FinalizeArray(Pointer(NativeInt(P) + StaticArrayRec.Offset),
+        StaticArrayRec.StaticTypeInfo, StaticArrayRec.Count);
+      Inc(StaticArrayRec);
+    until (StaticArrayRec = OverflowStaticArrayRec);
+
+    Inc(NativeUInt(P), ItemSize);
+  until (P = Overflow);
 end;
 
 { TRAIIHelper<T> }
@@ -3814,184 +4426,1108 @@ begin
   {$endif}
 end;
 
-class procedure TRAIIHelper<T>.Init(Item: P);
-begin
-  {$ifdef SMARTGENERICS}
-  if (System.IsManagedType(T)) then
-  {$else}
-  if (Assigned(FOptions.InitProc)) then
-  {$endif}
-    FOptions.InitProc(FOptions, Item);
-end;
-
-class procedure TRAIIHelper<T>.InitArray(Items: P; Count: NativeUInt; Offset: NativeUInt);
+class function TRAIIHelper<T>.Init(Item: Pointer): Pointer;
 var
-  i: NativeUInt;
-  Item: ^TRAIIHelper.TData16;
-  Null: NativeInt;
+  LNull: NativeInt;
 begin
+  Result := Item;
+
   {$ifdef SMARTGENERICS}
   if (System.IsManagedType(T)) then
   {$else}
   if (Assigned(FOptions.InitProc)) then
   {$endif}
   begin
-    if (Offset = 0) then Offset := SizeOf(T);
-    Item := Pointer(Items);
-    Null := 0;
-
     {$ifdef SMARTGENERICS}
-    if (GetTypeKind(T) = tkVariant) then
+    if (GetTypeKind(T) = tkVariant) or (SizeOf(T) <= 16) then
     begin
-      for i := 1 to Count do
+      LNull := 0;
+
+      if (GetTypeKind(T) = tkVariant) then
       begin
-        Item.Integers[0] := Null;
-        Inc(NativeUInt(Item), Offset);
-      end;
-    end else
-    {$endif}
-    if (SizeOf(T) <= 16) then
-    begin
-      if (SizeOf(T) = Offset) then
-      begin
-        FillChar(Item^, NativeInt(Count) * SizeOf(T), #0);
+        TData(Result^).Integers[0] := LNull;
       end else
-      for i := 1 to Count do
       begin
         {$ifdef SMALLINT}
-          if (SizeOf(T) >= SizeOf(Integer) * 1) then Item.Integers[0] := Null;
-          if (SizeOf(T) >= SizeOf(Integer) * 2) then Item.Integers[1] := Null;
-          if (SizeOf(T) >= SizeOf(Integer) * 3) then Item.Integers[2] := Null;
-          if (SizeOf(T)  = SizeOf(Integer) * 4) then Item.Integers[3] := Null;
+          if (SizeOf(T) >= SizeOf(Integer) * 1) then TData(Result^).Integers[0] := LNull;
+          if (SizeOf(T) >= SizeOf(Integer) * 2) then TData(Result^).Integers[1] := LNull;
+          if (SizeOf(T) >= SizeOf(Integer) * 3) then TData(Result^).Integers[2] := LNull;
+          if (SizeOf(T)  = SizeOf(Integer) * 4) then TData(Result^).Integers[3] := LNull;
         {$else .LARGEINT}
-          if (SizeOf(T) >= SizeOf(Int64) * 1) then Item.Int64s[0] := Null;
-          if (SizeOf(T)  = SizeOf(Int64) * 2) then Item.Int64s[1] := Null;
+          if (SizeOf(T) >= SizeOf(Int64) * 1) then TData(Result^).Int64s[0] := LNull;
+          if (SizeOf(T)  = SizeOf(Int64) * 2) then TData(Result^).Int64s[1] := LNull;
           case SizeOf(T) of
-             4..7: Item.Integers[0] := Null;
-           12..15: Item.Integers[2] := Null;
+             4..7: TData(Result^).Integers[0] := LNull;
+           12..15: TData(Result^).Integers[2] := LNull;
           end;
         {$endif}
         case SizeOf(T) of
-           2,3: Item.Words[0] := 0;
-           6,7: Item.Words[2] := 0;
-         10,11: Item.Words[4] := 0;
-         14,15: Item.Words[6] := 0;
+           2,3: TData(Result^).Words[0] := 0;
+           6,7: TData(Result^).Words[2] := 0;
+         10,11: TData(Result^).Words[4] := 0;
+         14,15: TData(Result^).Words[6] := 0;
         end;
         case SizeOf(T) of
-           1: Item.Bytes[ 1-1] := 0;
-           3: Item.Bytes[ 3-1] := 0;
-           5: Item.Bytes[ 5-1] := 0;
-           7: Item.Bytes[ 7-1] := 0;
-           9: Item.Bytes[ 9-1] := 0;
-          11: Item.Bytes[11-1] := 0;
-          13: Item.Bytes[13-1] := 0;
-          15: Item.Bytes[15-1] := 0;
+           1: TData(Result^).Bytes[ 1-1] := 0;
+           3: TData(Result^).Bytes[ 3-1] := 0;
+           5: TData(Result^).Bytes[ 5-1] := 0;
+           7: TData(Result^).Bytes[ 7-1] := 0;
+           9: TData(Result^).Bytes[ 9-1] := 0;
+          11: TData(Result^).Bytes[11-1] := 0;
+          13: TData(Result^).Bytes[13-1] := 0;
+          15: TData(Result^).Bytes[15-1] := 0;
         end;
-
-        Inc(NativeUInt(Item), Offset);
       end;
     end else
-    for i := 1 to Count do
+    {$else}
+    if (SizeOf(T) <= 16) then
     begin
-      FOptions.InitProc(FOptions, Item);
-      Inc(NativeUInt(Item), Offset);
+      LNull := 0;
+      Inc(NativeInt(Result), SizeOf(T) - SizeOf(NativeInt));
+      NativeInt(Result^) := LNull;
+      Dec(NativeInt(Result), SizeOf(T) - SizeOf(NativeInt));
+      {$ifdef SMALLINT}
+        if (SizeOf(T) > SizeOf(Integer) * 1) then TData(Result^).Integers[0] := LNull;
+        if (SizeOf(T) > SizeOf(Integer) * 2) then TData(Result^).Integers[1] := LNull;
+        if (SizeOf(T) > SizeOf(Integer) * 3) then TData(Result^).Integers[2] := LNull;
+      {$else .LARGEINT}
+        if (SizeOf(T) > SizeOf(Int64) * 1) then TData(Result^).Int64s[0] := LNull;
+      {$endif}
+    end else
+    {$endif}
+    begin
+      Result := FOptions.InitProc(FOptions, Result);
     end;
   end;
 end;
 
-class procedure TRAIIHelper<T>.Clear(Item: P);
+class procedure TRAIIHelper<T>.Clear(Item: Pointer);
+{$ifNdef SMARTGENERICS}
 begin
-  {$ifdef SMARTGENERICS}
-  if (System.IsManagedType(T)) then
-  {$else}
-  if (Assigned(FOptions.ClearProc)) then
-  {$endif}
-    FOptions.ClearProc(FOptions, Item);
+  if (Assigned(FOptions.InitProc)) then
+    FOptions.InitProc(FOptions, Item);
 end;
-
-class procedure TRAIIHelper<T>.ClearArray(Items: P; Count: NativeUInt; Offset: NativeUInt);
+{$else .SMARTGENERICS}
 var
-  i: NativeUInt;
-  Item: ^TRAIIHelper.TData16;
-  {$ifdef SMARTGENERICS}
   VType: Integer;
-  {$endif}
 begin
-  {$ifdef SMARTGENERICS}
   if (System.IsManagedType(T)) then
-  {$else}
-  if (Assigned(FOptions.ClearProc)) then
-  {$endif}
   begin
-    if (Offset = 0) then Offset := SizeOf(T);
-    Item := Pointer(Items);
-
-    for i := 1 to Count do
+    if (not (GetTypeKind(T) in [tkArray, tkRecord])) then
     begin
-      {$ifdef SMARTGENERICS}
       case GetTypeKind(T) of
         {$ifdef AUTOREFCOUNT}
         tkClass,
         {$endif}
         tkWString, tkLString, tkUString, tkInterface, tkDynArray:
         begin
-          if (Item.Native <> 0) then
+          if (TData(Item^).Native <> 0) then
           case GetTypeKind(T) of
             {$ifdef AUTOREFCOUNT}
-            tkClass:
-            begin
-              TRAIIHelper.RefObjClear(@Item.Native);
-            end;
+            tkClass: TRAIIHelper.RefObjClear(@TData(Item^).Native);
             {$endif}
             {$ifdef MSWINDOWS}
-            tkWString:
-            begin
-              TRAIIHelper.WStrClear(@Item.Native);
-            end;
+            tkWString: TRAIIHelper.WStrClear(@TData(Item^).Native);
             {$else}
             tkWString,
             {$endif}
-            tkLString, tkUString:
-            begin
-              TRAIIHelper.ULStrClear(@Item.Native);
-            end;
-            tkInterface:
-            begin
-              IInterface(Item.Native)._Release;
-            end;
-            tkDynArray:
-            begin
-              TRAIIHelper.DynArrayClear(@Item.Native, TypeInfo(T));
-            end;
+            tkLString, tkUString: TRAIIHelper.ULStrClear(@TData(Item^).Native);
+            tkInterface: IInterface(Pointer(@TData(Item^).Native))._Release;
+            tkDynArray: TRAIIHelper.DynArrayClear(@TData(Item^).Native, TypeInfo(T));
           end;
         end;
         {$ifdef WEAKINSTREF}
         tkMethod:
         begin
-          if (Item.Method.Data <> nil) then
-            TRAIIHelper.WeakMethodClear(@Item.Method.Data);
+          if (TData(Item^).Natives[1] <> 0) then
+            TRAIIHelper.WeakMethodClear(@TData(Item^).Natives[1]);
         end;
         {$endif}
         tkVariant:
         begin
-          VType := Item.VarData.VType;
-          if (VType and TRAIIHelper.varDeepData <> 0) then
-          case VType of
-            varBoolean, varUnknown+1..varUInt64: ;
-          else
-            System.VarClear(Variant(Item.VarData));
-          end;
+          VType := Word(Item^);
+          if (VType and TRAIIHelper.varDeepData <> 0) and (VType <> varBoolean) and
+            (Cardinal(VType - (varUnknown + 1)) > (varUInt64 - varUnknown - 1)) then
+            System.VarClear(Variant(Item^));
         end;
-      else
-        FOptions.ClearProc(FOptions, Item);
       end;
-      {$else}
-      FOptions.ClearProc(FOptions, Item);
-      {$endif}
-
-      Inc(NativeUInt(Item), Offset);
+    end else
+    begin
+      FOptions.InitProc(FOptions, Item);
     end;
   end;
+end;
+{$endif}
+
+class function TRAIIHelper<T>.ClearItem(Item: Pointer): Pointer;
+{$ifNdef SMARTGENERICS}
+begin
+  Result := Item;
+  if (Assigned(FOptions.InitProc)) then
+    Result := FOptions.InitProc(FOptions, Result);
+end;
+{$else .SMARTGENERICS}
+var
+  VType: Integer;
+begin
+  if (System.IsManagedType(T)) then
+  begin
+    if (not (GetTypeKind(T) in [tkArray, tkRecord])) then
+    begin
+      case GetTypeKind(T) of
+        {$ifdef AUTOREFCOUNT}
+        tkClass,
+        {$endif}
+        tkWString, tkLString, tkUString, tkInterface, tkDynArray:
+        begin
+          if (TData(Item^).Native <> 0) then
+          case GetTypeKind(T) of
+            {$ifdef AUTOREFCOUNT}
+            tkClass: TRAIIHelper.RefObjClear(@TData(Item^).Native);
+            {$endif}
+            {$ifdef MSWINDOWS}
+            tkWString: TRAIIHelper.WStrClear(@TData(Item^).Native);
+            {$else}
+            tkWString,
+            {$endif}
+            tkLString, tkUString: TRAIIHelper.ULStrClear(@TData(Item^).Native);
+            tkInterface: IInterface(Pointer(@TData(Item^).Native))._Release;
+            tkDynArray: TRAIIHelper.DynArrayClear(@TData(Item^).Native, TypeInfo(T));
+          end;
+        end;
+        {$ifdef WEAKINSTREF}
+        tkMethod:
+        begin
+          if (TData(Item^).Natives[1] <> 0) then
+            TRAIIHelper.WeakMethodClear(@TData(Item^).Natives[1]);
+        end;
+        {$endif}
+        tkVariant:
+        begin
+          VType := Word(Item^);
+          if (VType and TRAIIHelper.varDeepData <> 0) and (VType <> varBoolean) and
+            (Cardinal(VType - (varUnknown + 1)) > (varUInt64 - varUnknown - 1)) then
+            System.VarClear(Variant(Item^));
+        end;
+      end;
+
+      Result := Item;
+    end else
+    begin
+      Result := FOptions.InitProc(FOptions, Item);
+    end;
+  end else
+  begin
+    Result := Item;
+  end;
+end;
+{$endif}
+
+class procedure TRAIIHelper<T>.InitArray(Item, OverflowItem: Pointer; ItemSize: NativeUInt);
+const
+  FILLZERO_ITEM_SIZE = {$ifdef SMARTGENERICS}3 * SizeOf(Pointer) - 1{$else}16{$endif};
+{$ifdef SMARTGENERICS}
+var
+  LItemSize: NativeUInt;
+{$endif}
+begin
+  {$ifdef SMARTGENERICS}
+  if (System.IsManagedType(T)) then
+  {$else}
+  if (Assigned(FOptions.InitProc)) then
+  {$endif}
+  if (Item <> OverflowItem) then
+  begin
+    if {$ifdef SMARTGENERICS}(SizeOf(T) <= FILLZERO_ITEM_SIZE) and{$endif}(ItemSize <= FILLZERO_ITEM_SIZE) then
+    begin
+      FillChar(Item^, NativeInt(OverflowItem) - NativeInt(Item), #0);
+    end else
+    {$ifdef SMARTGENERICS}
+    if (GetTypeKind(T) = tkVariant) or (SizeOf(T) <= 16) then
+    begin
+      LItemSize := ItemSize;
+      repeat
+        Item := TRAIIHelper<T>.Init(Item);
+        Inc(NativeUInt(Item), LItemSize);
+      until (Item = OverflowItem);
+    end else
+    {$endif}
+    begin
+      FOptions.InitArrayProc(FOptions, Item, OverflowItem, ItemSize);
+    end;
+  end;
+end;
+
+class procedure TRAIIHelper<T>.InitArray(Item, OverflowItem: Pointer);
+begin
+  {$ifdef SMARTGENERICS}
+  if (System.IsManagedType(T)) then
+  {$endif}
+    InitArray(Item, OverflowItem, SizeOf(T));
+end;
+
+class procedure TRAIIHelper<T>.InitArray(Item: Pointer; Count, ItemSize: NativeUInt);
+begin
+  {$ifdef SMARTGENERICS}
+  if (System.IsManagedType(T)) then
+  {$endif}
+    InitArray(Item, PByte(Item) + Count * ItemSize, ItemSize);
+end;
+
+class procedure TRAIIHelper<T>.InitArray(Item: Pointer; Count: NativeUInt);
+begin
+  {$ifdef SMARTGENERICS}
+  if (System.IsManagedType(T)) then
+  {$endif}
+    InitArray(Item, P(Item) + Count, SizeOf(T));
+end;
+
+class procedure TRAIIHelper<T>.ClearArray(Item, OverflowItem: Pointer; ItemSize: NativeUInt);
+{$ifdef SMARTGENERICS}
+var
+  LItemSize: NativeUInt;
+{$endif}
+begin
+  {$ifdef SMARTGENERICS}
+  if (System.IsManagedType(T)) then
+  {$else}
+  if (Assigned(FOptions.ClearProc)) then
+  {$endif}
+  if (Item <> OverflowItem) then
+  begin
+    {$ifdef SMARTGENERICS}
+    if (not (GetTypeKind(T) in [tkArray, tkRecord])) then
+    begin
+      LItemSize := ItemSize;
+      repeat
+        TRAIIHelper<T>.Clear(Item);
+        Inc(NativeUInt(Item), LItemSize);
+      until (Item = OverflowItem);
+    end else
+    {$endif}
+    begin
+      FOptions.ClearArrayProc(FOptions, Item, OverflowItem, ItemSize);
+    end;
+  end;
+end;
+
+class procedure TRAIIHelper<T>.ClearArray(Item, OverflowItem: Pointer);
+begin
+  {$ifdef SMARTGENERICS}
+  if (System.IsManagedType(T)) then
+  {$endif}
+    ClearArray(Item, OverflowItem, SizeOf(T));
+end;
+
+class procedure TRAIIHelper<T>.ClearArray(Item: Pointer; Count, ItemSize: NativeUInt);
+begin
+  {$ifdef SMARTGENERICS}
+  if (System.IsManagedType(T)) then
+  {$endif}
+    ClearArray(Item, PByte(Item) + Count * ItemSize, ItemSize);
+end;
+
+class procedure TRAIIHelper<T>.ClearArray(Item: Pointer; Count: NativeUInt);
+begin
+  {$ifdef SMARTGENERICS}
+  if (System.IsManagedType(T)) then
+  {$endif}
+    ClearArray(Item, P(Item) + Count, SizeOf(T));
+end;
+
+
+{ TRAIIHelper<T1,T2,T3,T4> }
+
+class procedure TRAIIHelper<T1,T2,T3,T4>.Create;
+begin
+  if (not FCreated) then
+    InternalCreate;
+end;
+
+class procedure TRAIIHelper<T1,T2,T3,T4>.InternalCreate;
+begin
+  TRAIIHelper<TRecord<T1,T2,T3,T4>>.Create;
+  TRAIIHelper<T1>.Create;
+  TRAIIHelper<T2>.Create;
+  TRAIIHelper<T3>.Create;
+  TRAIIHelper<T4>.Create;
+  FCreated := True;
+end;
+
+class function TRAIIHelper<T1,T2,T3,T4>.GetManaged: Boolean;
+begin
+  {$ifdef SMARTGENERICS}
+  Result := System.IsManagedType(TRecord<T1,T2,T3,T4>);
+  {$else}
+  Result := Assigned(TRAIIHelper<TRecord<T1,T2,T3,T4>>.FOptions.ClearProc);
+  {$endif}
+end;
+
+class function TRAIIHelper<T1,T2,T3,T4>.GetWeak: Boolean;
+begin
+  {$ifdef WEAKREF}
+    {$ifdef SMARTGENERICS}
+      {$ifdef WEAKINSTREF}
+        Result := System.HasWeakRef(TRecord<T1,T2,T3,T4>);
+      {$else}
+        Result := (System.HasWeakRef(T1) and (GetTypeKind(T1) <> tkMethod)) or
+          (System.HasWeakRef(T2) and (GetTypeKind(T2) <> tkMethod)) or
+          (System.HasWeakRef(T3) and (GetTypeKind(T3) <> tkMethod)) or
+          (System.HasWeakRef(T4) and (GetTypeKind(T4) <> tkMethod));
+      {$endif}
+    {$else}
+      Result := TRAIIHelper<TRecord<T1,T2,T3,T4>>.FOptions.FWeak;
+    {$endif}
+  {$else}
+    Result := False;
+  {$endif}
+end;
+
+class function TRAIIHelper<T1,T2,T3,T4>.GetOptions: PRAIIHelper;
+begin
+  Result := @TRAIIHelper<TRecord<T1,T2,T3,T4>>.FOptions;
+end;
+
+class function TRAIIHelper<T1,T2,T3,T4>.Init(Item: Pointer): Pointer;
+var
+  LNull: NativeInt;
+begin
+  Result := Item;
+
+  {$ifdef SMARTGENERICS}
+  if (System.IsManagedType(TRecord<T1,T2,T3,T4>)) then
+  {$else}
+  if (Assigned(TRAIIHelper<TRecord<T1,T2,T3,T4>>.FOptions.InitProc)) then
+  {$endif}
+  begin
+    {$ifdef SMARTGENERICS}
+    if (not System.IsManagedType(T1) or (GetTypeKind(T1) = tkVariant) or (SizeOf(T1) <= 16)) and
+      (not System.IsManagedType(T2) or (GetTypeKind(T2) = tkVariant) or (SizeOf(T2) <= 16)) and
+      (not System.IsManagedType(T3) or (GetTypeKind(T3) = tkVariant) or (SizeOf(T3) <= 16)) and
+      (not System.IsManagedType(T4) or (GetTypeKind(T4) = tkVariant) or (SizeOf(T4) <= 16)) then
+    begin
+      LNull := 0;
+
+      if (System.IsManagedType(T1)) then
+      begin
+        if (GetTypeKind(T1) = tkVariant) then
+        begin
+          TData1(Result^).Integers[0] := LNull;
+        end else
+        begin
+          {$ifdef SMALLINT}
+            if (SizeOf(T1) >= SizeOf(Integer) * 1) then TData1(Result^).Integers[0] := LNull;
+            if (SizeOf(T1) >= SizeOf(Integer) * 2) then TData1(Result^).Integers[1] := LNull;
+            if (SizeOf(T1) >= SizeOf(Integer) * 3) then TData1(Result^).Integers[2] := LNull;
+            if (SizeOf(T1)  = SizeOf(Integer) * 4) then TData1(Result^).Integers[3] := LNull;
+          {$else .LARGEINT}
+            if (SizeOf(T1) >= SizeOf(Int64) * 1) then TData1(Result^).Int64s[0] := LNull;
+            if (SizeOf(T1)  = SizeOf(Int64) * 2) then TData1(Result^).Int64s[1] := LNull;
+            case SizeOf(T1) of
+               4..7: TData1(Result^).Integers[0] := LNull;
+             12..15: TData1(Result^).Integers[2] := LNull;
+            end;
+          {$endif}
+          case SizeOf(T1) of
+             2,3: TData1(Result^).Words[0] := 0;
+             6,7: TData1(Result^).Words[2] := 0;
+           10,11: TData1(Result^).Words[4] := 0;
+           14,15: TData1(Result^).Words[6] := 0;
+          end;
+          case SizeOf(T1) of
+             1: TData1(Result^).Bytes[ 1-1] := 0;
+             3: TData1(Result^).Bytes[ 3-1] := 0;
+             5: TData1(Result^).Bytes[ 5-1] := 0;
+             7: TData1(Result^).Bytes[ 7-1] := 0;
+             9: TData1(Result^).Bytes[ 9-1] := 0;
+            11: TData1(Result^).Bytes[11-1] := 0;
+            13: TData1(Result^).Bytes[13-1] := 0;
+            15: TData1(Result^).Bytes[15-1] := 0;
+          end;
+        end;
+      end;
+
+      if (System.IsManagedType(T2)) then
+      begin
+        if (GetTypeKind(T2) = tkVariant) then
+        begin
+          TData2(Result^).Integers[0] := LNull;
+        end else
+        begin
+          {$ifdef SMALLINT}
+            if (SizeOf(T2) >= SizeOf(Integer) * 1) then TData2(Result^).Integers[0] := LNull;
+            if (SizeOf(T2) >= SizeOf(Integer) * 2) then TData2(Result^).Integers[1] := LNull;
+            if (SizeOf(T2) >= SizeOf(Integer) * 3) then TData2(Result^).Integers[2] := LNull;
+            if (SizeOf(T2)  = SizeOf(Integer) * 4) then TData2(Result^).Integers[3] := LNull;
+          {$else .LARGEINT}
+            if (SizeOf(T2) >= SizeOf(Int64) * 1) then TData2(Result^).Int64s[0] := LNull;
+            if (SizeOf(T2)  = SizeOf(Int64) * 2) then TData2(Result^).Int64s[1] := LNull;
+            case SizeOf(T2) of
+               4..7: TData2(Result^).Integers[0] := LNull;
+             12..15: TData2(Result^).Integers[2] := LNull;
+            end;
+          {$endif}
+          case SizeOf(T2) of
+             2,3: TData2(Result^).Words[0] := 0;
+             6,7: TData2(Result^).Words[2] := 0;
+           10,11: TData2(Result^).Words[4] := 0;
+           14,15: TData2(Result^).Words[6] := 0;
+          end;
+          case SizeOf(T2) of
+             1: TData2(Result^).Bytes[ 1-1] := 0;
+             3: TData2(Result^).Bytes[ 3-1] := 0;
+             5: TData2(Result^).Bytes[ 5-1] := 0;
+             7: TData2(Result^).Bytes[ 7-1] := 0;
+             9: TData2(Result^).Bytes[ 9-1] := 0;
+            11: TData2(Result^).Bytes[11-1] := 0;
+            13: TData2(Result^).Bytes[13-1] := 0;
+            15: TData2(Result^).Bytes[15-1] := 0;
+          end;
+        end;
+      end;
+
+      if (System.IsManagedType(T3)) then
+      begin
+        if (GetTypeKind(T3) = tkVariant) then
+        begin
+          TData3(Result^).Integers[0] := LNull;
+        end else
+        begin
+          {$ifdef SMALLINT}
+            if (SizeOf(T3) >= SizeOf(Integer) * 1) then TData3(Result^).Integers[0] := LNull;
+            if (SizeOf(T3) >= SizeOf(Integer) * 2) then TData3(Result^).Integers[1] := LNull;
+            if (SizeOf(T3) >= SizeOf(Integer) * 3) then TData3(Result^).Integers[2] := LNull;
+            if (SizeOf(T3)  = SizeOf(Integer) * 4) then TData3(Result^).Integers[3] := LNull;
+          {$else .LARGEINT}
+            if (SizeOf(T3) >= SizeOf(Int64) * 1) then TData3(Result^).Int64s[0] := LNull;
+            if (SizeOf(T3)  = SizeOf(Int64) * 2) then TData3(Result^).Int64s[1] := LNull;
+            case SizeOf(T3) of
+               4..7: TData3(Result^).Integers[0] := LNull;
+             12..15: TData3(Result^).Integers[2] := LNull;
+            end;
+          {$endif}
+          case SizeOf(T3) of
+             2,3: TData3(Result^).Words[0] := 0;
+             6,7: TData3(Result^).Words[2] := 0;
+           10,11: TData3(Result^).Words[4] := 0;
+           14,15: TData3(Result^).Words[6] := 0;
+          end;
+          case SizeOf(T3) of
+             1: TData3(Result^).Bytes[ 1-1] := 0;
+             3: TData3(Result^).Bytes[ 3-1] := 0;
+             5: TData3(Result^).Bytes[ 5-1] := 0;
+             7: TData3(Result^).Bytes[ 7-1] := 0;
+             9: TData3(Result^).Bytes[ 9-1] := 0;
+            11: TData3(Result^).Bytes[11-1] := 0;
+            13: TData3(Result^).Bytes[13-1] := 0;
+            15: TData3(Result^).Bytes[15-1] := 0;
+          end;
+        end;
+      end;
+
+      if (System.IsManagedType(T4)) then
+      begin
+        if (GetTypeKind(T4) = tkVariant) then
+        begin
+          TData4(Result^).Integers[0] := LNull;
+        end else
+        begin
+          {$ifdef SMALLINT}
+            if (SizeOf(T4) >= SizeOf(Integer) * 1) then TData4(Result^).Integers[0] := LNull;
+            if (SizeOf(T4) >= SizeOf(Integer) * 2) then TData4(Result^).Integers[1] := LNull;
+            if (SizeOf(T4) >= SizeOf(Integer) * 3) then TData4(Result^).Integers[2] := LNull;
+            if (SizeOf(T4)  = SizeOf(Integer) * 4) then TData4(Result^).Integers[3] := LNull;
+          {$else .LARGEINT}
+            if (SizeOf(T4) >= SizeOf(Int64) * 1) then TData4(Result^).Int64s[0] := LNull;
+            if (SizeOf(T4)  = SizeOf(Int64) * 2) then TData4(Result^).Int64s[1] := LNull;
+            case SizeOf(T4) of
+               4..7: TData4(Result^).Integers[0] := LNull;
+             12..15: TData4(Result^).Integers[2] := LNull;
+            end;
+          {$endif}
+          case SizeOf(T4) of
+             2,3: TData4(Result^).Words[0] := 0;
+             6,7: TData4(Result^).Words[2] := 0;
+           10,11: TData4(Result^).Words[4] := 0;
+           14,15: TData4(Result^).Words[6] := 0;
+          end;
+          case SizeOf(T4) of
+             1: TData4(Result^).Bytes[ 1-1] := 0;
+             3: TData4(Result^).Bytes[ 3-1] := 0;
+             5: TData4(Result^).Bytes[ 5-1] := 0;
+             7: TData4(Result^).Bytes[ 7-1] := 0;
+             9: TData4(Result^).Bytes[ 9-1] := 0;
+            11: TData4(Result^).Bytes[11-1] := 0;
+            13: TData4(Result^).Bytes[13-1] := 0;
+            15: TData4(Result^).Bytes[15-1] := 0;
+          end;
+        end;
+      end;
+    end else
+    {$else}
+    if (SizeOf(TRecord<T1,T2,T3,T4>) <= 16) then
+    begin
+      LNull := 0;
+      Inc(NativeInt(Result), SizeOf(TRecord<T1,T2,T3,T4>) - SizeOf(NativeInt));
+      NativeInt(Result^) := LNull;
+      Dec(NativeInt(Result), SizeOf(TRecord<T1,T2,T3,T4>) - SizeOf(NativeInt));
+      {$ifdef SMALLINT}
+        if (SizeOf(TRecord<T1,T2,T3,T4>) > SizeOf(Integer) * 1) then TData1(Result^).Integers[0] := LNull;
+        if (SizeOf(TRecord<T1,T2,T3,T4>) > SizeOf(Integer) * 2) then TData1(Result^).Integers[1] := LNull;
+        if (SizeOf(TRecord<T1,T2,T3,T4>) > SizeOf(Integer) * 3) then TData1(Result^).Integers[2] := LNull;
+      {$else .LARGEINT}
+        if (SizeOf(TRecord<T1,T2,T3,T4>) > SizeOf(Int64) * 1) then TData1(Result^).Int64s[0] := LNull;
+      {$endif}
+    end else
+    {$endif}
+    begin
+      Result := TRAIIHelper<TRecord<T1,T2,T3,T4>>.FOptions.InitProc(TRAIIHelper<TRecord<T1,T2,T3,T4>>.FOptions, Result);
+    end;
+  end;
+end;
+
+class procedure TRAIIHelper<T1,T2,T3,T4>.Clear(Item: Pointer);
+{$ifNdef SMARTGENERICS}
+begin
+  if (Assigned(TRAIIHelper<TRecord<T1,T2,T3,T4>>.FOptions.ClearProc)) then
+    TRAIIHelper<TRecord<T1,T2,T3,T4>>.FOptions.ClearProc(TRAIIHelper<TRecord<T1,T2,T3,T4>>.FOptions, Item);
+end;
+{$else .SMARTGENERICS}
+var
+  LData: PNativeUInt;
+  VType: Integer;
+begin
+  if (System.IsManagedType(TRecord<T1,T2,T3,T4>)) then
+  begin
+    if (not System.IsManagedType(T1) or not (GetTypeKind(T1) in [tkArray, tkRecord])) and
+      (not System.IsManagedType(T2) or not (GetTypeKind(T2) in [tkArray, tkRecord])) and
+      (not System.IsManagedType(T3) or not (GetTypeKind(T3) in [tkArray, tkRecord])) and
+      (not System.IsManagedType(T4) or not (GetTypeKind(T4) in [tkArray, tkRecord])) then
+    begin
+      if (System.IsManagedType(T1)) then
+      begin
+        {$ifdef WEAKINSTREF}
+        if (GetTypeKind(T1) = tkMethod) then
+          LData := @TData1(Item^).Natives[1]
+        else
+        {$endif}
+          LData := @TData1(Item^).Natives[0];
+
+        case GetTypeKind(T1) of
+          {$ifdef AUTOREFCOUNT}
+          tkClass,
+          {$endif}
+          {$ifdef WEAKINSTREF}
+          tkMethod,
+          {$endif}
+          tkWString, tkLString, tkUString, tkInterface, tkDynArray:
+          begin
+            if (LData^ <> 0) then
+            case GetTypeKind(T1) of
+              {$ifdef AUTOREFCOUNT}
+              tkClass: TRAIIHelper.RefObjClear(LData);
+              {$endif}
+              {$ifdef MSWINDOWS}
+              tkWString: TRAIIHelper.WStrClear(LData);
+              {$else}
+              tkWString,
+              {$endif}
+              tkLString, tkUString: TRAIIHelper.ULStrClear(LData);
+              tkInterface: IInterface(Pointer(LData))._Release;
+              tkDynArray: TRAIIHelper.DynArrayClear(LData, TypeInfo(T1));
+              {$ifdef WEAKINSTREF}
+              tkMethod: TRAIIHelper.WeakMethodClear(LData);
+              {$endif}
+            end;
+          end;
+          tkVariant:
+          begin
+            VType := Word(LData^);
+            if (VType and TRAIIHelper.varDeepData <> 0) and (VType <> varBoolean) and
+              (Cardinal(VType - (varUnknown + 1)) > (varUInt64 - varUnknown - 1)) then
+              System.VarClear(Variant(Pointer(LData)^));
+          end;
+        end;
+      end;
+
+      if (System.IsManagedType(T2)) then
+      begin
+        {$ifdef WEAKINSTREF}
+        if (GetTypeKind(T2) = tkMethod) then
+          LData := @TData2(Item^).Natives[1]
+        else
+        {$endif}
+          LData := @TData2(Item^).Natives[0];
+
+        case GetTypeKind(T2) of
+          {$ifdef AUTOREFCOUNT}
+          tkClass,
+          {$endif}
+          {$ifdef WEAKINSTREF}
+          tkMethod,
+          {$endif}
+          tkWString, tkLString, tkUString, tkInterface, tkDynArray:
+          begin
+            if (LData^ <> 0) then
+            case GetTypeKind(T2) of
+              {$ifdef AUTOREFCOUNT}
+              tkClass: TRAIIHelper.RefObjClear(LData);
+              {$endif}
+              {$ifdef MSWINDOWS}
+              tkWString: TRAIIHelper.WStrClear(LData);
+              {$else}
+              tkWString,
+              {$endif}
+              tkLString, tkUString: TRAIIHelper.ULStrClear(LData);
+              tkInterface: IInterface(Pointer(LData))._Release;
+              tkDynArray: TRAIIHelper.DynArrayClear(LData, TypeInfo(T2));
+              {$ifdef WEAKINSTREF}
+              tkMethod: TRAIIHelper.WeakMethodClear(LData);
+              {$endif}
+            end;
+          end;
+          tkVariant:
+          begin
+            VType := Word(LData^);
+            if (VType and TRAIIHelper.varDeepData <> 0) and (VType <> varBoolean) and
+              (Cardinal(VType - (varUnknown + 1)) > (varUInt64 - varUnknown - 1)) then
+              System.VarClear(Variant(Pointer(LData)^));
+          end;
+        end;
+      end;
+
+      if (System.IsManagedType(T3)) then
+      begin
+        {$ifdef WEAKINSTREF}
+        if (GetTypeKind(T3) = tkMethod) then
+          LData := @TData3(Item^).Natives[1]
+        else
+        {$endif}
+          LData := @TData3(Item^).Natives[0];
+
+        case GetTypeKind(T3) of
+          {$ifdef AUTOREFCOUNT}
+          tkClass,
+          {$endif}
+          {$ifdef WEAKINSTREF}
+          tkMethod,
+          {$endif}
+          tkWString, tkLString, tkUString, tkInterface, tkDynArray:
+          begin
+            if (LData^ <> 0) then
+            case GetTypeKind(T3) of
+              {$ifdef AUTOREFCOUNT}
+              tkClass: TRAIIHelper.RefObjClear(LData);
+              {$endif}
+              {$ifdef MSWINDOWS}
+              tkWString: TRAIIHelper.WStrClear(LData);
+              {$else}
+              tkWString,
+              {$endif}
+              tkLString, tkUString: TRAIIHelper.ULStrClear(LData);
+              tkInterface: IInterface(Pointer(LData))._Release;
+              tkDynArray: TRAIIHelper.DynArrayClear(LData, TypeInfo(T3));
+              {$ifdef WEAKINSTREF}
+              tkMethod: TRAIIHelper.WeakMethodClear(LData);
+              {$endif}
+            end;
+          end;
+          tkVariant:
+          begin
+            VType := Word(LData^);
+            if (VType and TRAIIHelper.varDeepData <> 0) and (VType <> varBoolean) and
+              (Cardinal(VType - (varUnknown + 1)) > (varUInt64 - varUnknown - 1)) then
+              System.VarClear(Variant(Pointer(LData)^));
+          end;
+        end;
+      end;
+
+      if (System.IsManagedType(T4)) then
+      begin
+        {$ifdef WEAKINSTREF}
+        if (GetTypeKind(T4) = tkMethod) then
+          LData := @TData4(Item^).Natives[1]
+        else
+        {$endif}
+          LData := @TData4(Item^).Natives[0];
+
+        case GetTypeKind(T4) of
+          {$ifdef AUTOREFCOUNT}
+          tkClass,
+          {$endif}
+          {$ifdef WEAKINSTREF}
+          tkMethod,
+          {$endif}
+          tkWString, tkLString, tkUString, tkInterface, tkDynArray:
+          begin
+            if (LData^ <> 0) then
+            case GetTypeKind(T4) of
+              {$ifdef AUTOREFCOUNT}
+              tkClass: TRAIIHelper.RefObjClear(LData);
+              {$endif}
+              {$ifdef MSWINDOWS}
+              tkWString: TRAIIHelper.WStrClear(LData);
+              {$else}
+              tkWString,
+              {$endif}
+              tkLString, tkUString: TRAIIHelper.ULStrClear(LData);
+              tkInterface: IInterface(Pointer(LData))._Release;
+              tkDynArray: TRAIIHelper.DynArrayClear(LData, TypeInfo(T4));
+              {$ifdef WEAKINSTREF}
+              tkMethod: TRAIIHelper.WeakMethodClear(LData);
+              {$endif}
+            end;
+          end;
+          tkVariant:
+          begin
+            VType := Word(LData^);
+            if (VType and TRAIIHelper.varDeepData <> 0) and (VType <> varBoolean) and
+              (Cardinal(VType - (varUnknown + 1)) > (varUInt64 - varUnknown - 1)) then
+              System.VarClear(Variant(Pointer(LData)^));
+          end;
+        end;
+      end;
+    end else
+    begin
+      TRAIIHelper<TRecord<T1,T2,T3,T4>>.FOptions.InitProc(TRAIIHelper<TRecord<T1,T2,T3,T4>>.FOptions, Item);
+    end;
+  end;
+end;
+{$endif}
+
+class function TRAIIHelper<T1,T2,T3,T4>.ClearItem(Item: Pointer): Pointer;
+{$ifNdef SMARTGENERICS}
+begin
+  Result := Item;
+  if (Assigned(TRAIIHelper<TRecord<T1,T2,T3,T4>>.FOptions.ClearProc)) then
+    Result := TRAIIHelper<TRecord<T1,T2,T3,T4>>.FOptions.ClearProc(TRAIIHelper<TRecord<T1,T2,T3,T4>>.FOptions, Result);
+end;
+{$else .SMARTGENERICS}
+var
+  LData: PNativeUInt;
+  VType: Integer;
+begin
+  if (System.IsManagedType(TRecord<T1,T2,T3,T4>)) then
+  begin
+    if (not System.IsManagedType(T1) or not (GetTypeKind(T1) in [tkArray, tkRecord])) and
+      (not System.IsManagedType(T2) or not (GetTypeKind(T2) in [tkArray, tkRecord])) and
+      (not System.IsManagedType(T3) or not (GetTypeKind(T3) in [tkArray, tkRecord])) and
+      (not System.IsManagedType(T4) or not (GetTypeKind(T4) in [tkArray, tkRecord])) then
+    begin
+      if (System.IsManagedType(T1)) then
+      begin
+        {$ifdef WEAKINSTREF}
+        if (GetTypeKind(T1) = tkMethod) then
+          LData := @TData1(Item^).Natives[1]
+        else
+        {$endif}
+          LData := @TData1(Item^).Natives[0];
+
+        case GetTypeKind(T1) of
+          {$ifdef AUTOREFCOUNT}
+          tkClass,
+          {$endif}
+          {$ifdef WEAKINSTREF}
+          tkMethod,
+          {$endif}
+          tkWString, tkLString, tkUString, tkInterface, tkDynArray:
+          begin
+            if (LData^ <> 0) then
+            case GetTypeKind(T1) of
+              {$ifdef AUTOREFCOUNT}
+              tkClass: TRAIIHelper.RefObjClear(LData);
+              {$endif}
+              {$ifdef MSWINDOWS}
+              tkWString: TRAIIHelper.WStrClear(LData);
+              {$else}
+              tkWString,
+              {$endif}
+              tkLString, tkUString: TRAIIHelper.ULStrClear(LData);
+              tkInterface: IInterface(Pointer(LData))._Release;
+              tkDynArray: TRAIIHelper.DynArrayClear(LData, TypeInfo(T1));
+              {$ifdef WEAKINSTREF}
+              tkMethod: TRAIIHelper.WeakMethodClear(LData);
+              {$endif}
+            end;
+          end;
+          tkVariant:
+          begin
+            VType := Word(LData^);
+            if (VType and TRAIIHelper.varDeepData <> 0) and (VType <> varBoolean) and
+              (Cardinal(VType - (varUnknown + 1)) > (varUInt64 - varUnknown - 1)) then
+              System.VarClear(Variant(Pointer(LData)^));
+          end;
+        end;
+      end;
+
+      if (System.IsManagedType(T2)) then
+      begin
+        {$ifdef WEAKINSTREF}
+        if (GetTypeKind(T2) = tkMethod) then
+          LData := @TData2(Item^).Natives[1]
+        else
+        {$endif}
+          LData := @TData2(Item^).Natives[0];
+
+        case GetTypeKind(T2) of
+          {$ifdef AUTOREFCOUNT}
+          tkClass,
+          {$endif}
+          {$ifdef WEAKINSTREF}
+          tkMethod,
+          {$endif}
+          tkWString, tkLString, tkUString, tkInterface, tkDynArray:
+          begin
+            if (LData^ <> 0) then
+            case GetTypeKind(T2) of
+              {$ifdef AUTOREFCOUNT}
+              tkClass: TRAIIHelper.RefObjClear(LData);
+              {$endif}
+              {$ifdef MSWINDOWS}
+              tkWString: TRAIIHelper.WStrClear(LData);
+              {$else}
+              tkWString,
+              {$endif}
+              tkLString, tkUString: TRAIIHelper.ULStrClear(LData);
+              tkInterface: IInterface(Pointer(LData))._Release;
+              tkDynArray: TRAIIHelper.DynArrayClear(LData, TypeInfo(T2));
+              {$ifdef WEAKINSTREF}
+              tkMethod: TRAIIHelper.WeakMethodClear(LData);
+              {$endif}
+            end;
+          end;
+          tkVariant:
+          begin
+            VType := Word(LData^);
+            if (VType and TRAIIHelper.varDeepData <> 0) and (VType <> varBoolean) and
+              (Cardinal(VType - (varUnknown + 1)) > (varUInt64 - varUnknown - 1)) then
+              System.VarClear(Variant(Pointer(LData)^));
+          end;
+        end;
+      end;
+
+      if (System.IsManagedType(T3)) then
+      begin
+        {$ifdef WEAKINSTREF}
+        if (GetTypeKind(T3) = tkMethod) then
+          LData := @TData3(Item^).Natives[1]
+        else
+        {$endif}
+          LData := @TData3(Item^).Natives[0];
+
+        case GetTypeKind(T3) of
+          {$ifdef AUTOREFCOUNT}
+          tkClass,
+          {$endif}
+          {$ifdef WEAKINSTREF}
+          tkMethod,
+          {$endif}
+          tkWString, tkLString, tkUString, tkInterface, tkDynArray:
+          begin
+            if (LData^ <> 0) then
+            case GetTypeKind(T3) of
+              {$ifdef AUTOREFCOUNT}
+              tkClass: TRAIIHelper.RefObjClear(LData);
+              {$endif}
+              {$ifdef MSWINDOWS}
+              tkWString: TRAIIHelper.WStrClear(LData);
+              {$else}
+              tkWString,
+              {$endif}
+              tkLString, tkUString: TRAIIHelper.ULStrClear(LData);
+              tkInterface: IInterface(Pointer(LData))._Release;
+              tkDynArray: TRAIIHelper.DynArrayClear(LData, TypeInfo(T3));
+              {$ifdef WEAKINSTREF}
+              tkMethod: TRAIIHelper.WeakMethodClear(LData);
+              {$endif}
+            end;
+          end;
+          tkVariant:
+          begin
+            VType := Word(LData^);
+            if (VType and TRAIIHelper.varDeepData <> 0) and (VType <> varBoolean) and
+              (Cardinal(VType - (varUnknown + 1)) > (varUInt64 - varUnknown - 1)) then
+              System.VarClear(Variant(Pointer(LData)^));
+          end;
+        end;
+      end;
+
+      if (System.IsManagedType(T4)) then
+      begin
+        {$ifdef WEAKINSTREF}
+        if (GetTypeKind(T4) = tkMethod) then
+          LData := @TData4(Item^).Natives[1]
+        else
+        {$endif}
+          LData := @TData4(Item^).Natives[0];
+
+        case GetTypeKind(T4) of
+          {$ifdef AUTOREFCOUNT}
+          tkClass,
+          {$endif}
+          {$ifdef WEAKINSTREF}
+          tkMethod,
+          {$endif}
+          tkWString, tkLString, tkUString, tkInterface, tkDynArray:
+          begin
+            if (LData^ <> 0) then
+            case GetTypeKind(T4) of
+              {$ifdef AUTOREFCOUNT}
+              tkClass: TRAIIHelper.RefObjClear(LData);
+              {$endif}
+              {$ifdef MSWINDOWS}
+              tkWString: TRAIIHelper.WStrClear(LData);
+              {$else}
+              tkWString,
+              {$endif}
+              tkLString, tkUString: TRAIIHelper.ULStrClear(LData);
+              tkInterface: IInterface(Pointer(LData))._Release;
+              tkDynArray: TRAIIHelper.DynArrayClear(LData, TypeInfo(T4));
+              {$ifdef WEAKINSTREF}
+              tkMethod: TRAIIHelper.WeakMethodClear(LData);
+              {$endif}
+            end;
+          end;
+          tkVariant:
+          begin
+            VType := Word(LData^);
+            if (VType and TRAIIHelper.varDeepData <> 0) and (VType <> varBoolean) and
+              (Cardinal(VType - (varUnknown + 1)) > (varUInt64 - varUnknown - 1)) then
+              System.VarClear(Variant(Pointer(LData)^));
+          end;
+        end;
+      end;
+
+      Result := Item;
+    end else
+    begin
+      Result := TRAIIHelper<TRecord<T1,T2,T3,T4>>.FOptions.InitProc(TRAIIHelper<TRecord<T1,T2,T3,T4>>.FOptions, Item);
+    end;
+  end else
+  begin
+    Result := Item;
+  end;
+end;
+{$endif}
+
+class procedure TRAIIHelper<T1,T2,T3,T4>.InitArray(Item, OverflowItem: Pointer; ItemSize: NativeUInt);
+const
+  FILLZERO_ITEM_SIZE = {$ifdef SMARTGENERICS}3 * SizeOf(Pointer) - 1{$else}16{$endif};
+{$ifdef SMARTGENERICS}
+var
+  LItemSize: NativeUInt;
+{$endif}
+begin
+  {$ifdef SMARTGENERICS}
+  if (System.IsManagedType(TRecord<T1,T2,T3,T4>)) then
+  {$else}
+  if (Assigned(TRAIIHelper<TRecord<T1,T2,T3,T4>>.FOptions.InitProc)) then
+  {$endif}
+  if (Item <> OverflowItem) then
+  begin
+    if {$ifdef SMARTGENERICS}(SizeOf(TRecord<T1,T2,T3,T4>) <= FILLZERO_ITEM_SIZE) and{$endif}(ItemSize <= FILLZERO_ITEM_SIZE) then
+    begin
+      FillChar(Item^, NativeInt(OverflowItem) - NativeInt(Item), #0);
+    end else
+    {$ifdef SMARTGENERICS}
+    if (not System.IsManagedType(T1) or (GetTypeKind(T1) = tkVariant) or (SizeOf(T1) <= 16)) and
+      (not System.IsManagedType(T2) or (GetTypeKind(T2) = tkVariant) or (SizeOf(T2) <= 16)) and
+      (not System.IsManagedType(T3) or (GetTypeKind(T3) = tkVariant) or (SizeOf(T3) <= 16)) and
+      (not System.IsManagedType(T4) or (GetTypeKind(T4) = tkVariant) or (SizeOf(T4) <= 16)) then
+    begin
+      LItemSize := ItemSize;
+      repeat
+        Item := TRAIIHelper<T1,T2,T3,T4>.Init(Item);
+        Inc(NativeUInt(Item), LItemSize);
+      until (Item = OverflowItem);
+    end else
+    {$endif}
+    begin
+      TRAIIHelper<TRecord<T1,T2,T3,T4>>.FOptions.InitArrayProc(
+        TRAIIHelper<TRecord<T1,T2,T3,T4>>.FOptions, Item, OverflowItem, ItemSize);
+    end;
+  end;
+end;
+
+class procedure TRAIIHelper<T1,T2,T3,T4>.InitArray(Item, OverflowItem: Pointer);
+begin
+  {$ifdef SMARTGENERICS}
+  if (System.IsManagedType(TRecord<T1,T2,T3,T4>)) then
+  {$endif}
+    InitArray(Item, OverflowItem, SizeOf(TRecord<T1,T2,T3,T4>));
+end;
+
+class procedure TRAIIHelper<T1,T2,T3,T4>.InitArray(Item: Pointer; Count, ItemSize: NativeUInt);
+begin
+  {$ifdef SMARTGENERICS}
+  if (System.IsManagedType(TRecord<T1,T2,T3,T4>)) then
+  {$endif}
+    InitArray(Item, PByte(Item) + Count * ItemSize, ItemSize);
+end;
+
+class procedure TRAIIHelper<T1,T2,T3,T4>.InitArray(Item: Pointer; Count: NativeUInt);
+begin
+  {$ifdef SMARTGENERICS}
+  if (System.IsManagedType(TRecord<T1,T2,T3,T4>)) then
+  {$endif}
+    InitArray(Item, P(Item) + Count, SizeOf(TRecord<T1,T2,T3,T4>));
+end;
+
+class procedure TRAIIHelper<T1,T2,T3,T4>.ClearArray(Item, OverflowItem: Pointer; ItemSize: NativeUInt);
+{$ifdef SMARTGENERICS}
+var
+  LItemSize: NativeUInt;
+{$endif}
+begin
+  {$ifdef SMARTGENERICS}
+  if (System.IsManagedType(TRecord<T1,T2,T3,T4>)) then
+  {$else}
+  if (Assigned(TRAIIHelper<TRecord<T1,T2,T3,T4>>.FOptions.ClearProc)) then
+  {$endif}
+  if (Item <> OverflowItem) then
+  begin
+    {$ifdef SMARTGENERICS}
+    if (not System.IsManagedType(T1) or not (GetTypeKind(T1) in [tkArray, tkRecord])) and
+      (not System.IsManagedType(T2) or not (GetTypeKind(T2) in [tkArray, tkRecord])) and
+      (not System.IsManagedType(T3) or not (GetTypeKind(T3) in [tkArray, tkRecord])) and
+      (not System.IsManagedType(T4) or not (GetTypeKind(T4) in [tkArray, tkRecord])) then
+    begin
+      LItemSize := ItemSize;
+      repeat
+        TRAIIHelper<T1,T2,T3,T4>.Clear(Item);
+        Inc(NativeUInt(Item), LItemSize);
+      until (Item = OverflowItem);
+    end else
+    {$endif}
+    begin
+      TRAIIHelper<TRecord<T1,T2,T3,T4>>.FOptions.ClearArrayProc(
+        TRAIIHelper<TRecord<T1,T2,T3,T4>>.FOptions, Item, OverflowItem, ItemSize);
+    end;
+  end;
+end;
+
+class procedure TRAIIHelper<T1,T2,T3,T4>.ClearArray(Item, OverflowItem: Pointer);
+begin
+  {$ifdef SMARTGENERICS}
+  if (System.IsManagedType(TRecord<T1,T2,T3,T4>)) then
+  {$endif}
+    ClearArray(Item, OverflowItem, SizeOf(TRecord<T1,T2,T3,T4>));
+end;
+
+class procedure TRAIIHelper<T1,T2,T3,T4>.ClearArray(Item: Pointer; Count, ItemSize: NativeUInt);
+begin
+  {$ifdef SMARTGENERICS}
+  if (System.IsManagedType(TRecord<T1,T2,T3,T4>)) then
+  {$endif}
+    ClearArray(Item, PByte(Item) + Count * ItemSize, ItemSize);
+end;
+
+class procedure TRAIIHelper<T1,T2,T3,T4>.ClearArray(Item: Pointer; Count: NativeUInt);
+begin
+  {$ifdef SMARTGENERICS}
+  if (System.IsManagedType(TRecord<T1,T2,T3,T4>)) then
+  {$endif}
+    ClearArray(Item, P(Item) + Count, SizeOf(TRecord<T1,T2,T3,T4>));
 end;
 
 
@@ -9964,7 +11500,7 @@ begin
       Parent := Pointer(@Current.FNext);
     {$ifend}
   until (False);
-end; 
+end;
 
 function TRapidDictionary<TKey,TValue>.TryGetValue(const Key: TKey; out Value: TValue): Boolean;
 var
@@ -16147,7 +17683,7 @@ begin
         tkMethod, tkString, tkLString, tkWString, tkUString:
         begin
           if (not InterfaceDefaults.TDefaultComparer<T>.Created) then
-            InterfaceDefaults.TDefaultComparer<T>.InternalCreate;		
+            InterfaceDefaults.TDefaultComparer<T>.InternalCreate;
           I := SearchBinaries<T>(TRAIIHelper<T>.P(Values) + Index, Count, Item);
         end;
       {$else}
@@ -16413,7 +17949,7 @@ begin
         tkMethod:
         begin
           if (not InterfaceDefaults.TDefaultComparer<T>.Created) then
-            InterfaceDefaults.TDefaultComparer<T>.InternalCreate;		
+            InterfaceDefaults.TDefaultComparer<T>.InternalCreate;
           I := SearchDescendingBinaries<InterfaceDefaults.TMethodPtr>(TRAIIHelper<T>.P(Values) + Index, Count,
             InterfaceDefaults.TMethodPtr(Pointer(@Item)^));
         end;
@@ -16990,13 +18526,7 @@ begin
     if (Assigned(TRAIIHelper<T>.Options.InitProc)) then
     {$endif}
     begin
-      if (SizeOf(T) <= 16) then
-      begin
-        FillChar(FItems[FCount.Native], (Value - FCount.Int) * SizeOf(T), #0);
-      end else
-      begin
-        TRAIIHelper<T>.InitArray(@FItems[FCount.Native], Value - FCount.Int);
-      end;
+      TRAIIHelper<T>.InitArray(@FItems[FCount.Native], Value - FCount.Int);
     end;
 
     FCount.Int := Value;
@@ -17331,13 +18861,7 @@ begin
         if (Assigned(TRAIIHelper<T>.Options.InitProc)) then
         {$endif}
         begin
-          if (SizeOf(T) <= 16) then
-          begin
-            FillChar(Buffer{Item}^, ValuesCount * SizeOf(T), #0);
-          end else
-          begin
-            TRAIIHelper<T>.InitArray(Buffer{Item}, ValuesCount);
-          end;
+          TRAIIHelper<T>.InitArray(Buffer{Item}, ValuesCount);
         end else
         if (not Assigned(Stored.InternalNotify.Code)) then
         begin
@@ -17425,10 +18949,6 @@ begin
               begin
                 InternalWeakInsert(Buffer{Item}, Count, Stored.Count);
               end else
-              if (SizeOf(T) <= 16) then
-              begin
-                FillChar(Buffer{Item}^, Stored.Count * SizeOf(T), #0);
-              end else
               begin
                 TRAIIHelper<T>.InitArray(Buffer{Item}, Stored.Count);
               end;
@@ -17442,13 +18962,7 @@ begin
                 System.Move(Buffer{Item}^, Source^, Count);
               end;
 
-              if (SizeOf(T) <= 16) then
-              begin
-                FillChar(Buffer{Item}^, Stored.Count * SizeOf(T), #0);
-              end else
-              begin
-                TRAIIHelper<T>.InitArray(Buffer{Item}, Stored.Count);
-              end;
+              TRAIIHelper<T>.InitArray(Buffer{Item}, Stored.Count);
             end;
           end else
           begin
@@ -22879,7 +24393,6 @@ initialization
   TOSTime.Initialize;
   TCustomObject.CreateIntfTables;
   TLiteCustomObject.CreateIntfTables;
-
 end.
 
 
