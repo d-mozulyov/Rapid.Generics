@@ -28,6 +28,19 @@ unit Rapid.Generics;
 // compiler directives
 {$ifdef FPC}
   {$MESSAGE ERROR 'FreePascal not supported'}
+  {$mode delphi}
+  {$asmmode intel}
+  {$define INLINESUPPORT}
+  {$define INLINESUPPORTSIMPLE}
+  {$ifdef CPU386}
+    {$define CPUX86}
+  {$endif}
+  {$ifdef CPUX86_64}
+    {$define CPUX64}
+  {$endif}
+  {$if Defined(CPUARM) or Defined(UNIX)}
+    {$define POSIX}
+  {$ifend}
 {$else}
   {$if CompilerVersion >= 24}
     {$LEGACYIFEND ON}
@@ -2418,15 +2431,15 @@ begin
           tkDynArray:
           begin
             if Assigned(PPointer(LPtr)^) then
-              TRAIIHelper.DynArrayClear(LPtr, Field.TypeInfo);
+              TRAIIHelper.DynArrayClear(LPtr, Field.TypeInfo^);
           end;
           tkArray{static array}:
           begin
-            System.FinalizeArray(LPtr, Field.TypeInfo, FieldTable.Count);
+            System.FinalizeArray(LPtr, Field.TypeInfo^, FieldTable.Count);
           end;
           tkRecord:
           begin
-            FinalizeRecord(LPtr, Field.TypeInfo);
+            FinalizeRecord(LPtr, Field.TypeInfo^);
           end;
         end;
       {$ifdef WEAKREF}
