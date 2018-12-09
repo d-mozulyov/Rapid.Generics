@@ -219,38 +219,50 @@ type
 { TCustomObject/ICustomObject class
   TInterfacedObject alternative (inheritor) and own interface, the differences:
    - contains an original object instance
-   - reference count
    - optimized initialize, cleanup and atomic operations
    - NEXTGEN-like rule of DisposeOf method, i.e. allows to call destructor before reference count set to zero
    - data in inherited classes is 8 byte aligned (this can be useful for lock-free algorithms)
-   - allows to make TMonitor operations faster }
+   - allows to be placed not in memory heap
+   - allows to make TMonitor operations faster
+   - incompatible with TInterfacedObject.RefCount property }
+
+  TMemoryScheme = (msHeap, msAllocator, msFreeList, msUnknownBuffer);
+  PMemoryScheme = ^TMemoryScheme;
 
   TCustomObject = class;
   ICustomObject = interface
-    function Self: TCustomObject {$ifdef AUTOREFCOUNT}unsafe{$endif};
-    function Disposed: Boolean;
-    function RefCount: Integer;
+    function GetSelf: TCustomObject {$ifdef AUTOREFCOUNT}unsafe{$endif};
+    function GetMemoryScheme: TMemoryScheme;
+    function GetDisposed: Boolean;
+    function GetRefCount: Integer;
     procedure DisposeOf;
     {$ifdef MONITORSUPPORT}
     procedure OptimizeMonitor;
     {$endif}
+    property Self: TCustomObject read GetSelf;
+    property MemoryScheme: TMemoryScheme read GetMemoryScheme;
+    property Disposed: Boolean read GetDisposed;
+    property RefCount: Integer read GetRefCount;
   end;
 
   TCustomObject = class(TInterfacedObject, ICustomObject)
   protected
     const
       DISPOSED_FLAG = Integer($40000000);
-      CLEAR_DISPOSED_FLAG = not DISPOSED_FLAG;
-      DEFAULT_REF_COUNT = {$ifdef AUTOREFCOUNT}1{$else}0{$endif};
-      DUMMY_REFERENCE = 1;
+      MEMORY_SCHEME_SHIFT = 28;
+      MEMORY_SCHEME_MASK = Integer(High(TMemoryScheme)) shl MEMORY_SCHEME_SHIFT;
+      MEMORY_SCHEME_CLEAR = not MEMORY_SCHEME_MASK;
+      REFCOUNT_MASK = not (MEMORY_SCHEME_MASK or DISPOSED_FLAG);
+      DEFAULT_REFCOUNT = {$ifdef AUTOREFCOUNT}1{$else}0{$endif};
+      DUMMY_REFCOUNT = Integer($80000000);
       {$if CompilerVersion >= 32}
-      monFlagsMask   = NativeInt($01);
+      monFlagsMask = NativeInt($01);
       monMonitorMask = not monFlagsMask;
       monWeakReferencedFlag = NativeInt($01);
       {$ifend}
       {$ifNdef AUTOREFCOUNT}
-      vmtObjAddRef = 0;
-      vmtObjRelease = SizeOf(Pointer);
+      vmtObjAddRef = SizeOf(Pointer);
+      vmtObjRelease = vmtObjAddRef + SizeOf(Pointer);
       {$endif}
     type
       IInterfaceTable = array[0..2] of Pointer;
@@ -264,16 +276,14 @@ type
     class function IntfRelease(const Self: PByte): Integer; stdcall; static;
   protected
     function GetSelf: TCustomObject {$ifdef AUTOREFCOUNT}unsafe{$endif};
-    function GetDisposed_: Boolean;
-    function GetRefCount: Integer;
+    function GetRefCount: Integer; inline;
     function ICustomObject.QueryInterface = QueryInterface;
     function ICustomObject._AddRef = _AddRef;
     function ICustomObject._Release = _Release;
-    function ICustomObject.Self = GetSelf;
-    function ICustomObject.Disposed = GetDisposed_;
-    function ICustomObject.RefCount = GetRefCount;
 
     class function CreateEObjectDisposed: EObjectDisposed; static;
+    class function CreateEInvalidRefCount(const AObject: TObject; const ARefCount: Integer): EInvalidContainer; static;
+    function GetMemoryScheme: TMemoryScheme; inline;
     function GetDisposed: Boolean; inline;
     procedure CheckDisposed; inline;
     function QueryInterface(const IID: TGUID; out Obj): HResult; stdcall; inline;
@@ -281,9 +291,8 @@ type
     function _Release: Integer; stdcall; inline;
   public
     class function NewInstance: TObject; override;
-    {$if (not Defined(WEAKREF)) or Defined(CPUINTELASM) or (CompilerVersion >= 32)}
+    class function PreallocatedInstance(const AMemory: Pointer; const AMemoryScheme: TMemoryScheme): TObject {$ifdef AUTOREFCOUNT}unsafe{$endif}; virtual;
     procedure FreeInstance; override;
-    {$ifend}
     procedure AfterConstruction; override;
     procedure BeforeDestruction; override;
     {$ifNdef AUTOREFCOUNT}
@@ -295,7 +304,9 @@ type
     {$ifdef MONITORSUPPORT}
     procedure OptimizeMonitor;
     {$endif}
+    property MemoryScheme: TMemoryScheme read GetMemoryScheme;
     property Disposed: Boolean read GetDisposed;
+    property RefCount: Integer read GetRefCount;
   end;
 
 
@@ -317,6 +328,7 @@ type
     function _Release: Integer; stdcall; inline;
   public
     class function NewInstance: TObject; override;
+    class function PreallocatedInstance(const AMemory: Pointer; const AMemoryScheme: TMemoryScheme): TObject; override;
     function __ObjAddRef: Integer; override;
     function __ObjRelease: Integer; override;
   end;
@@ -2029,6 +2041,8 @@ type
 implementation
 
 resourcestring
+  SInvalidPointerAlign = 'Invalid pointer %p align: should be %u';
+  SInvalidRefCount = 'Invalid %s.RefCount value %d';
   {$if CompilerVersion <= 27}
   SObjectDisposed = 'Method called on disposed object';
   {$ifend}
@@ -2297,7 +2311,104 @@ begin
 
   // TCustomObject initialization
   LPtr[0] := NativeInt(Self);
-  LPtr[1]{FRefCount} := 1;
+  LPtr[1]{FRefCount} := (1 or Ord(msHeap));
+  LPtr[2] := NativeInt(@TCustomObject.FInterfaceTable);
+  LPtr[3] := NativeInt(PInterfaceTable(PPointer(PByte(TCustomObject) + vmtIntfTable)^).Entries[0].VTable);
+
+  // fill zero
+  Dec(LSize, 4 * SizeOf(NativeInt));
+  Inc(NativeInt(LPtr), 4 * SizeOf(NativeInt));
+  LSize := LSize shr {$ifdef LARGEINT}3{$else .SMALLINT}2{$endif};
+  LNull := 0;
+  case (LSize) of
+    8: goto _8;
+    7: goto _7;
+    6: goto _6;
+    5: goto _5;
+    4: goto _4;
+    3: goto _3;
+    2: goto _2;
+    1: goto _1;
+    0: goto _0;
+  else
+    FillChar(LPtr^, LSize shl {$ifdef LARGEINT}3{$else .SMALLINT}2{$endif}, #0);
+    goto _0;
+  end;
+  _8: LPtr[7] := LNull;
+  _7: LPtr[6] := LNull;
+  _6: LPtr[5] := LNull;
+  _5: LPtr[4] := LNull;
+  _4: LPtr[3] := LNull;
+  _3: LPtr[2] := LNull;
+  _2: LPtr[1] := LNull;
+  _1: LPtr[0] := LNull;
+  _0: Dec(NativeInt(LPtr), 4 * SizeOf(NativeInt));
+
+  // interfaces
+  LClass := Self;
+  if (LClass <> TCustomObject) then
+  repeat
+    LTable := PInterfaceTable(PPointer(PByte(LClass) + vmtIntfTable)^);
+    if (Assigned(LTable)) then
+    begin
+      LTopEntry := @LTable.Entries[LTable.EntryCount];
+      LEntry := @LTable.Entries[0];
+      if (LEntry <> LTopEntry) then
+      repeat
+        LValue := LEntry.VTable;
+        if (Assigned(LValue)) then
+          PPointer(PByte(LPtr) + LEntry.IOffset)^ := LValue;
+
+        Inc(LEntry);
+      until (LEntry = LTopEntry);
+    end;
+
+    LClass := TClass(PPointer(PPointer(PByte(LClass) + vmtParent)^)^);
+  until (LClass = TCustomObject);
+
+  // result
+  Result := Pointer(LPtr);
+end;
+
+class function TCustomObject.PreallocatedInstance(const AMemory: Pointer;
+  const AMemoryScheme: TMemoryScheme): TObject;
+label
+  _0, _1, _2, _3, _4, _5, _6, _7, _8;
+type
+  HugeNativeIntArray = array[0..High(Integer) div SizeOf(NativeInt) - 1] of NativeInt;
+var
+  LInstanceSize, LSize: Integer;
+  LPtr: ^HugeNativeIntArray;
+  LNull: NativeInt;
+  LClass: TClass;
+  LTable: PInterfaceTable;
+  LEntry, LTopEntry: PInterfaceEntry;
+  LValue: Pointer;
+begin
+  // memory
+  if (NativeUInt(AMemory) <= High(Word)) or (NativeInt(AMemory) and 7 <> 0) then
+  begin
+    if (NativeUInt(AMemory) <= High(Word)) then
+    begin
+      raise EInvalidPointer.CreateRes(Pointer(@SInvalidPointer));
+    end else
+    begin
+      raise EInvalidPointer.CreateResFmt(Pointer(@SInvalidPointerAlign), [AMemory, 8]);
+    end;
+  end;
+
+  // size
+  LInstanceSize := PInteger(PByte(Self) + vmtInstanceSize)^;
+  LSize := LInstanceSize and (-SizeOf(NativeInt));
+  if (LInstanceSize and (SizeOf(NativeInt) - 1) <> 0) then
+  begin
+    PNativeInt(PByte(AMemory) + (LInstanceSize - SizeOf(NativeInt)))^ := 0;
+  end;
+  LPtr := AMemory;
+
+  // TCustomObject initialization
+  LPtr[0] := NativeInt(Self);
+  LPtr[1]{FRefCount} := 1 + (Ord(AMemoryScheme) shl MEMORY_SCHEME_SHIFT);
   LPtr[2] := NativeInt(@TCustomObject.FInterfaceTable);
   LPtr[3] := NativeInt(PInterfaceTable(PPointer(PByte(TCustomObject) + vmtIntfTable)^).Entries[0].VTable);
 
@@ -2375,182 +2486,209 @@ begin
 end;
 {$ifend}
 
-{$if (not Defined(WEAKREF)) or Defined(CPUINTELASM) or (CompilerVersion >= 32)}
 procedure TCustomObject.FreeInstance;
 label
   next_class, free_memory;
 var
-  LClass: TClass;
-  LTypeInfo: PTypeInfo;
+  LRefCount: Integer;
   LSize: Integer;
-  {$ifdef MONITORSUPPORT}
-  LMonitor, LMonitorFlags: NativeInt;
-  LLockEvent: Pointer;
-  {$endif}
-  FieldTable: TRAIIHelper.PFieldTable;
-  Field, TopField: TRAIIHelper.PFieldInfo;
-  {$ifdef WEAKREF}
-  WeakMode: Boolean;
-  {$endif}
-  LPtr: Pointer;
-  VType: Integer;
-begin
-  // monitor start, weak references
-  {$ifdef MONITORSUPPORT} // XE2+
-  LSize := PInteger(PNativeInt(Self)^ + vmtInstanceSize)^;
-  LMonitorFlags := PNativeInt(PByte(Self) + LSize + (- hfFieldSize + hfMonitorOffset))^;
-  {$if CompilerVersion >= 32}
-  if (LMonitorFlags and monWeakReferencedFlag <> 0) then
-  {$ifend}
-  {$endif}
-  {$ifdef WEAKREF}
-  begin
-    {$ifdef CPUINTELASM}
-    _CleanupInstance(Pointer(Self));
-    {$else .NEXTGEN}
-    Self.CleanupInstance;
-    goto free_memory;
+  {$if (not Defined(WEAKREF)) or Defined(CPUINTELASM) or (CompilerVersion >= 32)}
+    LClass: TClass;
+    LTypeInfo: PTypeInfo;
+    {$ifdef MONITORSUPPORT}
+    LMonitor, LMonitorFlags: NativeInt;
+    LLockEvent: Pointer;
     {$endif}
-  end;
-  {$endif}
+    FieldTable: TRAIIHelper.PFieldTable;
+    Field, TopField: TRAIIHelper.PFieldInfo;
+    {$ifdef WEAKREF}
+    WeakMode: Boolean;
+    {$endif}
+    LPtr: Pointer;
+    VType: Integer;
+  {$ifend}
+begin
+   // check reference count
+   LRefCount := FRefCount and (REFCOUNT_MASK xor DUMMY_REFCOUNT);
+   if (LRefCount <> 0) then
+     raise CreateEInvalidRefCount(Self, LRefCount);
 
-  // monitor finish
-  {$ifdef MONITORSUPPORT}
-  LMonitor  := LMonitorFlags {$if CompilerVersion >= 32}and monMonitorMask{$ifend};
-  if (LMonitor <> 0) then
-  begin
-    LLockEvent := PPointer(LMonitor + (SizeOf(Integer) + SizeOf(Integer) + SizeOf(System.TThreadID)))^;
-    if Assigned(LLockEvent) then
+  {$if (not Defined(WEAKREF)) or Defined(CPUINTELASM) or (CompilerVersion >= 32)}
+    // monitor start, weak references
+    {$ifdef MONITORSUPPORT} // XE2+
+    LSize := PInteger(PNativeInt(Self)^ + vmtInstanceSize)^;
+    LMonitorFlags := PNativeInt(PByte(Self) + LSize + (- hfFieldSize + hfMonitorOffset))^;
+    {$if CompilerVersion >= 32}
+    if (LMonitorFlags and monWeakReferencedFlag <> 0) then
+    {$ifend}
+    {$endif}
+    {$ifdef WEAKREF}
     begin
-      MonitorSupport.FreeSyncObject(LLockEvent);
+      {$ifdef CPUINTELASM}
+      _CleanupInstance(Pointer(Self));
+      {$else .NEXTGEN}
+      Self.CleanupInstance;
+      goto free_memory;
+      {$endif}
     end;
+    {$endif}
 
-    FreeMem(Pointer(LMonitor));
-  end;
-  {$endif}
-
-  // fields
-  LClass := PPointer(Self)^;
-  if (LClass <> TCustomObject) then
-  repeat
-    LTypeInfo := PPointer(PByte(LClass) + vmtInitTable)^;
-    if (not Assigned(LTypeInfo)) then
-      goto next_class;
-
-    FieldTable := Pointer(PByte(LTypeInfo) + PByte(@LTypeInfo.Name)^);
-    if (FieldTable.Count = 0) then
-      goto next_class;
-
-    TopField := @FieldTable.Fields[FieldTable.Count];
-    Field := @FieldTable.Fields[0];
-    repeat
-      {$ifdef WEAKREF}
-      WeakMode := False;
-      {$endif}
-
-      LPtr := PByte(Self) + NativeInt(Field.Offset);
-      {$ifdef WEAKREF}
-      if (Field.TypeInfo = nil) then
+    // monitor finish
+    {$ifdef MONITORSUPPORT}
+    LMonitor  := LMonitorFlags {$if CompilerVersion >= 32}and monMonitorMask{$ifend};
+    if (LMonitor <> 0) then
+    begin
+      LLockEvent := PPointer(LMonitor + (SizeOf(Integer) + SizeOf(Integer) + SizeOf(System.TThreadID)))^;
+      if Assigned(LLockEvent) then
       begin
-        WeakMode := True;
+        MonitorSupport.FreeSyncObject(LLockEvent);
       end;
-      if (not WeakMode) then
-      begin
-      {$endif}
-        case (Field.TypeInfo^.Kind) of
-          tkVariant:
-          begin
-            VType := Word(LPtr^);
-            if (VType and TRAIIHelper.varDeepData <> 0) and (VType <> varBoolean) and
-              (Cardinal(VType - (varUnknown + 1)) > (varUInt64 - varUnknown - 1)) then
-              System.VarClear(Variant(LPtr^));
+
+      FreeMem(Pointer(LMonitor));
+    end;
+    {$endif}
+
+    // fields
+    LClass := PPointer(Self)^;
+    if (LClass <> TCustomObject) then
+    repeat
+      LTypeInfo := PPointer(PByte(LClass) + vmtInitTable)^;
+      if (not Assigned(LTypeInfo)) then
+        goto next_class;
+
+      FieldTable := Pointer(PByte(LTypeInfo) + PByte(@LTypeInfo.Name)^);
+      if (FieldTable.Count = 0) then
+        goto next_class;
+
+      TopField := @FieldTable.Fields[FieldTable.Count];
+      Field := @FieldTable.Fields[0];
+      repeat
+        {$ifdef WEAKREF}
+        WeakMode := False;
+        {$endif}
+
+        LPtr := PByte(Self) + NativeInt(Field.Offset);
+        {$ifdef WEAKREF}
+        if (Field.TypeInfo = nil) then
+        begin
+          WeakMode := True;
+        end;
+        if (not WeakMode) then
+        begin
+        {$endif}
+          case (Field.TypeInfo^.Kind) of
+            tkVariant:
+            begin
+              VType := Word(LPtr^);
+              if (VType and TRAIIHelper.varDeepData <> 0) and (VType <> varBoolean) and
+                (Cardinal(VType - (varUnknown + 1)) > (varUInt64 - varUnknown - 1)) then
+                System.VarClear(Variant(LPtr^));
+            end;
+            {$ifdef AUTOREFCOUNT}
+            tkClass:
+            begin
+              if Assigned(PPointer(LPtr)^) then
+                TRAIIHelper.RefObjClear(LPtr);
+            end;
+            {$endif}
+            {$ifdef WEAKINSTREF}
+            tkMethod:
+            begin
+              Inc(NativeInt(LPtr), SizeOf(Pointer));
+              if Assigned(PPointer(LPtr)^) then
+                TRAIIHelper.WeakMethodClear(LPtr);
+            end;
+            {$endif}
+            {$ifdef MSWINDOWS}
+            tkWString:
+            begin
+              if Assigned(PPointer(LPtr)^) then
+                TRAIIHelper.WStrClear(LPtr);
+            end;
+            {$else}
+            tkWString,
+            {$endif}
+            tkLString, tkUString:
+            begin
+              if Assigned(PPointer(LPtr)^) then
+                TRAIIHelper.ULStrClear(LPtr);
+            end;
+            tkInterface:
+            begin
+              if Assigned(PPointer(LPtr)^) then
+                TRAIIHelper.IntfClear(LPtr);
+            end;
+            tkDynArray:
+            begin
+              if Assigned(PPointer(LPtr)^) then
+                TRAIIHelper.DynArrayClear(LPtr, Field.TypeInfo^);
+            end;
+            tkArray{static array}:
+            begin
+              System.FinalizeArray(LPtr, Field.TypeInfo^, FieldTable.Count);
+            end;
+            tkRecord:
+            begin
+              FinalizeRecord(LPtr, Field.TypeInfo^);
+            end;
           end;
-          {$ifdef AUTOREFCOUNT}
+        {$ifdef WEAKREF}
+        end else
+        case Field.TypeInfo^.Kind of
+        {$ifdef WEAKINTFREF}
+          tkInterface:
+          begin
+            if Assigned(PPointer(LPtr)^) then
+              TRAIIHelper.WeakIntfClear(LPtr);
+          end;
+        {$endif}
+        {$ifdef WEAKINSTREF}
           tkClass:
           begin
             if Assigned(PPointer(LPtr)^) then
-              TRAIIHelper.RefObjClear(LPtr);
+              TRAIIHelper.WeakObjClear(LPtr);
           end;
-          {$endif}
-          {$ifdef WEAKINSTREF}
           tkMethod:
           begin
             Inc(NativeInt(LPtr), SizeOf(Pointer));
             if Assigned(PPointer(LPtr)^) then
               TRAIIHelper.WeakMethodClear(LPtr);
           end;
-          {$endif}
-          {$ifdef MSWINDOWS}
-          tkWString:
-          begin
-            if Assigned(PPointer(LPtr)^) then
-              TRAIIHelper.WStrClear(LPtr);
-          end;
-          {$else}
-          tkWString,
-          {$endif}
-          tkLString, tkUString:
-          begin
-            if Assigned(PPointer(LPtr)^) then
-              TRAIIHelper.ULStrClear(LPtr);
-          end;
-          tkInterface:
-          begin
-            if Assigned(PPointer(LPtr)^) then
-              TRAIIHelper.IntfClear(LPtr);
-          end;
-          tkDynArray:
-          begin
-            if Assigned(PPointer(LPtr)^) then
-              TRAIIHelper.DynArrayClear(LPtr, Field.TypeInfo^);
-          end;
-          tkArray{static array}:
-          begin
-            System.FinalizeArray(LPtr, Field.TypeInfo^, FieldTable.Count);
-          end;
-          tkRecord:
-          begin
-            FinalizeRecord(LPtr, Field.TypeInfo^);
-          end;
+        {$endif}
         end;
-      {$ifdef WEAKREF}
-      end else
-      case Field.TypeInfo^.Kind of
-      {$ifdef WEAKINTFREF}
-        tkInterface:
-        begin
-          if Assigned(PPointer(LPtr)^) then
-            TRAIIHelper.WeakIntfClear(LPtr);
-        end;
-      {$endif}
-      {$ifdef WEAKINSTREF}
-        tkClass:
-        begin
-          if Assigned(PPointer(LPtr)^) then
-            TRAIIHelper.WeakObjClear(LPtr);
-        end;
-        tkMethod:
-        begin
-          Inc(NativeInt(LPtr), SizeOf(Pointer));
-          if Assigned(PPointer(LPtr)^) then
-            TRAIIHelper.WeakMethodClear(LPtr);
-        end;
-      {$endif}
-      end;
-      {$endif .WEAKREF}
+        {$endif .WEAKREF}
 
-      Inc(Field);
-    until (Field = TopField);
+        Inc(Field);
+      until (Field = TopField);
 
-  next_class:
-    LClass := TClass(PPointer(PPointer(PByte(LClass) + vmtParent)^)^);
-  until (LClass = TCustomObject);
+    next_class:
+      LClass := TClass(PPointer(PPointer(PByte(LClass) + vmtParent)^)^);
+    until (LClass = TCustomObject);
+  {$else}
+  next_class{dummy}:
+    Self.CleanupInstance;
+  {$ifend}
 
   // memory
 free_memory:
-  FreeMem(Pointer(Self));
+  case (FRefCount shr MEMORY_SCHEME_SHIFT) and Ord(High(TMemoryScheme)) of
+    Ord(msHeap):
+    begin
+      FreeMem(Pointer(Self));
+    end;
+    Ord(msAllocator):
+    begin
+      raise EInvalidOpException.Create('msAllocator');
+    end;
+    Ord(msFreeList):
+    begin
+      raise EInvalidOpException.Create('msFreeList');
+    end;
+  else
+    // msUnknownBuffer
+    // Do nothing
+  end;
 end;
-{$ifend}
 
 function TCustomObject.GetSelf: TCustomObject;
 begin
@@ -2562,9 +2700,14 @@ begin
   Result := EObjectDisposed.CreateRes(Pointer(@SObjectDisposed));
 end;
 
-function TCustomObject.GetDisposed_: Boolean;
+class function TCustomObject.CreateEInvalidRefCount(const AObject: TObject; const ARefCount: Integer): EInvalidContainer;
 begin
-  Result := (FRefCount and DISPOSED_FLAG <> 0);
+  Result := EInvalidContainer.CreateResFmt(Pointer(@SInvalidRefCount), [AObject.ClassName, ARefCount]);
+end;
+
+function TCustomObject.GetMemoryScheme: TMemoryScheme;
+begin
+  Result := TMemoryScheme(Integer((FRefCount shr MEMORY_SCHEME_SHIFT) and Ord(High(TMemoryScheme))));
 end;
 
 function TCustomObject.GetDisposed: Boolean;
@@ -2580,7 +2723,7 @@ end;
 
 function TCustomObject.GetRefCount: Integer;
 begin
-  Result := Self.RefCount;
+  Result := FRefCount and REFCOUNT_MASK;
 end;
 
 procedure TCustomObject.AfterConstruction;
@@ -2628,9 +2771,9 @@ begin
 
   // no references
   {$ifNdef AUTOREFCOUNT}
-  if (FRefCount = DEFAULT_REF_COUNT) then
+  if (FRefCount and MEMORY_SCHEME_CLEAR = DEFAULT_REFCOUNT) then
   begin
-    FRefCount := DUMMY_REFERENCE or DISPOSED_FLAG;
+    FRefCount := FRefCount or (DUMMY_REFCOUNT or DISPOSED_FLAG);
     Destroy;
     Exit;
   end;
@@ -2643,7 +2786,7 @@ begin
     if (LRef and DISPOSED_FLAG <> 0) then
       Exit;
 
-    if (Cardinal(LRef) <= DEFAULT_REF_COUNT) then
+    if (Cardinal(LRef and MEMORY_SCHEME_CLEAR) <= DEFAULT_REFCOUNT) then
     begin
       FRefCount := LRef or DISPOSED_FLAG;
       Break;
@@ -2667,11 +2810,11 @@ end;
 function TCustomObject.__ObjAddRef: Integer;
 begin
   Result := FRefCount;
-  if (Cardinal(Result and CLEAR_DISPOSED_FLAG) <= DEFAULT_REF_COUNT) then
+  if (Cardinal(Result and REFCOUNT_MASK) <= DEFAULT_REFCOUNT) then
   begin
     Inc(Result);
     FRefCount := Result;
-    Result := Result and CLEAR_DISPOSED_FLAG;
+    Result := Result and REFCOUNT_MASK;
     Exit;
   end else
   begin
@@ -2684,11 +2827,11 @@ begin
   if (PPointer(PNativeInt(Self)^ + vmtObjAddRef)^ = @TCustomObject.__ObjAddRef) then
   begin
     Result := FRefCount;
-    if (Cardinal(Result and CLEAR_DISPOSED_FLAG) <= DEFAULT_REF_COUNT) then
+    if (Cardinal(Result and REFCOUNT_MASK) <= DEFAULT_REFCOUNT) then
     begin
       Inc(Result);
       FRefCount := Result;
-      Result := Result and CLEAR_DISPOSED_FLAG;
+      Result := Result and REFCOUNT_MASK;
       Exit;
     end else
     begin
@@ -2705,22 +2848,22 @@ function TCustomObject.__ObjRelease: Integer;
 begin
   // release reference
   Result := FRefCount;
-  if (Result and CLEAR_DISPOSED_FLAG <> 1) then
+  if (Result and REFCOUNT_MASK <> 1) then
   begin
-    Result := AtomicDecrement(FRefCount) and CLEAR_DISPOSED_FLAG;
+    Result := AtomicDecrement(FRefCount) and REFCOUNT_MASK;
     if (Result <> 0) then
       Exit;
   end else
   begin
     Dec(Result);
     FRefCount := Result;
-    Result := 0{Result and CLEAR_DISPOSED_FLAG};
+    Result := 0{Result and REFCOUNT_MASK};
   end;
 
   // no references: destroy/freeinstance
   if (FRefCount and DISPOSED_FLAG = 0) then
   begin
-    FRefCount := DUMMY_REFERENCE or DISPOSED_FLAG;
+    FRefCount := FRefCount or (DUMMY_REFCOUNT or DISPOSED_FLAG);
     Destroy;
     Exit;
   end else
@@ -2735,14 +2878,14 @@ begin
   begin
     // release reference
     Result := FRefCount;
-    if (Result and CLEAR_DISPOSED_FLAG = 1) then
+    if (Result and REFCOUNT_MASK = 1) then
     begin
       Dec(Result);
       FRefCount := Result;
-      Result := 0{Result and CLEAR_DISPOSED_FLAG};
+      Result := 0{Result and REFCOUNT_MASK};
     end else
     begin
-      Result := AtomicDecrement(FRefCount) and CLEAR_DISPOSED_FLAG;
+      Result := AtomicDecrement(FRefCount) and REFCOUNT_MASK;
       if (Result <> 0) then
         Exit;
     end;
@@ -2750,7 +2893,7 @@ begin
     // no references: destroy/freeinstance
     if (FRefCount and DISPOSED_FLAG = 0) then
     begin
-      FRefCount := DUMMY_REFERENCE or DISPOSED_FLAG;
+      FRefCount := FRefCount or (DUMMY_REFCOUNT or DISPOSED_FLAG);
       Destroy;
       Exit;
     end else
@@ -2831,11 +2974,22 @@ begin
   PHugePointerArray(Result)[3] := @TLiteCustomObject.FCustomObjectTable;
 end;
 
+class function TLiteCustomObject.PreallocatedInstance(const AMemory: Pointer;
+  const AMemoryScheme: TMemoryScheme): TObject;
+type
+  HugePointerArray = array[0..High(Integer) div SizeOf(NativeInt) - 1] of Pointer;
+  PHugePointerArray = ^HugePointerArray;
+begin
+  Result := inherited PreallocatedInstance(AMemory, AMemoryScheme);
+  PHugePointerArray(Result)[2] := @TLiteCustomObject.FInterfaceTable;
+  PHugePointerArray(Result)[3] := @TLiteCustomObject.FCustomObjectTable;
+end;
+
 function TLiteCustomObject.__ObjAddRef: Integer;
 begin
   Result := FRefCount + 1;
   FRefCount := Result;
-  Result := Result and CLEAR_DISPOSED_FLAG;
+  Result := Result and REFCOUNT_MASK;
 end;
 
 function TLiteCustomObject._AddRef: Integer;
@@ -2844,7 +2998,7 @@ begin
   begin
     Result := FRefCount + 1;
     FRefCount := Result;
-    Result := Result and CLEAR_DISPOSED_FLAG;
+    Result := Result and REFCOUNT_MASK;
     Exit;
   end else
   begin
@@ -2856,13 +3010,13 @@ function TLiteCustomObject.__ObjRelease: Integer;
 begin
   Result := FRefCount - 1;
   FRefCount := Result;
-  Result := Result and CLEAR_DISPOSED_FLAG;
+  Result := Result and REFCOUNT_MASK;
   if (Result <> 0) then
     Exit;
 
   if (FRefCount and DISPOSED_FLAG = 0) then
   begin
-    FRefCount := DUMMY_REFERENCE or DISPOSED_FLAG;
+    FRefCount := FRefCount or (DUMMY_REFCOUNT or DISPOSED_FLAG);
     Destroy;
     Exit;
   end else
@@ -2877,13 +3031,13 @@ begin
   begin
     Result := FRefCount - 1;
     FRefCount := Result;
-    Result := Result and CLEAR_DISPOSED_FLAG;
+    Result := Result and REFCOUNT_MASK;
     if (Result <> 0) then
       Exit;
 
     if (FRefCount and DISPOSED_FLAG = 0) then
     begin
-      FRefCount := DUMMY_REFERENCE or DISPOSED_FLAG;
+      FRefCount := FRefCount or (DUMMY_REFCOUNT or DISPOSED_FLAG);
       Destroy;
       Exit;
     end else
