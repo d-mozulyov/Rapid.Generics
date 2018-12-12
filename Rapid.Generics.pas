@@ -1429,6 +1429,9 @@ type
         function TryGetSingle(var{out} Value: T; const APredicate: TFunction<T,Boolean>): Boolean;
         function IndexOf(const AValue: T; const AComparer: TEqualityComparison<T>): Integer;
         function LastIndexOf(const AValue: T; const AComparer: TEqualityComparison<T>): Integer;
+        function EqualsTo(const ALinearItems: TLinearItems; const AComparer: TEqualityComparison<T>): Boolean; overload;
+        function EqualsTo(var AEnumerator: TCollectionEnumerator<T>; const AComparer: TEqualityComparison<T>): Boolean; overload;
+        function EqualsTo(const AEnumerator: IEnumerator<T>; const AComparer: TEqualityComparison<T>): Boolean; overload;
       end;
       PLinearItems = ^TLinearItems;
 
@@ -1458,6 +1461,9 @@ type
     class function InternalIndexOf(const AValue: T; Value: P; Offset: NativeInt; Count: Integer; const AComparer: TEqualityComparison<T>): Integer; overload; static;
     class function InternalLastIndexOf(const AValue: T; Value: P; Offset: NativeInt; Count: Integer; const AComparer: TComparison<T>): Integer; overload; static;
     class function InternalLastIndexOf(const AValue: T; Value: P; Offset: NativeInt; Count: Integer; const AComparer: TEqualityComparison<T>): Integer; overload; static;
+    class function InternalEqualsTo(Value1, Value2: P; Offset1, Offset2: NativeInt; Count: Integer; const AComparer: TEqualityComparison<T>): Boolean; overload; static;
+    class function InternalEqualsTo(Value: P; Offset: NativeInt; Count: Integer; var AEnumerator: TCollectionEnumerator<T>; const AComparer: TEqualityComparison<T>): Boolean; overload; static;
+    class function InternalEqualsTo(Value: P; Offset: NativeInt; Count: Integer; const AEnumerator: IEnumerator<T>; const AComparer: TEqualityComparison<T>): Boolean; overload; static;
   protected
     FComparer: IComparer<T>;
     FEqualityComparer: IEqualityComparer<T>;
@@ -16669,6 +16675,138 @@ begin
   Result := -1;
 end;
 
+function TCollection<T>.TLinearItems.EqualsTo(const ALinearItems: TLinearItems;
+  const AComparer: TEqualityComparison<T>): Boolean;
+var
+  LLeftCount, LRightCount, LCount: Integer;
+  LLeftValues, LRightValues: P;
+begin
+  // first items
+  LLeftCount := Self.Count1;
+  LRightCount := ALinearItems.Count1;
+  if (LLeftCount = LRightCount) then
+  begin
+    if (LLeftCount <> 0) then
+    begin
+      Result := InternalEqualsTo(Values1, ALinearItems.Values1, Self.Offset, ALinearItems.Offset, LLeftCount, AComparer);
+      if (not Result) then
+        Exit;
+    end;
+
+    LLeftValues := Values2;
+    LRightValues := ALinearItems.Values2;
+    LCount := Count2;
+  end else
+  if (LLeftCount > LRightCount) then
+  begin
+    LLeftValues := Values1;
+
+    // compare right count elements
+    if (LRightCount <> 0) then
+    begin
+      Result := InternalEqualsTo(LLeftValues, ALinearItems.Values1, Self.Offset, ALinearItems.Offset, LRightCount, AComparer);
+      if (not Result) then
+        Exit;
+
+      Inc(NativeInt(LLeftValues), LRightCount * Self.Offset);
+      Dec(LLeftCount, LRightCount);
+    end;
+
+    // compare remain left elements
+    LRightValues := ALinearItems.Values2;
+    begin
+      Result := InternalEqualsTo(LLeftValues, LRightValues, Self.Offset, ALinearItems.Offset, LLeftCount, AComparer);
+      if (not Result) then
+        Exit;
+
+      Inc(NativeInt(LRightValues), LLeftCount * ALinearItems.Offset);
+    end;
+
+    LLeftValues := Values2;
+    LCount := Count2;
+  end else
+  if (LLeftCount < LRightCount) then
+  begin
+    LRightValues := ALinearItems.Values1;
+
+    // compare left count elements
+    if (LLeftCount <> 0) then
+    begin
+      Result := InternalEqualsTo(Values1, LRightValues, Self.Offset, ALinearItems.Offset, LLeftCount, AComparer);
+      if (not Result) then
+        Exit;
+
+      Inc(NativeInt(LRightValues), LLeftCount * Self.Offset);
+      Dec(LRightCount, LLeftCount);
+    end;
+
+    // compare remain right elements
+    LLeftValues := Values2;
+    begin
+      Result := InternalEqualsTo(LLeftValues, LRightValues, Self.Offset, ALinearItems.Offset, LRightCount, AComparer);
+      if (not Result) then
+        Exit;
+
+      Inc(NativeInt(LLeftValues), LRightCount * ALinearItems.Offset);
+    end;
+
+    LRightValues := ALinearItems.Values2;
+    LCount := ALinearItems.Count2;
+  end;
+
+  // last items
+  Result := (LCount = 0) or (InternalEqualsTo(LLeftValues, LRightValues, Self.Offset,
+    ALinearItems.Offset, LCount, AComparer));
+end;
+
+function TCollection<T>.TLinearItems.EqualsTo(var AEnumerator: TCollectionEnumerator<T>;
+  const AComparer: TEqualityComparison<T>): Boolean;
+var
+  Count: Integer;
+begin
+  Count := Self.Count1;
+  if (Count <> 0) then
+  begin
+    Result := InternalEqualsTo(Values1, Offset, Count, AEnumerator, AComparer);
+    if (not Result) then
+      Exit;
+  end;
+
+  Count := Self.Count2;
+  if (Count <> 0) then
+  begin
+    Result := InternalEqualsTo(Values2, Offset, Count, AEnumerator, AComparer);
+    if (not Result) then
+      Exit;
+  end;
+
+  Result := True;
+end;
+
+function TCollection<T>.TLinearItems.EqualsTo(const AEnumerator: IEnumerator<T>;
+  const AComparer: TEqualityComparison<T>): Boolean;
+var
+  Count: Integer;
+begin
+  Count := Self.Count1;
+  if (Count <> 0) then
+  begin
+    Result := InternalEqualsTo(Values1, Offset, Count, AEnumerator, AComparer);
+    if (not Result) then
+      Exit;
+  end;
+
+  Count := Self.Count2;
+  if (Count <> 0) then
+  begin
+    Result := InternalEqualsTo(Values2, Offset, Count, AEnumerator, AComparer);
+    if (not Result) then
+      Exit;
+  end;
+
+  Result := True;
+end;
+
 { TCollection<T> }
 
 function TCollection<T>.GetEnumerator: IEnumerator;
@@ -17104,6 +17242,68 @@ begin
   end;
 
   Result := -1;
+end;
+
+class function TCollection<T>.InternalEqualsTo(Value1, Value2: P; Offset1, Offset2: NativeInt;
+  Count: Integer; const AComparer: TEqualityComparison<T>): Boolean;
+var
+  i: Integer;
+  LOffset2: NativeInt;
+begin
+  LOffset2 := Offset2;
+  for i := 1 to Count do
+  begin
+    Result := AComparer(Value1^, Value2^);
+    if (not Result) then
+      Exit;
+
+    Inc(NativeInt(Value1), Offset1);
+    Inc(NativeInt(Value2), LOffset2);
+  end;
+
+  Result := True;
+end;
+
+class function TCollection<T>.InternalEqualsTo(Value: P; Offset: NativeInt; Count: Integer;
+  var AEnumerator: TCollectionEnumerator<T>; const AComparer: TEqualityComparison<T>): Boolean;
+var
+  i: Integer;
+begin
+  for i := 1 to Count do
+  begin
+    Result := AEnumerator.MoveNext;
+    if (not Result) then
+      Exit;
+
+    Result := AComparer(Value^, AEnumerator.Data.Current);
+    if (not Result) then
+      Exit;
+
+    Inc(NativeInt(Value), Offset);
+  end;
+
+  Result := True;
+end;
+
+class function TCollection<T>.InternalEqualsTo(Value: P; Offset: NativeInt; Count: Integer;
+  const AEnumerator: IEnumerator<T>; const AComparer: TEqualityComparison<T>): Boolean;
+var
+  i: Integer;
+begin
+  for i := 1 to Count do
+  begin
+    Result := AEnumerator.MoveNext;
+    if (not Result) then
+      Exit;
+
+    Result := AComparer(Value^, AEnumerator.Current);
+    if (not Result) then
+      Exit;
+
+    Inc(NativeInt(Value), Offset);
+  end;
+
+  Result := True;
 end;
 
 constructor TCollection<T>.Create;
@@ -18062,7 +18262,8 @@ end;
 
 function TCollection<T>.EqualsTo(const AValues: array of T; const AComparer: TEqualityComparison<T>): Boolean;
 var
-  i, LCount: Integer;
+  LCount: Integer;
+  LLeftItems, LRightItems: TLinearItems;
   Enumerator: TCollectionEnumerator<T>;
 begin
   CheckArgumentIsNil(Assigned(AComparer), 'Comparer');
@@ -18070,13 +18271,19 @@ begin
   Result := (LCount = DoGetCount);
   if (Result) and (LCount <> 0) then
   begin
-    Enumerator := DoGetEnumerator;
+    LRightItems.Values1 := Pointer(@AValues);
+    LRightItems.Count1 := LCount;
+    LRightItems.Count2 := 0;
+    LRightItems.Offset := SizeOf(T);
 
-    for i := 0 to LCount - 1 do
-    if (not Enumerator.MoveNext) or (not AComparer(AValues[i], Enumerator.Data.Current)) then
+    if (Self.DoGetLinearItems(LLeftItems)) then
     begin
-      Result := False;
-      Exit;
+      Result := ((LLeftItems.Count1 + LLeftItems.Count2) = LCount) and
+        LLeftItems.EqualsTo(LRightItems, AComparer);
+    end else
+    begin
+      Enumerator := DoGetEnumerator;
+      Result := LRightItems.EqualsTo(Enumerator, AComparer) and (not Enumerator.MoveNext);
     end;
   end;
 end;
@@ -18093,8 +18300,9 @@ end;
 
 function TCollection<T>.EqualsTo(const ACollection: TCollection<T>; const AComparer: TEqualityComparison<T>): Boolean;
 var
-  i, LCount: Integer;
-  Enumerator1, Enumerator2: TCollectionEnumerator<T>;
+  LCount: Integer;
+  LLeftItems, LRightItems: TLinearItems;
+  LLeftEnumerator, LRightEnumerator: TCollectionEnumerator<T>;
 begin
   CheckArgumentIsNil(Assigned(ACollection), 'Collection');
   CheckArgumentIsNil(Assigned(AComparer), 'Comparer');
@@ -18108,15 +18316,38 @@ begin
   Result := (LCount = DoGetCount);
   if (Result) and (LCount <> 0) then
   begin
-    Enumerator1 := DoGetEnumerator;
-    Enumerator2 := ACollection.DoGetEnumerator;
-
-    for i := 0 to LCount - 1 do
-    if (not Enumerator1.MoveNext) or (not Enumerator2.MoveNext) or
-      (not AComparer(Enumerator1.Data.Current, Enumerator2.Data.Current)) then
+    if (Self.DoGetLinearItems(LLeftItems)) then
     begin
-      Result := False;
-      Exit;
+      if (ACollection.DoGetLinearItems(LRightItems)) then
+      begin
+        Result := ((LLeftItems.Count1 + LLeftItems.Count2) = (LRightItems.Count1 + LRightItems.Count2)) and
+          LLeftItems.EqualsTo(LRightItems, AComparer);
+      end else
+      begin
+        LRightEnumerator := ACollection.DoGetEnumerator;
+        Result := LLeftItems.EqualsTo(LRightEnumerator, AComparer) and (not LRightEnumerator.MoveNext);
+      end;
+    end else
+    if (ACollection.DoGetLinearItems(LRightItems)) then
+    begin
+      LLeftEnumerator := Self.DoGetEnumerator;
+      Result := LRightItems.EqualsTo(LLeftEnumerator, AComparer) and (not LLeftEnumerator.MoveNext);
+    end else
+    begin
+      LLeftEnumerator := Self.DoGetEnumerator;
+      LRightEnumerator := ACollection.DoGetEnumerator;
+
+      while (LLeftEnumerator.MoveNext) do
+      begin
+        if (not LRightEnumerator.MoveNext) or
+          (not AComparer(LLeftEnumerator.Data.Current, LRightEnumerator.Data.Current)) then
+        begin
+          Result := False;
+          Exit;
+        end;
+      end;
+
+      Result := (not LRightEnumerator.MoveNext);
     end;
   end;
 end;
@@ -18133,30 +18364,43 @@ end;
 
 function TCollection<T>.EqualsTo(const ACollection: ICollection<T>; const AComparer: TEqualityComparison<T>): Boolean;
 var
-  i, LCount: Integer;
-  Enumerator1, Enumerator2: TCollectionEnumerator<T>;
+  LCount: Integer;
+  LinearItems: TLinearItems;
+  LLeftEnumerator, LRightEnumerator: TCollectionEnumerator<T>;
 begin
-  CheckArgumentIsNil(Assigned(ACollection), 'Collection');
-  CheckArgumentIsNil(Assigned(AComparer), 'Comparer');
-  if (Self = ACollection.Self) then
+  if (ACollection.Self is TCollection<T>) then
   begin
-    Result := True;
+    Result := EqualsTo(TCollection<T>(ACollection.Self), AComparer);
     Exit;
   end;
+
+  CheckArgumentIsNil(Assigned(ACollection), 'Collection');
+  CheckArgumentIsNil(Assigned(AComparer), 'Comparer');
 
   LCount := ACollection.Count;
   Result := (LCount = DoGetCount);
   if (Result) and (LCount <> 0) then
   begin
-    Enumerator1 := DoGetEnumerator;
-    Enumerator2 := ACollection.GetEnumerator;
-
-    for i := 0 to LCount - 1 do
-    if (not Enumerator1.MoveNext) or (not Enumerator2.MoveNext) or
-      (not AComparer(Enumerator1.Data.Current, Enumerator2.Data.Current)) then
+    if (Self.DoGetLinearItems(LinearItems)) then
     begin
-      Result := False;
-      Exit;
+      LRightEnumerator := ACollection.GetEnumerator;
+      Result := LinearItems.EqualsTo(LRightEnumerator, AComparer) and (not LRightEnumerator.MoveNext);
+    end else
+    begin
+      LLeftEnumerator := Self.DoGetEnumerator;
+      LRightEnumerator := ACollection.GetEnumerator;
+
+      while (LLeftEnumerator.MoveNext) do
+      begin
+        if (not LRightEnumerator.MoveNext) or
+          (not AComparer(LLeftEnumerator.Data.Current, LRightEnumerator.Data.Current)) then
+        begin
+          Result := False;
+          Exit;
+        end;
+      end;
+
+      Result := (not LRightEnumerator.MoveNext);
     end;
   end;
 end;
@@ -18173,30 +18417,40 @@ end;
 
 function TCollection<T>.EqualsTo(const AEnumerable: IEnumerable<T>; const AComparer: TEqualityComparison<T>): Boolean;
 var
-  Enumerator1: TCollectionEnumerator<T>;
-  Enumerator2: IEnumerator<T>;
+  LinearItems: TLinearItems;
+  LLeftEnumerator: TCollectionEnumerator<T>;
+  LRightEnumerator: IEnumerator<T>;
 begin
+  if (AEnumerable is TCollection<T>) then
+  begin
+    Result := EqualsTo(AEnumerable as TCollection<T>, AComparer);
+    Exit;
+  end;
+
   CheckArgumentIsNil(Assigned(AEnumerable), 'Enumerable');
   CheckArgumentIsNil(Assigned(AComparer), 'Comparer');
 
-  Enumerator1 := DoGetEnumerator;
-  Enumerator2 := AEnumerable.GetEnumerator;
-  repeat
-    if (Enumerator1.MoveNext) then
+  if (Self.DoGetLinearItems(LinearItems)) then
+  begin
+    LRightEnumerator := AEnumerable.GetEnumerator;
+    Result := LinearItems.EqualsTo(LRightEnumerator, AComparer) and (not LRightEnumerator.MoveNext);
+  end else
+  begin
+    LLeftEnumerator := Self.DoGetEnumerator;
+    LRightEnumerator := AEnumerable.GetEnumerator;
+
+    while (LLeftEnumerator.MoveNext) do
     begin
-      if (not Enumerator2.MoveNext) or (not AComparer(Enumerator1.Data.Current, Enumerator2.Current)) then
+      if (not LRightEnumerator.MoveNext) or
+        (not AComparer(LLeftEnumerator.Data.Current, LRightEnumerator.Current)) then
       begin
         Result := False;
         Exit;
       end;
-    end else
-    begin
-      Result := (not Enumerator2.MoveNext);
-      Exit;
     end;
-  until (False);
 
-  Result := True;
+    Result := (not LRightEnumerator.MoveNext);
+  end;
 end;
 
 
