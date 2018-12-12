@@ -1351,6 +1351,7 @@ type
 
 {   function Concat(const ASecond: TCollection<T>): ICollection<T>; overload;
     function Concat(const ASecond: ICollection<T>): ICollection<T>; overload;
+    function Concat(const ASecond: IEnumerable<T>): ICollection<T>; overload;
     function Where(const APredicate: TFunction<T,Boolean>): ICollection<T>; overload;
     function Ordered: ICollection<T>; overload;
     function Ordered(const AComparer: IComparer<T>): ICollection<T>; overload;
@@ -1402,6 +1403,8 @@ type
   protected
     type
       P = ^T;
+      TCollectionEnumerator = TCollectionEnumerator<T>;
+      PCollectionEnumerator = ^TCollectionEnumerator;
       TLinearItems = packed record
         Values1: P;
         Count1: Integer;
@@ -1426,7 +1429,7 @@ type
         function ForEach(const AAction: TFunction<T,Boolean>): Boolean; overload;
         function TryGetFirst(var{out} Value: T; const APredicate: TFunction<T,Boolean>): Boolean;
         function TryGetLast(var{out} Value: T; const APredicate: TFunction<T,Boolean>): Boolean;
-        function TryGetSingle(var{out} Value: T; const APredicate: TFunction<T,Boolean>): Boolean;
+        function TryGetSingle(var{out} Value: T; const APredicate: TFunction<T,Boolean>): Integer;
         function IndexOf(const AValue: T; const AComparer: TEqualityComparison<T>): Integer;
         function LastIndexOf(const AValue: T; const AComparer: TEqualityComparison<T>): Integer;
         function EqualsTo(const ALinearItems: TLinearItems; const AComparer: TEqualityComparison<T>): Boolean; overload;
@@ -1476,17 +1479,19 @@ type
     function ICollection<T>.GetComparison = DoGetComparison;
     function ICollection<T>.GetEqualityComparer = DoGetEqualityComparer;
     function ICollection<T>.GetEqualityComparison = DoGetEqualityComparison;
-    function DoGetEnumerator: TCollectionEnumerator<T>; virtual; abstract;
     function DoGetCount: Integer; virtual; abstract;
     function DoGetIsEmpty: Boolean; virtual; abstract;
     function DoGetIsSynchronized: Boolean; virtual;
-    function DoGetLinearItems(var ALinearItems: TLinearItems): Boolean; virtual;
+    function DoTryGetLinearItems(var ALinearItems: TLinearItems): Boolean; virtual;
     function DoGetComparer: IComparer<T>;
     function DoGetComparison: TComparison<T>;
     function DoGetEqualityComparer: IEqualityComparer<T>;
     function DoGetEqualityComparison: TEqualityComparison<T>;
-    function DoTryGetOrderedEnumerator(var Enumerator: TCollectionEnumerator<T>): Boolean; virtual;
-    function DoTryGetReversedEnumerator(var Enumerator: TCollectionEnumerator<T>): Boolean; virtual;
+    function DoTryGetOrderedEnumerator(const Enumerator: PCollectionEnumerator): Boolean; virtual;
+    function DoTryGetReversedEnumerator(const Enumerator: PCollectionEnumerator): Boolean; virtual;
+    function DoGetEnumerator: TCollectionEnumerator<T>; virtual; abstract;
+    function InternalTryGetSingle(var{out} Value: T): Integer; overload;
+    function InternalTryGetSingle(var{out} Value: T; const APredicate: TFunction<T,Boolean>): Integer; overload;
   public
     constructor Create;
     function ToArray: TArray<T>; overload; virtual;
@@ -1561,6 +1566,16 @@ type
     function EqualsTo(const AEnumerable: IEnumerable<T>; const AComparer: IEqualityComparer<T>): Boolean; overload; virtual;
     function EqualsTo(const AEnumerable: IEnumerable<T>; const AComparer: TEqualityComparison<T>): Boolean; overload; virtual;
 
+{   function Concat(const ASecond: TCollection<T>): ICollection<T>; overload;
+    function Concat(const ASecond: ICollection<T>): ICollection<T>; overload;
+    function Concat(const ASecond: IEnumerable<T>): ICollection<T>; overload;
+    function Where(const APredicate: TFunction<T,Boolean>): ICollection<T>; overload;
+    function Ordered: ICollection<T>; overload;
+    function Ordered(const AComparer: IComparer<T>): ICollection<T>; overload;
+    function Ordered(const AComparer: TComparison<T>): ICollection<T>; overload;
+    function Reversed: ICollection<T>;
+    function Shuffled: ICollection<T>; }
+
     property Count: Integer read DoGetCount;
     property IsEmpty: Boolean read DoGetIsEmpty;
     property IsSynchronized: Boolean read DoGetIsSynchronized;
@@ -1580,10 +1595,10 @@ type
   public type
     TItem = TRecord<T1,T,T3,T4>;
     PItem = ^TItem;
-    TItemList = array[0..0] of TItem;
+    TItemList = array[0..1] of TItem;
     PItemList = ^TItemList;
 
-(*    TEnumerator = record
+    TEnumerator = record
       Data: TCollectionEnumeratorData<T>;
       {$if CompilerVersion <= 22}
       function GetCurrent: T; inline;
@@ -1591,8 +1606,9 @@ type
       {$else}
       property Current: T read Data.Current;
       {$ifend}
-      function MoveNext: Boolean;
-    end; *)
+      function MoveNext: Boolean; inline;
+      function ReversedMoveNext: Boolean; inline;
+     end;
   protected
     FItems: PItemList;
     FCapacity: TRAIIHelper.TNativeIntRec;
@@ -1604,7 +1620,75 @@ type
     function DoGetCount: Integer; override;
     function DoGetIsEmpty: Boolean; override;
     function GetIsEmpty: Boolean; inline;
+    function DoTryGetLinearItems(var ALinearItems: TCollection<T>.TLinearItems): Boolean; override;
+    function DoTryGetReversedEnumerator(const Enumerator: TCollection<T>.PCollectionEnumerator): Boolean; override;
+    function DoGetEnumerator: TCollectionEnumerator<T>; override;
   public
+    function GetEnumerator: TEnumerator;
+    function ToArray: TArray<T>; overload; override;
+    function ToArray(const APredicate: TFunction<T,Boolean>): TArray<T>; overload; override;
+
+    function All(const APredicate: TFunction<T,Boolean>): Boolean; override;
+    function Any(const APredicate: TFunction<T,Boolean>): Boolean; override;
+    function Aggregate(const AFunc: TFunction<T,T,T>): T; override;
+    function Min: T; overload; override;
+    function Min(const AComparer: IComparer<T>): T; overload; override;
+    function Min(const AComparer: TComparison<T>): T; overload; override;
+    function Min(const ASelector: TFunction<T, Integer>): Integer; overload; override;
+    function Max: T; overload; override;
+    function Max(const AComparer: IComparer<T>): T; overload; override;
+    function Max(const AComparer: TComparison<T>): T; overload; override;
+    function Max(const ASelector: TFunction<T, Integer>): Integer; overload; override;
+    function Sum: T; overload; override;
+    function Sum(const ASelector: TFunction<T, Integer>): Integer; overload; override;
+    function Sum(const ASelector: TFunction<T, Int64>): Int64; overload; override;
+    function Sum(const ASelector: TFunction<T, Extended>): Extended; overload; override;
+    procedure ForEach(const AAction: TProcedure<T>); overload; override;
+    function ForEach(const AAction: TFunction<T,Boolean>): Boolean; overload; override;
+    function ElementAt(const AIndex: Integer): T; override;
+    function ElementAtOrDefault(const AIndex: Integer): T; overload; override;
+    function ElementAtOrDefault(const AIndex: Integer; const ADefaultValue: T): T; overload; override;
+    function TryGetElementAt(var{out} Value: T; const AIndex: Integer): Boolean; override;
+
+    function First: T; overload; override;
+    function FirstOrDefault: T; overload; override;
+    function FirstOrDefault(const ADefaultValue: T): T; overload; override;
+    function TryGetFirst(var{out} Value: T): Boolean; overload; override;
+    function TryGetFirst(var{out} Value: T; const APredicate: TFunction<T,Boolean>): Boolean; overload; override;
+    function Last: T; overload; override;
+    function LastOrDefault: T; overload; override;
+    function LastOrDefault(const ADefaultValue: T): T; overload; override;
+    function TryGetLast(var{out} Value: T): Boolean; overload; override;
+    function TryGetLast(var{out} Value: T; const APredicate: TFunction<T,Boolean>): Boolean; overload; override;
+    function Single: T; overload; override;
+    function SingleOrDefault: T; overload; override;
+    function SingleOrDefault(const ADefaultValue: T): T; overload; override;
+    function TryGetSingle(var{out} Value: T): Boolean; overload; override;
+    function Single(const APredicate: TFunction<T,Boolean>): T; overload; override;
+    function SingleOrDefault(const APredicate: TFunction<T,Boolean>): T; overload; override;
+    function SingleOrDefault(const APredicate: TFunction<T,Boolean>; const ADefaultValue: T): T; overload; override;
+    function TryGetSingle(var{out} Value: T; const APredicate: TFunction<T,Boolean>): Boolean; overload; override;
+
+    function Contains(const AValue: T): Boolean; overload; override;
+    function Contains(const AValue: T; const AComparer: IEqualityComparer<T>): Boolean; overload; override;
+    function Contains(const AValue: T; const AComparer: TEqualityComparison<T>): Boolean; overload; override;
+    function IndexOf(const AValue: T): Integer; overload; override;
+    function IndexOf(const AValue: T; const AComparer: IEqualityComparer<T>): Integer; overload; override;
+    function IndexOf(const AValue: T; const AComparer: TEqualityComparison<T>): Integer; overload; override;
+    function LastIndexOf(const AValue: T): Integer; overload; override;
+    function LastIndexOf(const AValue: T; const AComparer: IEqualityComparer<T>): Integer; overload; override;
+    function LastIndexOf(const AValue: T; const AComparer: TEqualityComparison<T>): Integer; overload; override;
+
+
+{   function Concat(const ASecond: TCollection<T>): ICollection<T>; overload;
+    function Concat(const ASecond: ICollection<T>): ICollection<T>; overload;
+    function Concat(const ASecond: IEnumerable<T>): ICollection<T>; overload;
+    function Where(const APredicate: TFunction<T,Boolean>): ICollection<T>; overload;
+    function Ordered: ICollection<T>; overload;
+    function Ordered(const AComparer: IComparer<T>): ICollection<T>; overload;
+    function Ordered(const AComparer: TComparison<T>): ICollection<T>; overload;
+    function Reversed: ICollection<T>;
+    function Shuffled: ICollection<T>; }
 
     property Count: Integer read FCount.Int;
     property IsEmpty: Boolean read GetIsEmpty;
@@ -1614,8 +1698,6 @@ type
 
 { TArrayCollection<T> class
   Dynamic array based container }
-
-  // ToDo
 
   TArrayCollection<T> = class(TCustomListCollection<TNothing,T,TNothing,TNothing>)
   protected
@@ -16421,56 +16503,56 @@ end;
 
 function TCollection<T>.TLinearItems.Sum: T;
 begin
+  Result := Default(T);
+
   case {$ifdef SMARTGENERICS}GetTypeKind(T){$else}PTypeInfo(TypeInfo(T)).Kind{$endif} of
     tkInteger:
     begin
       case (GetTypeData(TypeInfo(T)).OrdType) of
         otSByte, otUByte:
         begin
-          PByte(@Result)^ := InternalSumBytes(Pointer(Values1), Offset, Count1) +
-            InternalSumBytes(Pointer(Values2), Offset, Count2);
+          if (Count1 <> 0) then PByte(@Result)^ := InternalSumBytes(Pointer(Values1), Offset, Count1);
+          if (Count2 <> 0) then PByte(@Result)^ := PByte(@Result)^ + InternalSumBytes(Pointer(Values2), Offset, Count2);
         end;
         otSWord, otUWord:
         begin
-          PWord(@Result)^ := InternalSumWords(Pointer(Values1), Offset, Count1) +
-            InternalSumWords(Pointer(Values2), Offset, Count2);
+          if (Count1 <> 0) then PWord(@Result)^ := InternalSumWords(Pointer(Values1), Offset, Count1);
+          if (Count2 <> 0) then PWord(@Result)^ := PWord(@Result)^ + InternalSumWords(Pointer(Values2), Offset, Count2);
         end;
       else
         // otSLong, otULong:
-        PCardinal(@Result)^ := InternalSumCardinals(Pointer(Values1), Offset, Count1) +
-          InternalSumCardinals(Pointer(Values2), Offset, Count2);
+        if (Count1 <> 0) then PCardinal(@Result)^ := InternalSumCardinals(Pointer(Values1), Offset, Count1);
+        if (Count2 <> 0) then PCardinal(@Result)^ := PCardinal(@Result)^ + InternalSumCardinals(Pointer(Values2), Offset, Count2);
       end;
     end;
     tkInt64:
     begin
-      PInt64(@Result)^ := InternalSumInt64s(Pointer(Values1), Offset, Count1) +
-        InternalSumInt64s(Pointer(Values2), Offset, Count2);
+      if (Count1 <> 0) then PInt64(@Result)^ := InternalSumInt64s(Pointer(Values1), Offset, Count1);
+      if (Count2 <> 0) then PInt64(@Result)^ := PInt64(@Result)^ + InternalSumInt64s(Pointer(Values2), Offset, Count2);
     end;
     tkFloat:
     begin
       case (GetTypeData(TypeInfo(T)).FloatType) of
         ftSingle:
         begin
-          PSingle(@Result)^ := InternalSumSingles(Pointer(Values1), Offset, Count1) +
-            InternalSumSingles(Pointer(Values2), Offset, Count2);
+          if (Count1 <> 0) then PSingle(@Result)^ := InternalSumSingles(Pointer(Values1), Offset, Count1);
+          if (Count2 <> 0) then PSingle(@Result)^ := PSingle(@Result)^ + InternalSumSingles(Pointer(Values2), Offset, Count2);
         end;
         ftDouble:
         begin
-          PDouble(@Result)^ := InternalSumDoubles(Pointer(Values1), Offset, Count1) +
-            InternalSumDoubles(Pointer(Values2), Offset, Count2);
+          if (Count1 <> 0) then PDouble(@Result)^ := InternalSumDoubles(Pointer(Values1), Offset, Count1);
+          if (Count2 <> 0) then PDouble(@Result)^ := PDouble(@Result)^ + InternalSumDoubles(Pointer(Values2), Offset, Count2);
         end;
         ftExtended:
         begin
-          PExtended(@Result)^ := InternalSumExtendeds(Pointer(Values1), Offset, Count1) +
-            InternalSumExtendeds(Pointer(Values2), Offset, Count2);
+          if (Count1 <> 0) then PExtended(@Result)^ := InternalSumExtendeds(Pointer(Values1), Offset, Count1);
+          if (Count2 <> 0) then PExtended(@Result)^ := PExtended(@Result)^ + InternalSumExtendeds(Pointer(Values2), Offset, Count2);
         end;
       else
-        PInt64(@Result)^ := InternalSumInt64s(Pointer(Values1), Offset, Count1) +
-          InternalSumInt64s(Pointer(Values2), Offset, Count2);
+        if (Count1 <> 0) then PInt64(@Result)^ := InternalSumInt64s(Pointer(Values1), Offset, Count1);
+        if (Count2 <> 0) then PInt64(@Result)^ := PInt64(@Result)^ + InternalSumInt64s(Pointer(Values2), Offset, Count2);
       end;
     end;
-  else
-    Result := Default(T);
   end;
 end;
 
@@ -16591,7 +16673,7 @@ begin
   Result := False;
 end;
 
-function TCollection<T>.TLinearItems.TryGetSingle(var{out} Value: T; const APredicate: TFunction<T,Boolean>): Boolean;
+function TCollection<T>.TLinearItems.TryGetSingle(var{out} Value: T; const APredicate: TFunction<T,Boolean>): Integer;
 var
   Index: Integer;
 begin
@@ -16600,19 +16682,21 @@ begin
     Index := InternalGetSingle(Values1, Offset, Count1, APredicate);
     if (Index < 0) then
     begin
-      Result := False;
       if (Index = -2) then
+      begin
+        Result := 2;
         Exit;
+      end;
     end else
     begin
       if (Count2 = 0) or (InternalGetSingle(Values2, Offset, Count2, APredicate) = -1) then
       begin
         Value := Values1[Index];
-        Result := True;
+        Result := 1;
         Exit;
       end else
       begin
-        Result := False;
+        Result := 2;
         Exit;
       end;
     end;
@@ -16624,12 +16708,12 @@ begin
     if (Index >= 0) then
     begin
       Value := Values2[Index];
-      Result := True;
+      Result := 1;
       Exit;
     end
   end;
 
-  Result := False;
+  Result := 0;
 end;
 
 function TCollection<T>.TLinearItems.IndexOf(const AValue: T; const AComparer: TEqualityComparison<T>): Integer;
@@ -17319,7 +17403,7 @@ begin
   Result := False;
 end;
 
-function TCollection<T>.DoGetLinearItems(var ALinearItems: TLinearItems): Boolean;
+function TCollection<T>.DoTryGetLinearItems(var ALinearItems: TLinearItems): Boolean;
 begin
   Result := False;
 end;
@@ -17344,12 +17428,12 @@ begin
   Result := TEqualityComparison<T>(FEqualityComparer);
 end;
 
-function TCollection<T>.DoTryGetOrderedEnumerator(var Enumerator: TCollectionEnumerator<T>): Boolean;
+function TCollection<T>.DoTryGetOrderedEnumerator(const Enumerator: PCollectionEnumerator): Boolean;
 begin
   Result := False;
 end;
 
-function TCollection<T>.DoTryGetReversedEnumerator(var Enumerator: TCollectionEnumerator<T>): Boolean;
+function TCollection<T>.DoTryGetReversedEnumerator(const Enumerator: PCollectionEnumerator): Boolean;
 begin
   Result := False;
 end;
@@ -17360,7 +17444,7 @@ var
   Enumerator: TCollectionEnumerator<T>;
   LinearItems: TLinearItems;
 begin
-  if (DoGetLinearItems(LinearItems)) then
+  if (DoTryGetLinearItems(LinearItems)) then
   begin
     LinearItems.ToArray(Result);
     Exit;
@@ -17395,7 +17479,7 @@ var
 begin
   CheckArgumentIsNil(Assigned(APredicate), 'Predicate');
 
-  if (DoGetLinearItems(LinearItems)) then
+  if (DoTryGetLinearItems(LinearItems)) then
   begin
     LinearItems.ToArray(Result, APredicate);
     Exit;
@@ -17432,7 +17516,7 @@ var
 begin
   CheckArgumentIsNil(Assigned(APredicate), 'Predicate');
 
-  if (DoGetLinearItems(LinearItems)) then
+  if (DoTryGetLinearItems(LinearItems)) then
   begin
     Result := LinearItems.All(APredicate);
     Exit;
@@ -17456,7 +17540,7 @@ var
 begin
   CheckArgumentIsNil(Assigned(APredicate), 'Predicate');
 
-  if (DoGetLinearItems(LinearItems)) then
+  if (DoTryGetLinearItems(LinearItems)) then
   begin
     Result := LinearItems.Any(APredicate);
     Exit;
@@ -17480,7 +17564,7 @@ var
 begin
   CheckArgumentIsNil(Assigned(AFunc), 'Func');
 
-  if (DoGetLinearItems(LinearItems)) then
+  if (DoTryGetLinearItems(LinearItems)) then
   begin
     if (LinearItems.Count1 or LinearItems.Count2 = 0) then
       raise EItemNotFound;
@@ -17500,12 +17584,12 @@ end;
 
 function TCollection<T>.Min: T;
 begin
-  Result := Min(TComparer<T>(FComparer));
+  Result := Min(TComparison<T>(FComparer));
 end;
 
 function TCollection<T>.Min(const AComparer: IComparer<T>): T;
 begin
-  Result := Min(TComparer<T>(AComparer));
+  Result := Min(TComparison<T>(AComparer));
 end;
 
 function TCollection<T>.Min(const AComparer: TComparison<T>): T;
@@ -17515,8 +17599,11 @@ var
 begin
   CheckArgumentIsNil(Assigned(AComparer), 'Comparer');
 
-  if (DoGetLinearItems(LinearItems)) then
+  if (DoTryGetLinearItems(LinearItems)) then
   begin
+    if (LinearItems.Count1 or LinearItems.Count2 = 0) then
+      raise EItemNotFound;
+
     Result := LinearItems.Min(AComparer);
     Exit;
   end;
@@ -17541,8 +17628,11 @@ var
 begin
   CheckArgumentIsNil(Assigned(ASelector), 'Selector');
 
-  if (DoGetLinearItems(LinearItems)) then
+  if (DoTryGetLinearItems(LinearItems)) then
   begin
+    if (LinearItems.Count1 or LinearItems.Count2 = 0) then
+      raise EItemNotFound;
+
     Result := LinearItems.Min(ASelector);
     Exit;
   end;
@@ -17562,12 +17652,12 @@ end;
 
 function TCollection<T>.Max: T;
 begin
-  Result := Max(TComparer<T>(FComparer));
+  Result := Max(TComparison<T>(FComparer));
 end;
 
 function TCollection<T>.Max(const AComparer: IComparer<T>): T;
 begin
-  Result := Max(TComparer<T>(AComparer));
+  Result := Max(TComparison<T>(AComparer));
 end;
 
 function TCollection<T>.Max(const AComparer: TComparison<T>): T;
@@ -17577,8 +17667,11 @@ var
 begin
   CheckArgumentIsNil(Assigned(AComparer), 'Comparer');
 
-  if (DoGetLinearItems(LinearItems)) then
+  if (DoTryGetLinearItems(LinearItems)) then
   begin
+    if (LinearItems.Count1 or LinearItems.Count2 = 0) then
+      raise EItemNotFound;
+
     Result := LinearItems.Max(AComparer);
     Exit;
   end;
@@ -17603,8 +17696,11 @@ var
 begin
   CheckArgumentIsNil(Assigned(ASelector), 'Selector');
 
-  if (DoGetLinearItems(LinearItems)) then
+  if (DoTryGetLinearItems(LinearItems)) then
   begin
+    if (LinearItems.Count1 or LinearItems.Count2 = 0) then
+      raise EItemNotFound;
+
     Result := LinearItems.Max(ASelector);
     Exit;
   end;
@@ -17627,7 +17723,7 @@ var
   Enumerator: TCollectionEnumerator<T>;
   LinearItems: TLinearItems;
 begin
-  if (DoGetLinearItems(LinearItems)) then
+  if (DoTryGetLinearItems(LinearItems)) then
   begin
     Result := LinearItems.Sum;
     Exit;
@@ -17668,7 +17764,7 @@ var
 begin
   CheckArgumentIsNil(Assigned(ASelector), 'Selector');
 
-  if (DoGetLinearItems(LinearItems)) then
+  if (DoTryGetLinearItems(LinearItems)) then
   begin
     Result := LinearItems.Sum(ASelector);
     Exit;
@@ -17687,7 +17783,7 @@ var
 begin
   CheckArgumentIsNil(Assigned(ASelector), 'Selector');
 
-  if (DoGetLinearItems(LinearItems)) then
+  if (DoTryGetLinearItems(LinearItems)) then
   begin
     Result := LinearItems.Sum(ASelector);
     Exit;
@@ -17706,7 +17802,7 @@ var
 begin
   CheckArgumentIsNil(Assigned(ASelector), 'Selector');
 
-  if (DoGetLinearItems(LinearItems)) then
+  if (DoTryGetLinearItems(LinearItems)) then
   begin
     Result := LinearItems.Sum(ASelector);
     Exit;
@@ -17721,8 +17817,15 @@ end;
 procedure TCollection<T>.ForEach(const AAction: TProcedure<T>);
 var
   Enumerator: TCollectionEnumerator<T>;
+  LinearItems: TLinearItems;
 begin
   CheckArgumentIsNil(Assigned(AAction), 'Action');
+
+  if (DoTryGetLinearItems(LinearItems)) then
+  begin
+    LinearItems.ForEach(AAction);
+    Exit;
+  end;
 
   Enumerator := DoGetEnumerator;
   while (Enumerator.MoveNext) do
@@ -17732,8 +17835,15 @@ end;
 function TCollection<T>.ForEach(const AAction: TFunction<T,Boolean>): Boolean;
 var
   Enumerator: TCollectionEnumerator<T>;
+  LinearItems: TLinearItems;
 begin
   CheckArgumentIsNil(Assigned(AAction), 'Action');
+
+  if (DoTryGetLinearItems(LinearItems)) then
+  begin
+    Result := LinearItems.ForEach(AAction);
+    Exit;
+  end;
 
   Enumerator := DoGetEnumerator;
   while (Enumerator.MoveNext) do
@@ -17771,7 +17881,7 @@ var
   Count1, Count2: Integer;
   LinearItems: TLinearItems;
 begin
-  if (DoGetLinearItems(LinearItems)) then
+  if (DoTryGetLinearItems(LinearItems)) then
   begin
     Count1 := LinearItems.Count1;
     Count2 := LinearItems.Count2;
@@ -17832,7 +17942,7 @@ var
   Enumerator: TCollectionEnumerator<T>;
   LinearItems: TLinearItems;
 begin
-  if (DoGetLinearItems(LinearItems)) then
+  if (DoTryGetLinearItems(LinearItems)) then
   begin
     if (LinearItems.Count1 <> 0) then
     begin
@@ -17884,7 +17994,7 @@ var
 begin
   CheckArgumentIsNil(Assigned(APredicate), 'Predicate');
 
-  if (DoGetLinearItems(LinearItems)) then
+  if (DoTryGetLinearItems(LinearItems)) then
   begin
     Result := LinearItems.TryGetFirst(Value, APredicate);
   end else
@@ -17926,7 +18036,7 @@ var
   Enumerator: TCollectionEnumerator<T>;
   LinearItems: TLinearItems;
 begin
-  if (DoGetLinearItems(LinearItems)) then
+  if (DoTryGetLinearItems(LinearItems)) then
   begin
     if (LinearItems.Count2 <> 0) then
     begin
@@ -17943,7 +18053,7 @@ begin
   end else
   if (not DoGetIsEmpty) then
   begin
-    if (DoTryGetReversedEnumerator(Enumerator)) then
+    if (DoTryGetReversedEnumerator(@Enumerator)) then
     begin
       if (Enumerator.MoveNext) then
       begin
@@ -17994,14 +18104,14 @@ var
 begin
   CheckArgumentIsNil(Assigned(APredicate), 'Predicate');
 
-  if (DoGetLinearItems(LinearItems)) then
+  if (DoTryGetLinearItems(LinearItems)) then
   begin
     Result := LinearItems.TryGetLast(Value, APredicate);
     Exit;
   end else
   if (not DoGetIsEmpty) then
   begin
-    if (DoTryGetReversedEnumerator(Enumerator)) then
+    if (DoTryGetReversedEnumerator(@Enumerator)) then
     begin
       while (Enumerator.MoveNext) do
       begin
@@ -18035,42 +18145,23 @@ begin
   Result := False;
 end;
 
-function TCollection<T>.Single: T;
-begin
-  if (not TryGetSingle(Result)) then
-    raise EDuplicatesNotAllowed;
-end;
-
-function TCollection<T>.SingleOrDefault: T;
-begin
-  if (not TryGetSingle(Result)) then
-    Result := Default(T);
-end;
-
-function TCollection<T>.SingleOrDefault(const ADefaultValue: T): T;
-begin
-  if (not TryGetSingle(Result)) then
-    Result := ADefaultValue;
-end;
-
-function TCollection<T>.TryGetSingle(var{out} Value: T): Boolean;
+function TCollection<T>.InternalTryGetSingle(var{out} Value: T): Integer;
 var
   Enumerator: TCollectionEnumerator<T>;
   LinearItems: TLinearItems;
 begin
-  if (DoGetLinearItems(LinearItems)) then
+  if (DoTryGetLinearItems(LinearItems)) then
   begin
-    if (LinearItems.Count1 + LinearItems.Count2 = 1) then
+    Result := LinearItems.Count1 + LinearItems.Count2;
+    if (Result = 1) then
     begin
       if (LinearItems.Count1 = 1) then
       begin
         Value := LinearItems.Values1^;
-        Result := True;
         Exit;
       end else
       begin
         Value := LinearItems.Values2^;
-        Result := True;
         Exit;
       end;
     end;
@@ -18081,50 +18172,28 @@ begin
     if (Enumerator.MoveNext) then
     begin
       Value := Enumerator.Data.Current;
-      if (not Enumerator.MoveNext) then
-      begin
-        Result := True;
-        Exit;
-      end;
+      Result := Ord(Enumerator.MoveNext) + 1;
+      Exit;
     end;
   end;
 
-  Result := False;
+  Result := 0;
 end;
 
-function TCollection<T>.Single(const APredicate: TFunction<T,Boolean>): T;
-begin
-  if (not TryGetSingle(Result, APredicate)) then
-    raise EDuplicatesNotAllowed;
-end;
-
-function TCollection<T>.SingleOrDefault(const APredicate: TFunction<T,Boolean>): T;
-begin
-  if (not TryGetSingle(Result, APredicate)) then
-    Result := Default(T);
-end;
-
-function TCollection<T>.SingleOrDefault(const APredicate: TFunction<T,Boolean>; const ADefaultValue: T): T;
-begin
-  if (not TryGetSingle(Result, APredicate)) then
-    Result := ADefaultValue;
-end;
-
-function TCollection<T>.TryGetSingle(var{out} Value: T; const APredicate: TFunction<T,Boolean>): Boolean;
+function TCollection<T>.InternalTryGetSingle(var{out} Value: T; const APredicate: TFunction<T,Boolean>): Integer;
 var
-  Found: Integer;
   Enumerator: TCollectionEnumerator<T>;
   LinearItems: TLinearItems;
 begin
   CheckArgumentIsNil(Assigned(APredicate), 'Predicate');
 
-  if (DoGetLinearItems(LinearItems)) then
+  if (DoTryGetLinearItems(LinearItems)) then
   begin
     Result := LinearItems.TryGetSingle(Value, APredicate);
     Exit;
   end;
 
-  Found := 0;
+  Result := 0;
   if (not DoGetIsEmpty) then
   begin
     Enumerator := DoGetEnumerator;
@@ -18132,16 +18201,80 @@ begin
     begin
       if (APredicate(Enumerator.Data.Current)) then
       begin
-        Inc(Found);
-        if (Found > 1) then
+        Inc(Result);
+        if (Result > 1) then
           Break;
 
         Value := Enumerator.Data.Current;
       end;
     end;
   end;
+end;
 
-  Result := (Found = 1);
+function TCollection<T>.Single: T;
+begin
+  case InternalTryGetSingle(Result) of
+    0: raise EItemNotFound;
+    1: ;
+  else
+    raise EDuplicatesNotAllowed;
+  end;
+end;
+
+function TCollection<T>.SingleOrDefault: T;
+begin
+  case InternalTryGetSingle(Result) of
+    1: ;
+  else
+    Result := Default(T);
+  end;
+end;
+
+function TCollection<T>.SingleOrDefault(const ADefaultValue: T): T;
+begin
+  case InternalTryGetSingle(Result) of
+    1: ;
+  else
+    Result := ADefaultValue;
+  end;
+end;
+
+function TCollection<T>.TryGetSingle(var{out} Value: T): Boolean;
+begin
+  Result := (InternalTryGetSingle(Value) = 1);
+end;
+
+function TCollection<T>.Single(const APredicate: TFunction<T,Boolean>): T;
+begin
+  case InternalTryGetSingle(Result, APredicate) of
+    0: raise EItemNotFound;
+    1: ;
+  else
+    raise EDuplicatesNotAllowed;
+  end;
+end;
+
+function TCollection<T>.SingleOrDefault(const APredicate: TFunction<T,Boolean>): T;
+begin
+  case InternalTryGetSingle(Result, APredicate) of
+    1: ;
+  else
+    Result := Default(T);
+  end;
+end;
+
+function TCollection<T>.SingleOrDefault(const APredicate: TFunction<T,Boolean>; const ADefaultValue: T): T;
+begin
+  case InternalTryGetSingle(Result, APredicate) of
+    1: ;
+  else
+    Result := ADefaultValue;
+  end;
+end;
+
+function TCollection<T>.TryGetSingle(var{out} Value: T; const APredicate: TFunction<T,Boolean>): Boolean;
+begin
+  Result := (InternalTryGetSingle(Value, APredicate) = 1);
 end;
 
 function TCollection<T>.Contains(const AValue: T): Boolean;
@@ -18176,7 +18309,7 @@ var
 begin
   CheckArgumentIsNil(Assigned(AComparer), 'Comparer');
 
-  if (DoGetLinearItems(LinearItems)) then
+  if (DoTryGetLinearItems(LinearItems)) then
   begin
     Result := LinearItems.IndexOf(AValue, AComparer);
     Exit;
@@ -18213,7 +18346,7 @@ var
 begin
   CheckArgumentIsNil(Assigned(AComparer), 'Comparer');
 
-  if (DoGetLinearItems(LinearItems)) then
+  if (DoTryGetLinearItems(LinearItems)) then
   begin
     Result := LinearItems.LastIndexOf(AValue, AComparer);
     Exit;
@@ -18221,7 +18354,7 @@ begin
 
   if (not DoGetIsEmpty) then
   begin
-    if (DoTryGetReversedEnumerator(Enumerator)) then
+    if (DoTryGetReversedEnumerator(@Enumerator)) then
     begin
       Result := DoGetCount - 1;
       while (Index >= 0) and (Enumerator.MoveNext) do
@@ -18276,7 +18409,7 @@ begin
     LRightItems.Count2 := 0;
     LRightItems.Offset := SizeOf(T);
 
-    if (Self.DoGetLinearItems(LLeftItems)) then
+    if (Self.DoTryGetLinearItems(LLeftItems)) then
     begin
       Result := ((LLeftItems.Count1 + LLeftItems.Count2) = LCount) and
         LLeftItems.EqualsTo(LRightItems, AComparer);
@@ -18316,9 +18449,9 @@ begin
   Result := (LCount = DoGetCount);
   if (Result) and (LCount <> 0) then
   begin
-    if (Self.DoGetLinearItems(LLeftItems)) then
+    if (Self.DoTryGetLinearItems(LLeftItems)) then
     begin
-      if (ACollection.DoGetLinearItems(LRightItems)) then
+      if (ACollection.DoTryGetLinearItems(LRightItems)) then
       begin
         Result := ((LLeftItems.Count1 + LLeftItems.Count2) = (LRightItems.Count1 + LRightItems.Count2)) and
           LLeftItems.EqualsTo(LRightItems, AComparer);
@@ -18328,7 +18461,7 @@ begin
         Result := LLeftItems.EqualsTo(LRightEnumerator, AComparer) and (not LRightEnumerator.MoveNext);
       end;
     end else
-    if (ACollection.DoGetLinearItems(LRightItems)) then
+    if (ACollection.DoTryGetLinearItems(LRightItems)) then
     begin
       LLeftEnumerator := Self.DoGetEnumerator;
       Result := LRightItems.EqualsTo(LLeftEnumerator, AComparer) and (not LLeftEnumerator.MoveNext);
@@ -18381,7 +18514,7 @@ begin
   Result := (LCount = DoGetCount);
   if (Result) and (LCount <> 0) then
   begin
-    if (Self.DoGetLinearItems(LinearItems)) then
+    if (Self.DoTryGetLinearItems(LinearItems)) then
     begin
       LRightEnumerator := ACollection.GetEnumerator;
       Result := LinearItems.EqualsTo(LRightEnumerator, AComparer) and (not LRightEnumerator.MoveNext);
@@ -18430,7 +18563,7 @@ begin
   CheckArgumentIsNil(Assigned(AEnumerable), 'Enumerable');
   CheckArgumentIsNil(Assigned(AComparer), 'Comparer');
 
-  if (Self.DoGetLinearItems(LinearItems)) then
+  if (Self.DoTryGetLinearItems(LinearItems)) then
   begin
     LRightEnumerator := AEnumerable.GetEnumerator;
     Result := LinearItems.EqualsTo(LRightEnumerator, AComparer) and (not LRightEnumerator.MoveNext);
@@ -18454,6 +18587,53 @@ begin
 end;
 
 
+{ TCustomListCollection<T1,T,T3,T4>.TEnumerator }
+
+{$if CompilerVersion <= 22}
+function TCustomListCollection<T1,T,T3,T4>.TEnumerator.GetCurrent: T;
+begin
+  Result := Data.Current;
+end;
+{$ifend}
+
+function TCustomListCollection<T1,T,T3,T4>.TEnumerator.MoveNext: Boolean;
+var
+  LIndex: NativeUInt;
+begin
+  LIndex := NativeUInt(Data.Tag) + 1;
+  with TCustomListCollection<T1,T,T3,T4>(Data.Owner) do
+  begin
+    if (LIndex < NativeUInt(FCount.Native)) then
+    begin
+      Data.Tag := LIndex;
+      Data.Current := FItems[LIndex].Field2;
+      Result := True;
+      Exit;
+    end;
+  end;
+
+  Result := False;
+end;
+
+function TCustomListCollection<T1,T,T3,T4>.TEnumerator.ReversedMoveNext: Boolean;
+var
+  LIndex: NativeUInt;
+begin
+  LIndex := NativeUInt(Data.Tag) - 1;
+  with TCustomListCollection<T1,T,T3,T4>(Data.Owner) do
+  begin
+    if (LIndex < NativeUInt(FCount.Native)) then
+    begin
+      Data.Tag := LIndex;
+      Data.Current := FItems[LIndex].Field2;
+      Result := True;
+      Exit;
+    end;
+  end;
+
+  Result := False;
+end;
+
 { TCustomListCollection<T1,T,T3,T4> }
 
 function TCustomListCollection<T1,T,T3,T4>.DoGetCount: Integer;
@@ -18469,6 +18649,736 @@ end;
 function TCustomListCollection<T1,T,T3,T4>.GetIsEmpty: Boolean;
 begin
   Result := (FCount.Native = 0);
+end;
+
+function TCustomListCollection<T1,T,T3,T4>.DoTryGetLinearItems(var ALinearItems: TCollection<T>.TLinearItems): Boolean;
+begin
+  ALinearItems.Values1 := @FItems[0].Field2;
+  ALinearItems.Count1 := FCount.Int;
+  ALinearItems.Offset := SizeOf(TItem);
+  ALinearItems.Count2 := 0;
+  Result := True;
+end;
+
+function TCustomListCollection<T1,T,T3,T4>.DoTryGetReversedEnumerator(const Enumerator: TCollection<T>.PCollectionEnumerator): Boolean;
+begin
+  if (Assigned(Enumerator)) then
+  begin
+    Enumerator.Data.Init(Self);
+    Enumerator.Data.Tag := FCount.Native;
+    Pointer(@Enumerator.DoMoveNext) := @TEnumerator.ReversedMoveNext;
+  end;
+  Result := True;
+end;
+
+function TCustomListCollection<T1,T,T3,T4>.DoGetEnumerator: TCollectionEnumerator<T>;
+begin
+  Result.Data.Init(Self);
+  Pointer(@Result.DoMoveNext) := @TEnumerator.MoveNext;
+end;
+
+function TCustomListCollection<T1,T,T3,T4>.GetEnumerator: TEnumerator;
+begin
+  Result.Data.Init(Self);
+end;
+
+function TCustomListCollection<T1,T,T3,T4>.ToArray: TArray<T>;
+var
+  LinearItems: TLinearItems;
+begin
+  if (FCount.Int <> 0) then
+  begin
+    LinearItems.Values1 := @FItems[0].Field2;
+    LinearItems.Count1 := FCount.Int;
+    LinearItems.Offset := SizeOf(TItem);
+    LinearItems.Count2 := 0;
+    LinearItems.ToArray(Result);
+    Exit;
+  end else
+  begin
+    if (Pointer(Result) <> nil) then
+      Result := nil;
+  end;
+end;
+
+function TCustomListCollection<T1,T,T3,T4>.ToArray(const APredicate: TFunction<T,Boolean>): TArray<T>;
+var
+  LinearItems: TLinearItems;
+begin
+  CheckArgumentIsNil(Assigned(APredicate), 'Predicate');
+
+  if (FCount.Int <> 0) then
+  begin
+    LinearItems.Values1 := @FItems[0].Field2;
+    LinearItems.Count1 := FCount.Int;
+    LinearItems.Offset := SizeOf(TItem);
+    LinearItems.Count2 := 0;
+    LinearItems.ToArray(Result, APredicate);
+    Exit;
+  end else
+  begin
+    if (Pointer(Result) <> nil) then
+      Result := nil;
+  end;
+end;
+
+function TCustomListCollection<T1,T,T3,T4>.All(const APredicate: TFunction<T,Boolean>): Boolean;
+begin
+  CheckArgumentIsNil(Assigned(APredicate), 'Predicate');
+  Result := (FCount.Int = 0) or InternalAll(@FItems[0].Field2, SizeOf(TItem), FCount.Int, APredicate);
+end;
+
+function TCustomListCollection<T1,T,T3,T4>.Any(const APredicate: TFunction<T,Boolean>): Boolean;
+begin
+  CheckArgumentIsNil(Assigned(APredicate), 'Predicate');
+  Result := (FCount.Int <> 0) and InternalAll(@FItems[0].Field2, SizeOf(TItem), FCount.Int, APredicate);
+end;
+
+function TCustomListCollection<T1,T,T3,T4>.Aggregate(const AFunc: TFunction<T,T,T>): T;
+begin
+  CheckArgumentIsNil(Assigned(AFunc), 'Func');
+
+  case (FCount.Native) of
+    0: raise EItemNotFound;
+    1:
+    begin
+      Result := FItems[0].Field2;
+      Exit;
+    end;
+  else
+    Result := InternalAggregate(@FItems[1].Field2, SizeOf(TItem), FCount.Int, FItems[0].Field2, AFunc);
+  end;
+end;
+
+function TCustomListCollection<T1,T,T3,T4>.Min: T;
+begin
+  case (FCount.Native) of
+    0: raise EItemNotFound;
+    1:
+    begin
+      Result := FItems[0].Field2;
+      Exit;
+    end;
+  else
+    Result := InternalMin(@FItems[0].Field2, SizeOf(TItem), FCount.Int, TComparison<T>(FComparer));
+  end;
+end;
+
+function TCustomListCollection<T1,T,T3,T4>.Min(const AComparer: IComparer<T>): T;
+begin
+  CheckArgumentIsNil(Assigned(AComparer), 'Comparer');
+
+  case (FCount.Native) of
+    0: raise EItemNotFound;
+    1:
+    begin
+      Result := FItems[0].Field2;
+      Exit;
+    end;
+  else
+    Result := InternalMin(@FItems[0].Field2, SizeOf(TItem), FCount.Int, TComparison<T>(AComparer));
+  end;
+end;
+
+function TCustomListCollection<T1,T,T3,T4>.Min(const AComparer: TComparison<T>): T;
+begin
+  CheckArgumentIsNil(Assigned(AComparer), 'Comparer');
+
+  case (FCount.Native) of
+    0: raise EItemNotFound;
+    1:
+    begin
+      Result := FItems[0].Field2;
+      Exit;
+    end;
+  else
+    Result := InternalMin(@FItems[0].Field2, SizeOf(TItem), FCount.Int, AComparer);
+  end;
+end;
+
+function TCustomListCollection<T1,T,T3,T4>.Min(const ASelector: TFunction<T, Integer>): Integer;
+begin
+  CheckArgumentIsNil(Assigned(ASelector), 'Selector');
+
+  case (FCount.Native) of
+    0: raise EItemNotFound;
+    1:
+    begin
+      Result := ASelector(FItems[0].Field2);
+      Exit;
+    end;
+  else
+    Result := InternalMin(@FItems[0].Field2, SizeOf(TItem), FCount.Int, ASelector);
+  end;
+end;
+
+function TCustomListCollection<T1,T,T3,T4>.Max: T;
+begin
+  case (FCount.Native) of
+    0: raise EItemNotFound;
+    1:
+    begin
+      Result := FItems[0].Field2;
+      Exit;
+    end
+  else
+    Result := InternalMax(@FItems[0].Field2, SizeOf(TItem), FCount.Int, TComparison<T>(FComparer));
+  end;
+end;
+
+function TCustomListCollection<T1,T,T3,T4>.Max(const AComparer: IComparer<T>): T;
+begin
+  CheckArgumentIsNil(Assigned(AComparer), 'Comparer');
+
+  case (FCount.Native) of
+    0: raise EItemNotFound;
+    1:
+    begin
+      Result := FItems[0].Field2;
+      Exit;
+    end;
+  else
+    Result := InternalMax(@FItems[0].Field2, SizeOf(TItem), FCount.Int, TComparison<T>(AComparer));
+  end;
+end;
+
+function TCustomListCollection<T1,T,T3,T4>.Max(const AComparer: TComparison<T>): T;
+begin
+  CheckArgumentIsNil(Assigned(AComparer), 'Comparer');
+
+  case (FCount.Native) of
+    0: raise EItemNotFound;
+    1:
+    begin
+      Result := FItems[0].Field2;
+      Exit;
+    end;
+  else
+    Result := InternalMax(@FItems[0].Field2, SizeOf(TItem), FCount.Int, AComparer);
+  end;
+end;
+
+function TCustomListCollection<T1,T,T3,T4>.Max(const ASelector: TFunction<T, Integer>): Integer;
+begin
+  CheckArgumentIsNil(Assigned(ASelector), 'Selector');
+
+  case (FCount.Native) of
+    0: raise EItemNotFound;
+    1:
+    begin
+      Result := ASelector(FItems[0].Field2);
+      Exit;
+    end;
+  else
+    Result := InternalMax(@FItems[0].Field2, SizeOf(TItem), FCount.Int, ASelector);
+  end;
+end;
+
+function TCustomListCollection<T1,T,T3,T4>.Sum: T;
+var
+  LinearItems: TLinearItems;
+begin
+  if (FCount.Int <> 0) then
+  begin
+    LinearItems.Values1 := @FItems[0].Field2;
+    LinearItems.Count1 := FCount.Int;
+    LinearItems.Offset := SizeOf(TItem);
+    LinearItems.Count2 := 0;
+    Result := LinearItems.Sum;
+    Exit;
+  end else
+  begin
+    Result := Default(T);
+  end;
+end;
+
+function TCustomListCollection<T1,T,T3,T4>.Sum(const ASelector: TFunction<T, Integer>): Integer;
+begin
+  CheckArgumentIsNil(Assigned(ASelector), 'Selector');
+
+  if (FCount.Int <> 0) then
+  begin
+    Result := InternalSum(@FItems[0].Field2, SizeOf(TItem), FCount.Int, ASelector);
+    Exit;
+  end else
+  begin
+    Result := 0;
+  end;
+end;
+
+function TCustomListCollection<T1,T,T3,T4>.Sum(const ASelector: TFunction<T, Int64>): Int64;
+begin
+  CheckArgumentIsNil(Assigned(ASelector), 'Selector');
+
+  if (FCount.Int <> 0) then
+  begin
+    Result := InternalSum(@FItems[0].Field2, SizeOf(TItem), FCount.Int, ASelector);
+    Exit;
+  end else
+  begin
+    Result := 0;
+  end;
+end;
+
+function TCustomListCollection<T1,T,T3,T4>.Sum(const ASelector: TFunction<T, Extended>): Extended;
+begin
+  CheckArgumentIsNil(Assigned(ASelector), 'Selector');
+
+  if (FCount.Int <> 0) then
+  begin
+    Result := InternalSum(@FItems[0].Field2, SizeOf(TItem), FCount.Int, ASelector);
+    Exit;
+  end else
+  begin
+    Result := 0;
+  end;
+end;
+
+procedure TCustomListCollection<T1,T,T3,T4>.ForEach(const AAction: TProcedure<T>);
+begin
+  CheckArgumentIsNil(Assigned(AAction), 'Action');
+
+  if (FCount.Int <> 0) then
+  begin
+    InternalForEach(@FItems[0].Field2, SizeOf(TItem), FCount.Int, AAction);
+  end;
+end;
+
+function TCustomListCollection<T1,T,T3,T4>.ForEach(const AAction: TFunction<T,Boolean>): Boolean;
+begin
+  CheckArgumentIsNil(Assigned(AAction), 'Action');
+
+  if (FCount.Int <> 0) then
+  begin
+    Result := InternalForEach(@FItems[0].Field2, SizeOf(TItem), FCount.Int, AAction);
+    Exit;
+  end else
+  begin
+    Result := True;
+  end;
+end;
+
+function TCustomListCollection<T1,T,T3,T4>.ElementAt(const AIndex: Integer): T;
+begin
+  if (Cardinal(AIndex) < Cardinal(FCount.Int)) then
+  begin
+    Result := FItems[Cardinal(AIndex)].Field2;
+    Exit;
+  end else
+  begin
+    raise EItemNotFound;
+  end;
+end;
+
+function TCustomListCollection<T1,T,T3,T4>.ElementAtOrDefault(const AIndex: Integer): T;
+begin
+  if (Cardinal(AIndex) < Cardinal(FCount.Int)) then
+  begin
+    Result := FItems[Cardinal(AIndex)].Field2;
+    Exit;
+  end else
+  begin
+    Result := Default(T);
+  end;
+end;
+
+function TCustomListCollection<T1,T,T3,T4>.ElementAtOrDefault(const AIndex: Integer; const ADefaultValue: T): T;
+begin
+  if (Cardinal(AIndex) < Cardinal(FCount.Int)) then
+  begin
+    Result := FItems[Cardinal(AIndex)].Field2;
+    Exit;
+  end else
+  begin
+    Result := ADefaultValue;
+  end;
+end;
+
+function TCustomListCollection<T1,T,T3,T4>.TryGetElementAt(var{out} Value: T; const AIndex: Integer): Boolean;
+begin
+  if (Cardinal(AIndex) < Cardinal(FCount.Int)) then
+  begin
+    Value := FItems[Cardinal(AIndex)].Field2;
+    Result := True;
+    Exit;
+  end else
+  begin
+    Result := False;
+  end;
+end;
+
+function TCustomListCollection<T1,T,T3,T4>.First: T;
+begin
+  if (FCount.Native <> 0) then
+  begin
+    Result := FItems[0].Field2;
+    Exit;
+  end else
+  begin
+    raise EItemNotFound;
+  end;
+end;
+
+function TCustomListCollection<T1,T,T3,T4>.FirstOrDefault: T;
+begin
+  if (FCount.Native <> 0) then
+  begin
+    Result := FItems[0].Field2;
+    Exit;
+  end else
+  begin
+    Result := Default(T);
+  end;
+end;
+
+function TCustomListCollection<T1,T,T3,T4>.FirstOrDefault(const ADefaultValue: T): T;
+begin
+  if (FCount.Native <> 0) then
+  begin
+    Result := FItems[0].Field2;
+    Exit;
+  end else
+  begin
+    Result := ADefaultValue;
+  end;
+end;
+
+function TCustomListCollection<T1,T,T3,T4>.TryGetFirst(var{out} Value: T): Boolean;
+begin
+  if (FCount.Native <> 0) then
+  begin
+    Value := FItems[0].Field2;
+    Result := True;
+    Exit;
+  end else
+  begin
+    Result := False;
+  end;
+end;
+
+function TCustomListCollection<T1,T,T3,T4>.TryGetFirst(var{out} Value: T; const APredicate: TFunction<T,Boolean>): Boolean;
+var
+  LIndex: Integer;
+begin
+  CheckArgumentIsNil(Assigned(APredicate), 'Predicate');
+
+  if (FCount.Native <> 0) then
+  begin
+    LIndex := InternalGetFirst(@FItems[0].Field2, SizeOf(TItem), FCount.Int, APredicate);
+    if (LIndex >= 0) then
+    begin
+      Value := FItems[Cardinal(LIndex)].Field2;
+      Result := True;
+      Exit;
+    end;
+  end;
+
+  Result := False;
+end;
+
+function TCustomListCollection<T1,T,T3,T4>.Last: T;
+begin
+  if (FCount.Native <> 0) then
+  begin
+    Result := FItems[FCount.Native - 1].Field2;
+    Exit;
+  end else
+  begin
+    raise EItemNotFound;
+  end;
+end;
+
+function TCustomListCollection<T1,T,T3,T4>.LastOrDefault: T;
+begin
+  if (FCount.Native <> 0) then
+  begin
+    Result := FItems[FCount.Native - 1].Field2;
+    Exit;
+  end else
+  begin
+    Result := Default(T);
+  end;
+end;
+
+function TCustomListCollection<T1,T,T3,T4>.LastOrDefault(const ADefaultValue: T): T;
+begin
+  if (FCount.Native <> 0) then
+  begin
+    Result := FItems[FCount.Native - 1].Field2;
+    Exit;
+  end else
+  begin
+    Result := ADefaultValue;
+  end;
+end;
+
+function TCustomListCollection<T1,T,T3,T4>.TryGetLast(var{out} Value: T): Boolean;
+begin
+  if (FCount.Native <> 0) then
+  begin
+    Value := FItems[FCount.Native - 1].Field2;
+    Result := True;
+    Exit;
+  end else
+  begin
+    Result := False;
+  end;
+end;
+
+function TCustomListCollection<T1,T,T3,T4>.TryGetLast(var{out} Value: T; const APredicate: TFunction<T,Boolean>): Boolean;
+var
+  LIndex: Integer;
+begin
+  CheckArgumentIsNil(Assigned(APredicate), 'Predicate');
+
+  if (FCount.Native <> 0) then
+  begin
+    LIndex := InternalGetLast(@FItems[0].Field2, SizeOf(TItem), FCount.Int, APredicate);
+    if (LIndex >= 0) then
+    begin
+      Value := FItems[Cardinal(LIndex)].Field2;
+      Result := True;
+      Exit;
+    end;
+  end;
+
+  Result := False;
+end;
+
+function TCustomListCollection<T1,T,T3,T4>.Single: T;
+begin
+  case FCount.Native of
+    0: raise EItemNotFound;
+    1:
+    begin
+      Result := FItems[0].Field2;
+      Exit;
+    end
+  else
+    raise EDuplicatesNotAllowed;
+  end;
+end;
+
+function TCustomListCollection<T1,T,T3,T4>.SingleOrDefault: T;
+begin
+  if (FCount.Native = 1) then
+  begin
+    Result := FItems[0].Field2;
+    Exit;
+  end else
+  begin
+    Result := Default(T);
+  end;
+end;
+
+function TCustomListCollection<T1,T,T3,T4>.SingleOrDefault(const ADefaultValue: T): T;
+begin
+  if (FCount.Native = 1) then
+  begin
+    Result := FItems[0].Field2;
+    Exit;
+  end else
+  begin
+    Result := ADefaultValue;
+  end;
+end;
+
+function TCustomListCollection<T1,T,T3,T4>.TryGetSingle(var{out} Value: T): Boolean;
+begin
+  if (FCount.Native = 1) then
+  begin
+    Value := FItems[0].Field2;
+    Result := True;
+    Exit;
+  end else
+  begin
+    Result := False;
+  end;
+end;
+
+function TCustomListCollection<T1,T,T3,T4>.Single(const APredicate: TFunction<T,Boolean>): T;
+var
+  LIndex: Integer;
+begin
+  CheckArgumentIsNil(Assigned(APredicate), 'Predicate');
+
+  LIndex := InternalGetSingle(@FItems[0].Field2, SizeOf(TItem), FCount.Int, APredicate);
+  case (LIndex) of
+    -1: raise EItemNotFound;
+    -2: raise EDuplicatesNotAllowed;
+  else
+    Result := FItems[Cardinal(LIndex)].Field2;
+  end;
+end;
+
+function TCustomListCollection<T1,T,T3,T4>.SingleOrDefault(const APredicate: TFunction<T,Boolean>): T;
+var
+  LIndex: Integer;
+begin
+  CheckArgumentIsNil(Assigned(APredicate), 'Predicate');
+
+  LIndex := InternalGetSingle(@FItems[0].Field2, SizeOf(TItem), FCount.Int, APredicate);
+  if (LIndex >= 0) then
+  begin
+    Result := FItems[Cardinal(LIndex)].Field2;
+  end else
+  begin
+    Result := Default(T);
+  end;
+end;
+
+function TCustomListCollection<T1,T,T3,T4>.SingleOrDefault(const APredicate: TFunction<T,Boolean>; const ADefaultValue: T): T;
+var
+  LIndex: Integer;
+begin
+  CheckArgumentIsNil(Assigned(APredicate), 'Predicate');
+
+  LIndex := InternalGetSingle(@FItems[0].Field2, SizeOf(TItem), FCount.Int, APredicate);
+  if (LIndex >= 0) then
+  begin
+    Result := FItems[Cardinal(LIndex)].Field2;
+  end else
+  begin
+    Result := ADefaultValue;
+  end;
+end;
+
+function TCustomListCollection<T1,T,T3,T4>.TryGetSingle(var{out} Value: T; const APredicate: TFunction<T,Boolean>): Boolean;
+var
+  LIndex: Integer;
+begin
+  CheckArgumentIsNil(Assigned(APredicate), 'Predicate');
+
+  LIndex := InternalGetSingle(@FItems[0].Field2, SizeOf(TItem), FCount.Int, APredicate);
+  if (LIndex >= 0) then
+  begin
+    Value := FItems[Cardinal(LIndex)].Field2;
+    Result := True;
+    Exit;
+  end else
+  begin
+    Result := False;
+  end;
+end;
+
+function TCustomListCollection<T1,T,T3,T4>.Contains(const AValue: T): Boolean;
+begin
+  if (FCount.Int <> 0) then
+  begin
+    Result := (InternalIndexOf(AValue, @FItems[0].Field2, SizeOf(TItem), FCount.Int,
+      TEqualityComparison<T>(FEqualityComparer)) >= 0);
+  end else
+  begin
+    Result := False;
+  end;
+end;
+
+function TCustomListCollection<T1,T,T3,T4>.Contains(const AValue: T; const AComparer: IEqualityComparer<T>): Boolean;
+begin
+  CheckArgumentIsNil(Assigned(AComparer), 'Comparer');
+
+  if (FCount.Int <> 0) then
+  begin
+    Result := (InternalIndexOf(AValue, @FItems[0].Field2, SizeOf(TItem), FCount.Int,
+      TEqualityComparison<T>(AComparer)) >= 0);
+  end else
+  begin
+    Result := False;
+  end;
+end;
+
+function TCustomListCollection<T1,T,T3,T4>.Contains(const AValue: T; const AComparer: TEqualityComparison<T>): Boolean;
+begin
+  CheckArgumentIsNil(Assigned(AComparer), 'Comparer');
+
+  if (FCount.Int <> 0) then
+  begin
+    Result := (InternalIndexOf(AValue, @FItems[0].Field2, SizeOf(TItem), FCount.Int,
+      AComparer) >= 0);
+  end else
+  begin
+    Result := False;
+  end;
+end;
+
+function TCustomListCollection<T1,T,T3,T4>.IndexOf(const AValue: T): Integer;
+begin
+  if (FCount.Int <> 0) then
+  begin
+    Result := InternalIndexOf(AValue, @FItems[0].Field2, SizeOf(TItem), FCount.Int,
+      TEqualityComparison<T>(FEqualityComparer));
+  end else
+  begin
+    Result := -1;
+  end;
+end;
+
+function TCustomListCollection<T1,T,T3,T4>.IndexOf(const AValue: T; const AComparer: IEqualityComparer<T>): Integer;
+begin
+  CheckArgumentIsNil(Assigned(AComparer), 'Comparer');
+
+  if (FCount.Int <> 0) then
+  begin
+    Result := InternalIndexOf(AValue, @FItems[0].Field2, SizeOf(TItem), FCount.Int,
+      TEqualityComparison<T>(AComparer));
+  end else
+  begin
+    Result := -1;
+  end;
+end;
+
+function TCustomListCollection<T1,T,T3,T4>.IndexOf(const AValue: T; const AComparer: TEqualityComparison<T>): Integer;
+begin
+  CheckArgumentIsNil(Assigned(AComparer), 'Comparer');
+
+  if (FCount.Int <> 0) then
+  begin
+    Result := InternalIndexOf(AValue, @FItems[0].Field2, SizeOf(TItem), FCount.Int,
+      AComparer);
+  end else
+  begin
+    Result := -1;
+  end;
+end;
+
+function TCustomListCollection<T1,T,T3,T4>.LastIndexOf(const AValue: T): Integer;
+begin
+  if (FCount.Int <> 0) then
+  begin
+    Result := InternalLastIndexOf(AValue, @FItems[0].Field2, SizeOf(TItem), FCount.Int,
+      TEqualityComparison<T>(FEqualityComparer));
+  end else
+  begin
+    Result := -1;
+  end;
+end;
+
+function TCustomListCollection<T1,T,T3,T4>.LastIndexOf(const AValue: T; const AComparer: IEqualityComparer<T>): Integer;
+begin
+  CheckArgumentIsNil(Assigned(AComparer), 'Comparer');
+
+  if (FCount.Int <> 0) then
+  begin
+    Result := InternalLastIndexOf(AValue, @FItems[0].Field2, SizeOf(TItem), FCount.Int,
+      TEqualityComparison<T>(AComparer));
+  end else
+  begin
+    Result := -1;
+  end;
+end;
+
+function TCustomListCollection<T1,T,T3,T4>.LastIndexOf(const AValue: T; const AComparer: TEqualityComparison<T>): Integer;
+begin
+  CheckArgumentIsNil(Assigned(AComparer), 'Comparer');
+
+  if (FCount.Int <> 0) then
+  begin
+    Result := InternalLastIndexOf(AValue, @FItems[0].Field2, SizeOf(TItem), FCount.Int,
+      AComparer);
+  end else
+  begin
+    Result := -1;
+  end;
 end;
 
 
