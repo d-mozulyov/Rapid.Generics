@@ -22083,7 +22083,7 @@ begin
     begin
       FillChar(Pointer(WeakItems)^, FCount.Native * SizeOf(T), #0);
 
-      if (FTail < FHead) then
+      if (FTail <= FHead) then
       begin
         System.CopyArray(@WeakItems[0], @FItems[FTail], TypeInfo(T), FCount.Native);
         System.FinalizeArray(@FItems[FTail], TypeInfo(T), FCount.Native);
@@ -22110,7 +22110,7 @@ begin
     FCapacity.Native := Value;
     ReallocMem(FItems, Value * SizeOf(T));
   end else
-  if (FTail < FHead) then
+  if (FTail <= FHead) then
   begin
     if (FTail <> 0) then
     begin
