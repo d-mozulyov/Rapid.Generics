@@ -1188,6 +1188,8 @@ type
     class procedure FillZero<T>(const Values: Pointer); static; inline;
     class procedure Reverse<T>(const Values: Pointer; const Count: NativeInt); overload; static;
     class procedure Reverse<T>(var Values: array of T); overload; static;
+    class procedure Shuffle<T>(const Values: Pointer; const Count: NativeInt); overload; static;
+    class procedure Shuffle<T>(var Values: array of T); overload; static;
     class procedure Copy<T>(const Source: array of T; var Destination: array of T; SourceIndex, DestIndex, Count: NativeInt); overload; static;
     class procedure Copy<T>(const Source: array of T; var Destination: array of T; Count: NativeInt); overload; static;
     class function Copy<T>(const Source: array of T; SourceIndex, Count: NativeInt): TArray<T>; overload; static;
@@ -1351,13 +1353,13 @@ type
 
 {   function Concat(const ASecond: TCollection<T>): ICollection<T>; overload;
     function Concat(const ASecond: ICollection<T>): ICollection<T>; overload;
-    function Concat(const ASecond: IEnumerable<T>): ICollection<T>; overload;
-    function Where(const APredicate: TFunction<T,Boolean>): ICollection<T>; overload;
+    function Concat(const ASecond: IEnumerable<T>): ICollection<T>; overload;  }
+    function Where(const APredicate: TFunction<T,Boolean>): ICollection<T>;
     function Ordered: ICollection<T>; overload;
     function Ordered(const AComparer: IComparer<T>): ICollection<T>; overload;
     function Ordered(const AComparer: TComparison<T>): ICollection<T>; overload;
     function Reversed: ICollection<T>;
-    function Shuffled: ICollection<T>; }
+    function Shuffled: ICollection<T>;
 
     property Count: Integer read GetCount;
     property IsEmpty: Boolean read GetIsEmpty;
@@ -1370,7 +1372,24 @@ type
     property Elements[const AIndex: Integer]: T read ElementAt; default;
   end;
 
-  TCollection<T> = class(TCustomObject, ICollection<T>, IEnumerable<T>)
+  TCollectionHelper = class(TCustomObject)
+  protected
+    class function EItemNotFound: Exception; static;
+    class function EDuplicatesNotAllowed: Exception; static;
+    class function EArgumentIsNil(const AArgumentName: string): Exception; static;
+    class function EArgumentOutOfRange: Exception; static;
+    class procedure CheckArgumentIsNil(const AAssigned: Boolean; const AArgumentName: string); static; inline;
+
+    class function InternalSumBytes(Value: PByte; Offset: NativeInt; Count: Integer): Byte; static;
+    class function InternalSumWords(Value: PWord; Offset: NativeInt; Count: Integer): Word; static;
+    class function InternalSumCardinals(Value: PCardinal; Offset: NativeInt; Count: Integer): Cardinal; static;
+    class function InternalSumInt64s(Value: PInt64; Offset: NativeInt; Count: Integer): Int64; static;
+    class function InternalSumSingles(Value: PSingle; Offset: NativeInt; Count: Integer): Single; static;
+    class function InternalSumDoubles(Value: PDouble; Offset: NativeInt; Count: Integer): Double; static;
+    class function InternalSumExtendeds(Value: PExtended; Offset: NativeInt; Count: Integer): Extended; static;
+  end;
+
+  TCollection<T> = class(TCollectionHelper, ICollection<T>, IEnumerable<T>)
 { public
     type
       TEnumerator = record
@@ -1394,12 +1413,6 @@ type
     function IEnumerable<T>.GetEnumerator = GetEnumeratorT;
     function GetEnumerator: IEnumerator;
     function GetEnumeratorT: IEnumerator<T>;
-  protected
-    class function EItemNotFound: Exception; static;
-    class function EDuplicatesNotAllowed: Exception; static;
-    class function EArgumentIsNil(const AArgumentName: string): Exception; static;
-    class function EArgumentOutOfRange: Exception; static;
-    class procedure CheckArgumentIsNil(const AAssigned: Boolean; const AArgumentName: string); static; inline;
   protected
     type
       P = ^T;
@@ -1445,13 +1458,6 @@ type
     class function InternalMin(Value: P; Offset: NativeInt; Count: Integer; const ASelector: TFunction<T, Integer>): Integer; overload; static;
     class function InternalMax(Value: P; Offset: NativeInt; Count: Integer; const AComparer: TComparison<T>): T; overload; static;
     class function InternalMax(Value: P; Offset: NativeInt; Count: Integer; const ASelector: TFunction<T, Integer>): Integer; overload; static;
-    class function InternalSumBytes(Value: PByte; Offset: NativeInt; Count: Integer): Byte; static;
-    class function InternalSumWords(Value: PWord; Offset: NativeInt; Count: Integer): Word; static;
-    class function InternalSumCardinals(Value: PCardinal; Offset: NativeInt; Count: Integer): Cardinal; static;
-    class function InternalSumInt64s(Value: PInt64; Offset: NativeInt; Count: Integer): Int64; static;
-    class function InternalSumSingles(Value: PSingle; Offset: NativeInt; Count: Integer): Single; static;
-    class function InternalSumDoubles(Value: PDouble; Offset: NativeInt; Count: Integer): Double; static;
-    class function InternalSumExtendeds(Value: PExtended; Offset: NativeInt; Count: Integer): Extended; static;
     class function InternalSum(Value: P; Offset: NativeInt; Count: Integer; const ASelector: TFunction<T, Integer>): Integer; overload; static;
     class function InternalSum(Value: P; Offset: NativeInt; Count: Integer; const ASelector: TFunction<T, Int64>): Int64; overload; static;
     class function InternalSum(Value: P; Offset: NativeInt; Count: Integer; const ASelector: TFunction<T, Extended>): Extended; overload; static;
@@ -1568,13 +1574,13 @@ type
 
 {   function Concat(const ASecond: TCollection<T>): ICollection<T>; overload;
     function Concat(const ASecond: ICollection<T>): ICollection<T>; overload;
-    function Concat(const ASecond: IEnumerable<T>): ICollection<T>; overload;
-    function Where(const APredicate: TFunction<T,Boolean>): ICollection<T>; overload;
-    function Ordered: ICollection<T>; overload;
-    function Ordered(const AComparer: IComparer<T>): ICollection<T>; overload;
-    function Ordered(const AComparer: TComparison<T>): ICollection<T>; overload;
-    function Reversed: ICollection<T>;
-    function Shuffled: ICollection<T>; }
+    function Concat(const ASecond: IEnumerable<T>): ICollection<T>; overload;  }
+    function Where(const APredicate: TFunction<T,Boolean>): ICollection<T>; virtual;
+    function Ordered: ICollection<T>; overload; virtual;
+    function Ordered(const AComparer: IComparer<T>): ICollection<T>; overload; virtual;
+    function Ordered(const AComparer: TComparison<T>): ICollection<T>; overload; virtual;
+    function Reversed: ICollection<T>; virtual;
+    function Shuffled: ICollection<T>; virtual;
 
     property Count: Integer read DoGetCount;
     property IsEmpty: Boolean read DoGetIsEmpty;
@@ -1679,17 +1685,6 @@ type
     function LastIndexOf(const AValue: T; const AComparer: IEqualityComparer<T>): Integer; overload; override;
     function LastIndexOf(const AValue: T; const AComparer: TEqualityComparison<T>): Integer; overload; override;
 
-
-{   function Concat(const ASecond: TCollection<T>): ICollection<T>; overload;
-    function Concat(const ASecond: ICollection<T>): ICollection<T>; overload;
-    function Concat(const ASecond: IEnumerable<T>): ICollection<T>; overload;
-    function Where(const APredicate: TFunction<T,Boolean>): ICollection<T>; overload;
-    function Ordered: ICollection<T>; overload;
-    function Ordered(const AComparer: IComparer<T>): ICollection<T>; overload;
-    function Ordered(const AComparer: TComparison<T>): ICollection<T>; overload;
-    function Reversed: ICollection<T>;
-    function Shuffled: ICollection<T>; }
-
     property Count: Integer read FCount.Int;
     property IsEmpty: Boolean read GetIsEmpty;
     property Capacity: Integer read FCapacity.Int;
@@ -1703,7 +1698,7 @@ type
   protected
     FList: TArray<T>;
   public
-    constructor Create(const AList: TArray<T>);
+    constructor Create(const AList: TArray<T>; const AComparer: IComparer<T>; const AEqualityComparer: IEqualityComparer<T>);
     property List: TArray<T> read FList;
   end;
 
@@ -10065,6 +10060,32 @@ begin
     TArray.Reverse<T>(@Values[0], Length(Values));
 end;
 
+class procedure TArray.Shuffle<T>(const Values: Pointer; const Count: NativeInt);
+var
+  LValues: TRAIIHelper<T>.PArrayT;
+  LCount, LIndex, LRandom: NativeInt;
+begin
+  if (Count > 1) then
+  begin
+    LValues := Values;
+    LCount := Count;
+
+    LIndex := 0;
+    repeat
+      LRandom := Random(LCount) + LIndex;
+      Exchange<T>(@LValues[LRandom], @LValues[LIndex]);
+      Dec(LCount);
+      Inc(LIndex);
+    until (LCount = 1);
+  end;
+end;
+
+class procedure TArray.Shuffle<T>(var Values: array of T);
+begin
+  if (High(Values) > 0) then
+    TArray.Shuffle<T>(@Values[0], Length(Values));
+end;
+
 procedure TArray.TSortHelper<T>.Init(const Comparer: IComparer<T>);
 begin
   Self.Inst := Pointer(Comparer);
@@ -16168,6 +16189,126 @@ begin
 end;
 
 
+{ TCollectionHelper }
+
+class function TCollectionHelper.EItemNotFound: Exception;
+begin
+  Result := EListError.CreateRes(Pointer(@SGenericItemNotFound));
+end;
+
+class function TCollectionHelper.EDuplicatesNotAllowed: Exception;
+begin
+  Result := EListError.CreateRes(Pointer(@SGenericDuplicateItem));
+end;
+
+class function TCollectionHelper.EArgumentIsNil(const AArgumentName: string): Exception;
+begin
+  Result := EArgumentException.CreateResFmt(Pointer(@SParamIsNil), [AArgumentName]);
+end;
+
+class function TCollectionHelper.EArgumentOutOfRange: Exception;
+begin
+  Result := EArgumentOutOfRangeException.CreateRes(Pointer(@SArgumentOutOfRange));
+end;
+
+class procedure TCollectionHelper.CheckArgumentIsNil(const AAssigned: Boolean; const AArgumentName: string);
+begin
+  if (not AAssigned) then
+    raise EArgumentIsNil(AArgumentName) {$if CompilerVersion >= 23}at ReturnAddress{$ifend};
+end;
+
+class function TCollectionHelper.InternalSumBytes(Value: PByte; Offset: NativeInt;
+  Count: Integer): Byte;
+var
+  i: Integer;
+begin
+  Result := 0;
+  for i := 1 to Count do
+  begin
+    Result := Result + Value^;
+    Inc(NativeInt(Value), Offset);
+  end;
+end;
+
+class function TCollectionHelper.InternalSumWords(Value: PWord; Offset: NativeInt;
+  Count: Integer): Word;
+var
+  i: Integer;
+begin
+  Result := 0;
+  for i := 1 to Count do
+  begin
+    Result := Result + Value^;
+    Inc(NativeInt(Value), Offset);
+  end;
+end;
+
+class function TCollectionHelper.InternalSumCardinals(Value: PCardinal; Offset: NativeInt;
+  Count: Integer): Cardinal;
+var
+  i: Integer;
+begin
+  Result := 0;
+  for i := 1 to Count do
+  begin
+    Result := Result + Value^;
+    Inc(NativeInt(Value), Offset);
+  end;
+end;
+
+class function TCollectionHelper.InternalSumInt64s(Value: PInt64; Offset: NativeInt;
+  Count: Integer): Int64;
+var
+  i: Integer;
+begin
+  Result := 0;
+  for i := 1 to Count do
+  begin
+    Result := Result + Value^;
+    Inc(NativeInt(Value), Offset);
+  end;
+end;
+
+class function TCollectionHelper.InternalSumSingles(Value: PSingle; Offset: NativeInt;
+  Count: Integer): Single;
+var
+  i: Integer;
+begin
+  Result := 0;
+  for i := 1 to Count do
+  begin
+    Result := Result + Value^;
+    Inc(NativeInt(Value), Offset);
+  end;
+end;
+
+class function TCollectionHelper.InternalSumDoubles(Value: PDouble; Offset: NativeInt;
+  Count: Integer): Double;
+var
+  i: Integer;
+begin
+  Result := 0;
+  for i := 1 to Count do
+  begin
+    Result := Result + Value^;
+    Inc(NativeInt(Value), Offset);
+  end;
+end;
+
+class function TCollectionHelper.InternalSumExtendeds(Value: PExtended; Offset: NativeInt;
+  Count: Integer): Extended;
+var
+  i: Integer;
+begin
+  Result := 0;
+  for i := 1 to Count do
+  begin
+    Result := Result + Value^;
+    Inc(NativeInt(Value), Offset);
+  end;
+end;
+
+
 { TCollection<T>.TEnumeratorAdapter }
 
 constructor TCollection<T>.TEnumeratorAdapter.Create(
@@ -16903,32 +17044,6 @@ begin
   Result := TEnumeratorAdapter.Create(DoGetEnumerator);
 end;
 
-class function TCollection<T>.EItemNotFound: Exception;
-begin
-  Result := EListError.CreateRes(Pointer(@SGenericItemNotFound));
-end;
-
-class function TCollection<T>.EDuplicatesNotAllowed: Exception;
-begin
-  Result := EListError.CreateRes(Pointer(@SGenericDuplicateItem));
-end;
-
-class function TCollection<T>.EArgumentIsNil(const AArgumentName: string): Exception;
-begin
-  Result := EArgumentException.CreateResFmt(Pointer(@SParamIsNil), [AArgumentName]);
-end;
-
-class function TCollection<T>.EArgumentOutOfRange: Exception;
-begin
-  Result := EArgumentOutOfRangeException.CreateRes(Pointer(@SArgumentOutOfRange));
-end;
-
-class procedure TCollection<T>.CheckArgumentIsNil(const AAssigned: Boolean; const AArgumentName: string);
-begin
-  if (not AAssigned) then
-    raise EArgumentIsNil(AArgumentName) {$if CompilerVersion >= 23}at ReturnAddress{$ifend};
-end;
-
 class function TCollection<T>.InternalAll(Value: P; Offset: NativeInt; Count: Integer;
   const APredicate: TFunction<T,Boolean>): Boolean;
 var
@@ -17040,97 +17155,6 @@ begin
     if (LValue > Result) then
       Result := LValue;
 
-    Inc(NativeInt(Value), Offset);
-  end;
-end;
-
-class function TCollection<T>.InternalSumBytes(Value: PByte; Offset: NativeInt;
-  Count: Integer): Byte;
-var
-  i: Integer;
-begin
-  Result := 0;
-  for i := 1 to Count do
-  begin
-    Result := Result + Value^;
-    Inc(NativeInt(Value), Offset);
-  end;
-end;
-
-class function TCollection<T>.InternalSumWords(Value: PWord; Offset: NativeInt;
-  Count: Integer): Word;
-var
-  i: Integer;
-begin
-  Result := 0;
-  for i := 1 to Count do
-  begin
-    Result := Result + Value^;
-    Inc(NativeInt(Value), Offset);
-  end;
-end;
-
-class function TCollection<T>.InternalSumCardinals(Value: PCardinal; Offset: NativeInt;
-  Count: Integer): Cardinal;
-var
-  i: Integer;
-begin
-  Result := 0;
-  for i := 1 to Count do
-  begin
-    Result := Result + Value^;
-    Inc(NativeInt(Value), Offset);
-  end;
-end;
-
-class function TCollection<T>.InternalSumInt64s(Value: PInt64; Offset: NativeInt;
-  Count: Integer): Int64;
-var
-  i: Integer;
-begin
-  Result := 0;
-  for i := 1 to Count do
-  begin
-    Result := Result + Value^;
-    Inc(NativeInt(Value), Offset);
-  end;
-end;
-
-class function TCollection<T>.InternalSumSingles(Value: PSingle; Offset: NativeInt;
-  Count: Integer): Single;
-var
-  i: Integer;
-begin
-  Result := 0;
-  for i := 1 to Count do
-  begin
-    Result := Result + Value^;
-    Inc(NativeInt(Value), Offset);
-  end;
-end;
-
-class function TCollection<T>.InternalSumDoubles(Value: PDouble; Offset: NativeInt;
-  Count: Integer): Double;
-var
-  i: Integer;
-begin
-  Result := 0;
-  for i := 1 to Count do
-  begin
-    Result := Result + Value^;
-    Inc(NativeInt(Value), Offset);
-  end;
-end;
-
-class function TCollection<T>.InternalSumExtendeds(Value: PExtended; Offset: NativeInt;
-  Count: Integer): Extended;
-var
-  i: Integer;
-begin
-  Result := 0;
-  for i := 1 to Count do
-  begin
-    Result := Result + Value^;
     Inc(NativeInt(Value), Offset);
   end;
 end;
@@ -18586,6 +18610,51 @@ begin
   end;
 end;
 
+function TCollection<T>.Where(const APredicate: TFunction<T,Boolean>): ICollection<T>;
+var
+  LArray: TArray<T>;
+begin
+  LArray := ToArray(APredicate);
+  Result := TArrayCollection<T>.Create(LArray, FComparer, FEqualityComparer);
+end;
+
+function TCollection<T>.Ordered: ICollection<T>;
+begin
+  Result := Ordered(TComparison<T>(FComparer));
+end;
+
+function TCollection<T>.Ordered(const AComparer: IComparer<T>): ICollection<T>;
+var
+  LArray: TArray<T>;
+begin
+  LArray := ToArray;
+  TArray.Sort<T>(LArray, AComparer);
+  Result := TArrayCollection<T>.Create(LArray, AComparer, FEqualityComparer);
+end;
+
+function TCollection<T>.Ordered(const AComparer: TComparison<T>): ICollection<T>;
+begin
+  Result := Ordered(IComparer<T>(@AComparer));
+end;
+
+function TCollection<T>.Reversed: ICollection<T>;
+var
+  LArray: TArray<T>;
+begin
+  LArray := ToArray;
+  TArray.Reverse<T>(LArray);
+  Result := TArrayCollection<T>.Create(LArray, FComparer, FEqualityComparer);
+end;
+
+function TCollection<T>.Shuffled: ICollection<T>;
+var
+  LArray: TArray<T>;
+begin
+  LArray := ToArray;
+  TArray.Shuffle<T>(LArray);
+  Result := TArrayCollection<T>.Create(LArray, FComparer, FEqualityComparer);
+end;
+
 
 { TCustomListCollection<T1,T,T3,T4>.TEnumerator }
 
@@ -19384,9 +19453,17 @@ end;
 
 { TArrayCollection<T> }
 
-constructor TArrayCollection<T>.Create(const AList: TArray<T>);
+constructor TArrayCollection<T>.Create(const AList: TArray<T>; const AComparer: IComparer<T>;
+  const AEqualityComparer: IEqualityComparer<T>);
 begin
   inherited Create;
+
+  if (Assigned(AComparer)) then
+    FComparer := AComparer;
+
+  if (Assigned(AEqualityComparer)) then
+    FEqualityComparer := AEqualityComparer;
+
   FList := AList;
   FItems := Pointer(AList);
   FCapacity.Native := Length(AList);
