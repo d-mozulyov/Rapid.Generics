@@ -1252,13 +1252,19 @@ type
     Current: T;
     Tag: NativeInt;
     Reserved: NativeInt;
-    procedure Init(const AOwner: TObject); inline;
+    procedure Init(const AOwner: TObject; const ATag: NativeInt = -1; const AReserved: NativeInt = -1); inline;
   end;
 
+  ICollection<T> = interface;
+  TCollection<T> = class;
   TCollectionEnumerator<T> = record
+  public
+    type
+      TMoveNextFunc = function(var AEnumerator: TCollectionEnumerator<T>): Boolean;
+  public
     Data: TCollectionEnumeratorData<T>;
     Intf: IInterface;
-    DoMoveNext: function(var AData: TCollectionEnumerator<T>): Boolean;
+    DoMoveNext: TMoveNextFunc;
     {$if CompilerVersion <= 22}
     function GetCurrent: T; inline;
     property Current: T read GetCurrent;
@@ -1266,9 +1272,36 @@ type
     property Current: T read Data.Current;
     {$ifend}
     function MoveNext: Boolean; inline;
+  private
+    function GetProxyInteface: Pointer{PCollectionEnumerator<T>}; inline;
+    function InitProxyInteface: Pointer{PCollectionEnumerator<T>};
+    class function MoveNextProxyEnumerator(var AEnumerator: TCollectionEnumerator<T>): Boolean; static;
+    class function MoveNextEnumerator(var AEnumerator: TCollectionEnumerator<T>): Boolean; static;
+  public
+    procedure Init(const AOwner: TObject; const AMoveNextFunc: TMoveNextFunc;
+      const ATag: NativeInt = -1; const AReserved: NativeInt = -1); overload; inline;
+    procedure Init(const ACollection: TCollection<T>; const AProxyMode: Boolean); overload;
+    procedure Init(const ACollection: ICollection<T>; const AProxyMode: Boolean); overload;
+    procedure Init(const AEnumerator: IEnumerator<T>); overload;
+    procedure Init(const AEnumerable: IEnumerable<T>); overload;
   end;
 
-  TCollection<T> = class;
+  TCollectionEnumeratorObject<T> = class(TCustomObject)
+  protected
+    FEnumerator: TCollectionEnumerator<T>;
+    function GetCurrentT: T; inline;
+  public
+    constructor Create; overload;
+    constructor Create(const AEnumerator: TCollectionEnumerator<T>); overload;
+    function MoveNext: Boolean; inline;
+
+    {$if CompilerVersion <= 22}
+    property Current: T read GetCurrentT;
+    {$else}
+    property Current: T read FEnumerator.Data.Current;
+    {$ifend}
+    property Enumerator: TCollectionEnumerator<T> read FEnumerator write FEnumerator;
+  end;
 
   ICollection<T> = interface(ICustomObject)
     function GetEnumerator: TCollectionEnumerator<T>;
@@ -1351,9 +1384,9 @@ type
     function EqualsTo(const AEnumerable: IEnumerable<T>; const AComparer: IEqualityComparer<T>): Boolean; overload;
     function EqualsTo(const AEnumerable: IEnumerable<T>; const AComparer: TEqualityComparison<T>): Boolean; overload;
 
-{   function Concat(const ASecond: TCollection<T>): ICollection<T>; overload;
-    function Concat(const ASecond: ICollection<T>): ICollection<T>; overload;
-    function Concat(const ASecond: IEnumerable<T>): ICollection<T>; overload;  }
+    function Concat(const ACollection: TCollection<T>): ICollection<T>; overload;
+    function Concat(const ACollection: ICollection<T>): ICollection<T>; overload;
+    function Concat(const AEnumerable: IEnumerable<T>): ICollection<T>; overload;
     function Where(const APredicate: TFunction<T,Boolean>): ICollection<T>;
     function Ordered: ICollection<T>; overload;
     function Ordered(const AComparer: IComparer<T>): ICollection<T>; overload;
@@ -1373,12 +1406,17 @@ type
   end;
 
   TCollectionHelper = class(TCustomObject)
+  public
+    type
+      TSecondMode = (smInstance, smInterface, smEnumerable);
   protected
     class function EItemNotFound: Exception; static;
     class function EDuplicatesNotAllowed: Exception; static;
     class function EArgumentIsNil(const AArgumentName: string): Exception; static;
     class function EArgumentOutOfRange: Exception; static;
     class procedure CheckArgumentIsNil(const AAssigned: Boolean; const AArgumentName: string); static; inline;
+    class function EMethodNotFound(const AClass: TClass; const AMethodName: string): Exception; overload; static;
+    function EMethodNotFound(const AMethodName: string): Exception; overload;
 
     class function InternalSumBytes(Value: PByte; Offset: NativeInt; Count: Integer): Byte; static;
     class function InternalSumWords(Value: PWord; Offset: NativeInt; Count: Integer): Word; static;
@@ -1401,13 +1439,9 @@ type
     function GetEnumerator: TEnumerator; }
   strict private
     type
-      TEnumeratorAdapter = class(TCustomObject, IEnumerator<T>)
-        FCollectionEnumerator: TCollectionEnumerator<T>;
+      TEnumeratorAdapter = class(TCollectionEnumeratorObject<T>, IEnumerator<T>)
         function IEnumerator<T>.GetCurrent = GetCurrentT;
-        constructor Create(const ACollectionEnumerator: TCollectionEnumerator<T>);
         function GetCurrent: TObject;
-        function GetCurrentT: T;
-        function MoveNext: Boolean;
         procedure Reset;
       end;
     function IEnumerable<T>.GetEnumerator = GetEnumeratorT;
@@ -1425,6 +1459,7 @@ type
         Count2: Integer;
         Offset: Integer;
 
+        function Combine(var AResult: TLinearItems; const ASecond: TLinearItems): Boolean;
         procedure ToArray(var AResult: TArray<T>); overload;
         procedure ToArray(var AResult: TArray<T>; const APredicate: TFunction<T,Boolean>); overload;
         function All(const APredicate: TFunction<T,Boolean>): Boolean;
@@ -1572,9 +1607,9 @@ type
     function EqualsTo(const AEnumerable: IEnumerable<T>; const AComparer: IEqualityComparer<T>): Boolean; overload; virtual;
     function EqualsTo(const AEnumerable: IEnumerable<T>; const AComparer: TEqualityComparison<T>): Boolean; overload; virtual;
 
-{   function Concat(const ASecond: TCollection<T>): ICollection<T>; overload;
-    function Concat(const ASecond: ICollection<T>): ICollection<T>; overload;
-    function Concat(const ASecond: IEnumerable<T>): ICollection<T>; overload;  }
+    function Concat(const ACollection: TCollection<T>): ICollection<T>; overload; virtual;
+    function Concat(const ACollection: ICollection<T>): ICollection<T>; overload; virtual;
+    function Concat(const AEnumerable: IEnumerable<T>): ICollection<T>; overload; virtual;
     function Where(const APredicate: TFunction<T,Boolean>): ICollection<T>; virtual;
     function Ordered: ICollection<T>; overload; virtual;
     function Ordered(const AComparer: IComparer<T>): ICollection<T>; overload; virtual;
@@ -1629,6 +1664,7 @@ type
     function DoTryGetLinearItems(var ALinearItems: TCollection<T>.TLinearItems): Boolean; override;
     function DoTryGetReversedEnumerator(const Enumerator: TCollection<T>.PCollectionEnumerator): Boolean; override;
     function DoGetEnumerator: TCollectionEnumerator<T>; override;
+    function GetElementAt(const AIndex: Integer): T; inline;
   public
     function GetEnumerator: TEnumerator;
     function ToArray: TArray<T>; overload; override;
@@ -1688,6 +1724,8 @@ type
     property Count: Integer read FCount.Int;
     property IsEmpty: Boolean read GetIsEmpty;
     property Capacity: Integer read FCapacity.Int;
+    property Enumerator: TEnumerator read GetEnumerator;
+    property Elements[const AIndex: Integer]: T read GetElementAt; default;
   end;
 
 
@@ -1700,6 +1738,41 @@ type
   public
     constructor Create(const AList: TArray<T>; const AComparer: IComparer<T>; const AEqualityComparer: IEqualityComparer<T>);
     property List: TArray<T> read FList;
+  end;
+
+
+{ TConcatedCollection<T> class
+  Pair: basic collection and iterator (collection or enumerable) }
+
+  TConcatedCollection<T> = class(TCollection<T>)
+  public
+    type
+      TSecondMode = TCollectionHelper.TSecondMode;
+  protected
+    type
+      PCollectionEnumerator = TCollection<T>.PCollectionEnumerator;
+      TLinearItems = TCollection<T>.TLinearItems;
+
+    class function EnumeratorMoveNext(var AEnumerator: TCollectionEnumerator<T>): Boolean; static;
+    class function ReversedEnumeratorMoveNext(var AEnumerator: TCollectionEnumerator<T>): Boolean; static;
+  protected
+    FCollection: TCollection<T>;
+    FSecondInstance: TCollection<T>;
+    FSecondInterface: ICollection<T>;
+    FSecondEnumerable: IEnumerable<T>;
+    FSecondMode: TSecondMode;
+
+    function DoGetCount: Integer; override;
+    function DoGetIsEmpty: Boolean; override;
+    function InternalEnumerableCount: Integer;
+    function InternalEnumerableEmpty: Boolean;
+    function DoTryGetLinearItems(var ALinearItems: TLinearItems): Boolean; override;
+    function DoTryGetReversedEnumerator(const Enumerator: PCollectionEnumerator): Boolean; override;
+    function DoGetEnumerator: TCollectionEnumerator<T>; override;
+  public
+    constructor Create(const ACollection: TCollection<T>; const ASecond: Pointer; const ASecondMode: TSecondMode);
+
+    property SecondMode: TSecondMode read FSecondMode;
   end;
 
 
@@ -16167,11 +16240,11 @@ end;
 
 { TCollectionEnumeratorData<T> }
 
-procedure TCollectionEnumeratorData<T>.Init(const AOwner: TObject);
+procedure TCollectionEnumeratorData<T>.Init(const AOwner: TObject; const ATag, AReserved: NativeInt);
 begin
   Owner := AOwner;
-  Tag := -1;
-  Reserved := -1;
+  Tag := ATag;
+  Reserved := AReserved;
 end;
 
 { TCollectionEnumerator<T> }
@@ -16179,13 +16252,129 @@ end;
 {$if CompilerVersion <= 22}
 function TCollectionEnumerator<T>.GetCurrent: T;
 begin
-  Result := Data.Current;
+  Result := Self.Data.Current;
 end;
 {$ifend}
 
 function TCollectionEnumerator<T>.MoveNext: Boolean;
 begin
   Result := DoMoveNext(Self);
+end;
+
+function TCollectionEnumerator<T>.GetProxyInteface: Pointer{PCollectionEnumerator<T>};
+begin
+  {Result := @TCollectionEnumeratorObject<T>(ICustomObject(Intf).Self).FEnumerator;}
+  Result := PByte(Pointer(Intf)) + SizeOf(IInterface);
+end;
+
+function TCollectionEnumerator<T>.InitProxyInteface: Pointer{PCollectionEnumerator<T>};
+begin
+  if (not Assigned(Intf)) or (not (Intf is TCollectionEnumeratorObject<T>)) then
+  begin
+    ICustomObject(Intf) := TCollectionEnumeratorObject<T>.Create;
+  end;
+
+  Result := GetProxyInteface;
+end;
+
+class function TCollectionEnumerator<T>.MoveNextProxyEnumerator(var AEnumerator: TCollectionEnumerator<T>): Boolean;
+var
+  {$ifdef AUTOREFCOUNT}[Unsafe]{$endif} LObject: TCollectionEnumeratorObject<T>;
+begin
+  LObject := TCollectionEnumeratorObject<T>(ICustomObject(AEnumerator.Intf).Self);
+  if (LObject.FEnumerator.DoMoveNext(LObject.FEnumerator)) then
+  begin
+    AEnumerator.Data.Current := LObject.FEnumerator.Current;
+    Result := True;
+    Exit;
+  end;
+
+  Result := False;
+end;
+
+class function TCollectionEnumerator<T>.MoveNextEnumerator(var AEnumerator: TCollectionEnumerator<T>): Boolean;
+begin
+  with IEnumerator<T>(AEnumerator.Intf) do
+  if (MoveNext) then
+  begin
+    AEnumerator.Data.Current := Current;
+    Result := True;
+    Exit;
+  end;
+
+  Result := False;
+end;
+
+procedure TCollectionEnumerator<T>.Init(const AOwner: TObject;
+  const AMoveNextFunc: TMoveNextFunc; const ATag, AReserved: NativeInt);
+begin
+  Data.Owner := AOwner;
+  Data.Tag := ATag;
+  Data.Reserved := AReserved;
+  DoMoveNext := AMoveNextFunc;
+end;
+
+procedure TCollectionEnumerator<T>.Init(const AEnumerator: IEnumerator<T>);
+begin
+  Self.Intf := AEnumerator;
+  Self.DoMoveNext := MoveNextEnumerator;
+end;
+
+procedure TCollectionEnumerator<T>.Init(const AEnumerable: IEnumerable<T>);
+begin
+  Init(AEnumerable.GetEnumerator);
+end;
+
+procedure TCollectionEnumerator<T>.Init(const ACollection: TCollection<T>; const AProxyMode: Boolean);
+var
+  Enumerator: Pointer{PCollectionEnumerator<T>};
+begin
+  Enumerator := @Self;
+  Self.DoMoveNext := MoveNextProxyEnumerator;
+  if (AProxyMode) then
+  begin
+    Enumerator := InitProxyInteface;
+  end;
+
+  TCollectionEnumerator<T>(Enumerator^) := ACollection.Enumerator;
+end;
+
+procedure TCollectionEnumerator<T>.Init(const ACollection: ICollection<T>; const AProxyMode: Boolean);
+var
+  Enumerator: Pointer{PCollectionEnumerator<T>};
+begin
+  Enumerator := @Self;
+  Self.DoMoveNext := MoveNextProxyEnumerator;
+  if (AProxyMode) then
+  begin
+    Enumerator := InitProxyInteface;
+  end;
+
+  TCollectionEnumerator<T>(Enumerator^) := ACollection.Enumerator;
+end;
+
+
+{ TCollectionEnumeratorObject<T> }
+
+constructor TCollectionEnumeratorObject<T>.Create;
+begin
+  inherited Create;
+end;
+
+constructor TCollectionEnumeratorObject<T>.Create(const AEnumerator: TCollectionEnumerator<T>);
+begin
+  inherited Create;
+  FEnumerator := AEnumerator;
+end;
+
+function TCollectionEnumeratorObject<T>.GetCurrentT: T;
+begin
+  Result := FEnumerator.Data.Current;
+end;
+
+function TCollectionEnumeratorObject<T>.MoveNext: Boolean;
+begin
+  Result := FEnumerator.DoMoveNext(FEnumerator);
 end;
 
 
@@ -16215,6 +16404,16 @@ class procedure TCollectionHelper.CheckArgumentIsNil(const AAssigned: Boolean; c
 begin
   if (not AAssigned) then
     raise EArgumentIsNil(AArgumentName) {$if CompilerVersion >= 23}at ReturnAddress{$ifend};
+end;
+
+class function TCollectionHelper.EMethodNotFound(const AClass: TClass; const AMethodName: string): Exception;
+begin
+  Result := ENotSupportedException.CreateResFmt(Pointer(@SMethodNotFound), [AMethodName, AClass.ClassName]);
+end;
+
+function TCollectionHelper.EMethodNotFound(const AMethodName: string): Exception;
+begin
+  Result := EMethodNotFound(Self.ClassType, AMethodName);
 end;
 
 class function TCollectionHelper.InternalSumBytes(Value: PByte; Offset: NativeInt;
@@ -16311,40 +16510,76 @@ end;
 
 { TCollection<T>.TEnumeratorAdapter }
 
-constructor TCollection<T>.TEnumeratorAdapter.Create(
-  const ACollectionEnumerator: TCollectionEnumerator<T>);
-begin
-  inherited Create;
-  FCollectionEnumerator := ACollectionEnumerator;
-end;
-
 function TCollection<T>.TEnumeratorAdapter.GetCurrent: TObject;
 begin
   if ({$ifdef SMARTGENERICS}GetTypeKind(T){$else}PTypeInfo(TypeInfo(T)).Kind{$endif} = tkClass) then
   begin
-    T(Pointer(@Result)^) := FCollectionEnumerator.Data.Current;
+    T(Pointer(@Result)^) := FEnumerator.Data.Current;
   end else
   begin
     Result := nil;
   end;
 end;
 
-function TCollection<T>.TEnumeratorAdapter.GetCurrentT: T;
-begin
-  Result := FCollectionEnumerator.Data.Current;
-end;
-
-function TCollection<T>.TEnumeratorAdapter.MoveNext: Boolean;
-begin
-  Result := FCollectionEnumerator.DoMoveNext(FCollectionEnumerator);
-end;
-
 procedure TCollection<T>.TEnumeratorAdapter.Reset;
 begin
-  raise ENotSupportedException.CreateResFmt(Pointer(@SMethodNotFound), ['Reset', ClassName]);
+  raise EMethodNotFound(ClassType, 'Reset');
 end;
 
 { TCollection<T>.TLinearItems }
+
+function TCollection<T>.TLinearItems.Combine(var AResult: TLinearItems; const ASecond: TLinearItems): Boolean;
+var
+  LLeftCounts, LRightCounts: Integer;
+begin
+  if (Self.Offset = ASecond.Offset) then
+  begin
+    LLeftCounts := Ord(Self.Count1 <> 0) or Ord(Self.Count2 <> 0);
+    LRightCounts := Ord(ASecond.Count1 <> 0) or Ord(ASecond.Count2 <> 0);
+    if (LLeftCounts + LRightCounts <= 2) then
+    begin
+      if (LRightCounts = 0) then
+      begin
+        AResult := Self;
+      end else
+      if (LLeftCounts = 0) then
+      begin
+        AResult := ASecond;
+      end else
+      // if (LLeftCounts = 1) and (LRightCounts = 1) then
+      begin
+        AResult.Offset := Self.Offset;
+
+        if (Self.Count1 <> 0) then
+        begin
+          AResult.Values1 := Self.Values1;
+          AResult.Count1 := Self.Count1;
+        end else
+        // if (Self.Count2 <> 0) then
+        begin
+          AResult.Values1 := Self.Values2;
+          AResult.Count1 := Self.Count2;
+        end;
+
+        if (ASecond.Count1 <> 0) then
+        begin
+          AResult.Values2 := ASecond.Values1;
+          AResult.Count2 := ASecond.Count1;
+        end else
+        // if (ASecond.Count2 <> 0) then
+        begin
+          AResult.Values2 := ASecond.Values2;
+          AResult.Count2 := ASecond.Count2;
+        end;
+      end;
+
+      Result := True;
+      Exit;
+    end;
+  end;
+
+  Result := False;
+end;
 
 procedure TCollection<T>.TLinearItems.ToArray(var AResult: TArray<T>);
 var
@@ -18610,6 +18845,24 @@ begin
   end;
 end;
 
+function TCollection<T>.Concat(const ACollection: TCollection<T>): ICollection<T>;
+begin
+  CheckArgumentIsNil(Assigned(ACollection), 'Collection');
+  Result := TConcatedCollection<T>.Create(Self, Pointer(ACollection), smInstance);
+end;
+
+function TCollection<T>.Concat(const ACollection: ICollection<T>): ICollection<T>;
+begin
+  CheckArgumentIsNil(Assigned(ACollection), 'Collection');
+  Result := TConcatedCollection<T>.Create(Self, Pointer(ACollection), smInterface);
+end;
+
+function TCollection<T>.Concat(const AEnumerable: IEnumerable<T>): ICollection<T>;
+begin
+  CheckArgumentIsNil(Assigned(AEnumerable), 'Enumerable');
+  Result := TConcatedCollection<T>.Create(Self, Pointer(AEnumerable), smEnumerable);
+end;
+
 function TCollection<T>.Where(const APredicate: TFunction<T,Boolean>): ICollection<T>;
 var
   LArray: TArray<T>;
@@ -19024,6 +19277,18 @@ begin
   end else
   begin
     Result := True;
+  end;
+end;
+
+function TCustomListCollection<T1,T,T3,T4>.GetElementAt(const AIndex: Integer): T;
+begin
+  if (Cardinal(AIndex) < Cardinal(FCount.Int)) then
+  begin
+    Result := FItems[Cardinal(AIndex)].Field2;
+    Exit;
+  end else
+  begin
+    raise EItemNotFound;
   end;
 end;
 
@@ -19468,6 +19733,200 @@ begin
   FItems := Pointer(AList);
   FCapacity.Native := Length(AList);
   FCount.Native := FCapacity.Native;
+end;
+
+
+{ TConcatedCollection<T> }
+
+constructor TConcatedCollection<T>.Create(const ACollection: TCollection<T>;
+  const ASecond: Pointer; const ASecondMode: TSecondMode);
+begin
+  inherited Create;
+
+  FCollection := ACollection;
+  FSecondMode := ASecondMode;
+  case (ASecondMode) of
+    smInstance:
+    begin
+      FSecondInstance := TCollection<T>(ASecond);
+    end;
+    smInterface:
+    begin
+      FSecondInterface := ICollection<T>(ASecond);
+      if (FSecondInterface.Self is TCollection<T>) then
+        FSecondInstance := TCollection<T>(FSecondInterface.Self);
+    end;
+  else
+    // smEnumerable:
+    FSecondEnumerable := IEnumerable<T>(ASecond);
+    if (FSecondEnumerable is TCollection<T>) then
+      FSecondInstance := FSecondEnumerable as TCollection<T>;
+  end;
+end;
+
+function TConcatedCollection<T>.DoGetCount: Integer;
+begin
+  Result := FCollection.DoGetCount;
+
+  if (Assigned(FSecondInstance)) then
+  begin
+    Inc(Result, FSecondInstance.DoGetCount);
+  end else
+  case (FSecondMode) of
+    smInterface:
+    begin
+      Inc(Result, FSecondInterface.Count);
+    end;
+    smEnumerable:
+    begin
+      Inc(Result, InternalEnumerableCount);
+    end;
+  end;
+end;
+
+function TConcatedCollection<T>.DoGetIsEmpty: Boolean;
+begin
+  Result := FCollection.DoGetIsEmpty;
+  if (not Result) then
+    Exit;
+
+  if (Assigned(FSecondInstance)) then
+  begin
+    Result := FSecondInstance.DoGetIsEmpty;
+  end else
+  case (FSecondMode) of
+    smInterface:
+    begin
+      Result := FSecondInstance.IsEmpty;
+    end;
+    smEnumerable:
+    begin
+      Result := InternalEnumerableEmpty;
+    end;
+  end;
+end;
+
+function TConcatedCollection<T>.DoTryGetReversedEnumerator(const Enumerator: PCollectionEnumerator): Boolean;
+begin
+  if (Assigned(FSecondInstance)) and (FCollection.DoTryGetOrderedEnumerator(nil)) and
+    (FSecondInstance.DoTryGetReversedEnumerator(nil)) then
+  begin
+    if (Assigned(Enumerator)) then
+    begin
+      FSecondInstance.DoTryGetReversedEnumerator(Enumerator^.InitProxyInteface);
+      Enumerator^.Data.Owner := Self;
+      Enumerator^.DoMoveNext := ReversedEnumeratorMoveNext;
+    end;
+
+    Result := True;
+    Exit;
+  end;
+
+  Result := False;
+end;
+
+function TConcatedCollection<T>.DoGetEnumerator: TCollectionEnumerator<T>;
+begin
+  TCollectionEnumerator<T>(Result.InitProxyInteface^) := FCollection.DoGetEnumerator;
+  Result.Data.Owner := Self;
+  Result.DoMoveNext := EnumeratorMoveNext;
+end;
+
+class function TConcatedCollection<T>.ReversedEnumeratorMoveNext(var AEnumerator: TCollectionEnumerator<T>): Boolean;
+var
+  LEnumerator: PCollectionEnumerator;
+begin
+  LEnumerator := AEnumerator.GetProxyInteface;
+  if (LEnumerator^.DoMoveNext(LEnumerator^)) then
+  begin
+    AEnumerator.Data.Current := LEnumerator.Data.Current;
+    Result := True;
+    Exit;
+  end;
+
+  if (TConcatedCollection<T>(AEnumerator.Data.Owner).FCollection.DoTryGetReversedEnumerator(@AEnumerator)) then
+    raise EMethodNotFound(AEnumerator.Data.Owner.ClassType, 'DoTryGetReversedEnumerator');
+
+  Result := AEnumerator.DoMoveNext(AEnumerator);
+end;
+
+class function TConcatedCollection<T>.EnumeratorMoveNext(var AEnumerator: TCollectionEnumerator<T>): Boolean;
+var
+  LEnumerator: PCollectionEnumerator;
+  {$ifdef AUTOREFCOUNT}[Unsafe]{$endif} LOwner: TConcatedCollection<T>;
+begin
+  LEnumerator := AEnumerator.GetProxyInteface;
+  if (LEnumerator^.DoMoveNext(LEnumerator^)) then
+  begin
+    AEnumerator.Data.Current := LEnumerator.Data.Current;
+    Result := True;
+    Exit;
+  end;
+
+  LOwner := TConcatedCollection<T>(AEnumerator.Data.Owner);
+  if (Assigned(LOwner.FSecondInstance)) then
+  begin
+    AEnumerator.Init(LOwner.FSecondInstance, False);
+  end else
+  if (LOwner.SecondMode = smInterface) then
+  begin
+    AEnumerator.Init(LOwner.FSecondInterface, False);
+  end else
+  begin
+    AEnumerator.Init(LOwner.FSecondEnumerable);
+  end;
+
+  Result := AEnumerator.DoMoveNext(AEnumerator);
+end;
+
+function TConcatedCollection<T>.InternalEnumerableCount: Integer;
+var
+  LEnumerator: IEnumerator<T>;
+begin
+  Result := 0;
+
+  if (Assigned(FSecondEnumerable)) then
+  begin
+    LEnumerator := FSecondEnumerable.GetEnumerator;
+    if (Assigned(LEnumerator)) then
+    begin
+      while (LEnumerator.MoveNext) do
+        Inc(Result);
+    end;
+  end;
+end;
+
+function TConcatedCollection<T>.InternalEnumerableEmpty: Boolean;
+var
+  LEnumerator: IEnumerator<T>;
+begin
+  if (Assigned(FSecondEnumerable)) then
+  begin
+    LEnumerator := FSecondEnumerable.GetEnumerator;
+    if (Assigned(LEnumerator)) then
+    begin
+      Result := LEnumerator.MoveNext;
+      Exit;
+    end;
+  end;
+
+  Result := False;
+end;
+
+function TConcatedCollection<T>.DoTryGetLinearItems(var ALinearItems: TLinearItems): Boolean;
+var
+  LLeftItems, LRightItems: TLinearItems;
+begin
+  if (Assigned(FSecondInstance)) and (FSecondInstance.DoTryGetLinearItems(LRightItems)) then
+  begin
+    if (FCollection.DoTryGetLinearItems(LLeftItems)) and (LLeftItems.Offset = LRightItems.Offset) then
+    begin
+      Result := LLeftItems.Combine(ALinearItems, LRightItems);
+      Exit;
+    end;
+  end;
+
+  Result := False;
 end;
 
 
