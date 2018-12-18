@@ -1455,8 +1455,6 @@ type
   protected
     type
       P = ^T;
-      TCollectionEnumerator = TCollectionEnumerator<T>;
-      PCollectionEnumerator = ^TCollectionEnumerator;
       TLinearItems = packed record
         Values1: P;
         Count1: Integer;
@@ -1582,13 +1580,13 @@ type
     function DoGetCount: Integer; virtual; abstract;
     function DoGetIsEmpty: Boolean; virtual; abstract;
     function DoGetIsSynchronized: Boolean; virtual;
+    function DoGetIsOrdered: Boolean; virtual;
     function DoTryGetLinearItems(var ALinearItems: TLinearItems): Boolean; virtual;
     function DoGetComparer: IComparer<T>;
     function DoGetComparison: TComparison<T>;
     function DoGetEqualityComparer: IEqualityComparer<T>;
     function DoGetEqualityComparison: TEqualityComparison<T>;
-    function DoTryGetOrderedEnumerator(const Enumerator: PCollectionEnumerator): Boolean; virtual;
-    function DoTryGetReversedEnumerator(const Enumerator: PCollectionEnumerator): Boolean; virtual;
+    function DoTryGetReversedEnumerator(var Enumerator: TCollectionEnumerator<T>): Boolean; virtual;
     function DoGetEnumerator: TCollectionEnumerator<T>; virtual; abstract;
     function InternalTryGetSingle(var{out} Value: T): Integer; overload;
     function InternalTryGetSingle(var{out} Value: T; const APredicate: TFunction<T,Boolean>): Integer; overload;
@@ -1702,6 +1700,7 @@ type
     PItem = ^TItem;
     TItemList = array[0..1] of TItem;
     PItemList = ^TItemList;
+    TLinearItems = TCollection<T>.TLinearItems;
 
     TEnumerator = record
       Data: TCollectionEnumeratorData<T>;
@@ -1725,8 +1724,8 @@ type
     function DoGetCount: Integer; override;
     function DoGetIsEmpty: Boolean; override;
     function GetIsEmpty: Boolean; inline;
-    function DoTryGetLinearItems(var ALinearItems: TCollection<T>.TLinearItems): Boolean; override;
-    function DoTryGetReversedEnumerator(const Enumerator: TCollection<T>.PCollectionEnumerator): Boolean; override;
+    function DoTryGetLinearItems(var ALinearItems: TLinearItems): Boolean; override;
+    function DoTryGetReversedEnumerator(var Enumerator: TCollectionEnumerator<T>): Boolean; override;
     function DoGetEnumerator: TCollectionEnumerator<T>; override;
     function GetElementAt(const AIndex: Integer): T; inline;
   public
@@ -1819,7 +1818,6 @@ type
       TSecondMode = TCollectionHelper.TSecondMode;
   protected
     type
-      PCollectionEnumerator = TCollection<T>.PCollectionEnumerator;
       TLinearItems = TCollection<T>.TLinearItems;
 
     class function EnumeratorMoveNext(var AEnumerator: TCollectionEnumerator<T>): Boolean; static;
@@ -1838,7 +1836,7 @@ type
     function InternalEnumerableToArray: TArray<T>; overload;
     function InternalEnumerableToArray(const APredicate: TFunction<T,Boolean>): TArray<T>; overload;
     function DoTryGetLinearItems(var ALinearItems: TLinearItems): Boolean; override;
-    function DoTryGetReversedEnumerator(const Enumerator: PCollectionEnumerator): Boolean; override;
+    function DoTryGetReversedEnumerator(var Enumerator: TCollectionEnumerator<T>): Boolean; override;
     function DoGetEnumerator: TCollectionEnumerator<T>; override;
     function InternalTryGetSingle(var{out} Value: T): Integer; overload;
     function InternalTryGetSingle(var{out} Value: T; const APredicate: TFunction<T,Boolean>): Integer; overload;
@@ -1870,6 +1868,121 @@ type
     function LastIndexOf(const AValue: T; const AComparer: TEqualityComparison<T>): Integer; overload; override;
 
     property SecondMode: TSecondMode read FSecondMode;
+  end;
+
+
+{ TCustomProxyCollection<T> class
+  Abstract collection that depends on original collection and specified enumerator }
+
+  TCustomProxyCollection<T> = class(TCollection<T>)
+  protected
+    FCollection: TCollection<T>;
+    function DoGetCount: Integer; override;
+    function DoGetIsEmpty: Boolean; override;
+    function DoGetIsSynchronized: Boolean; override;
+  public
+    constructor Create(const ACollection: TCollection<T>);
+
+    function All(const APredicate: TFunction<T,Boolean>): Boolean; override;
+    function Any(const APredicate: TFunction<T,Boolean>): Boolean; override;
+    function TryGetMin(var{out} Value: T; const AComparer: TComparison<T>): Boolean; overload; override;
+    function TryGetMin(var{out} Value: Integer; const ASelector: TFunction<T,Integer>): Boolean; overload; override;
+    function TryGetMax(var{out} Value: T; const AComparer: TComparison<T>): Boolean; overload; override;
+    function TryGetMax(var{out} Value: Integer; const ASelector: TFunction<T,Integer>): Boolean; overload; override;
+    function Single: T; overload; override;
+    function SingleOrDefault: T; overload; override;
+    function SingleOrDefault(const ADefaultValue: T): T; overload; override;
+    function TryGetSingle(var{out} Value: T): Boolean; overload; override;
+    function Single(const APredicate: TFunction<T,Boolean>): T; overload; override;
+    function SingleOrDefault(const APredicate: TFunction<T,Boolean>): T; overload; override;
+    function SingleOrDefault(const APredicate: TFunction<T,Boolean>; const ADefaultValue: T): T; overload; override;
+    function TryGetSingle(var{out} Value: T; const APredicate: TFunction<T,Boolean>): Boolean; overload; override;
+    function Sum: T; overload; override;
+    function Sum(const ASelector: TFunction<T,Integer>): Integer; overload; override;
+    function Sum(const ASelector: TFunction<T,Int64>): Int64; overload; override;
+    function Sum(const ASelector: TFunction<T,Extended>): Extended; overload; override;
+    function Contains(const AValue: T; const AComparer: TEqualityComparison<T>): Boolean; overload; override;
+    function Ordered(const AComparer: TComparison<T>): ICollection<T>; overload; override;
+    function Shuffled: ICollection<T>; override;
+
+    property Collection: TCollection<T> read FCollection;
+  end;
+
+
+{ TProxyCollection<T> class
+  All collection methods are redirected to the original collection }
+
+  TProxyCollection<T> = class(TCustomProxyCollection<T>)
+  protected
+    type
+      TLinearItems = TCollection<T>.TLinearItems;
+
+    function DoGetIsOrdered: Boolean; override;
+    function DoTryGetLinearItems(var ALinearItems: TLinearItems): Boolean; override;
+    function DoTryGetReversedEnumerator(var Enumerator: TCollectionEnumerator<T>): Boolean; override;
+    function DoGetEnumerator: TCollectionEnumerator<T>; override;
+  public
+    function ToArray: TArray<T>; overload; override;
+    function ToArray(const APredicate: TFunction<T,Boolean>): TArray<T>; overload; override;
+
+    function TryAggregate(var{out} Value: T; const AFunc: TFunction<T,T,T>): Boolean; override;
+    function TryGetMin(var{out} Value: T; const AComparer: TComparison<T>): Boolean; overload; override;
+    function TryGetMin(var{out} Value: Integer; const ASelector: TFunction<T,Integer>): Boolean; overload; override;
+    function TryGetMax(var{out} Value: T; const AComparer: TComparison<T>): Boolean; overload; override;
+    function TryGetMax(var{out} Value: Integer; const ASelector: TFunction<T,Integer>): Boolean; overload; override;
+    procedure ForEach(const AAction: TProcedure<T>); overload; override;
+    function ForEach(const AAction: TFunction<T,Boolean>): Boolean; overload; override;
+    function TryGetElementAt(var{out} Value: T; const AIndex: Integer): Boolean; override;
+
+    function TryGetFirst(var{out} Value: T): Boolean; overload; override;
+    function TryGetFirst(var{out} Value: T; const APredicate: TFunction<T,Boolean>): Boolean; overload; override;
+    function TryGetLast(var{out} Value: T): Boolean; overload; override;
+    function TryGetLast(var{out} Value: T; const APredicate: TFunction<T,Boolean>): Boolean; overload; override;
+    function IndexOf(const AValue: T; const AComparer: TEqualityComparison<T>): Integer; overload; override;
+    function LastIndexOf(const AValue: T; const AComparer: TEqualityComparison<T>): Integer; overload; override;
+    function EqualsTo(const AValues: array of T; const AComparer: TEqualityComparison<T>): Boolean; overload; override;
+    function EqualsTo(const ACollection: TCollection<T>; const AComparer: TEqualityComparison<T>): Boolean; overload; override;
+    function EqualsTo(const ACollection: ICollection<T>; const AComparer: TEqualityComparison<T>): Boolean; overload; override;
+    function EqualsTo(const AEnumerable: IEnumerable<T>; const AComparer: TEqualityComparison<T>): Boolean; overload; override;
+
+    function Concat(const ACollection: TCollection<T>): ICollection<T>; overload; override;
+    function Concat(const ACollection: ICollection<T>): ICollection<T>; overload; override;
+    function Concat(const AEnumerable: IEnumerable<T>): ICollection<T>; overload; override;
+    function Where(const APredicate: TFunction<T,Boolean>): ICollection<T>; override;
+    function Reversed: ICollection<T>; override;
+  end;
+
+
+{ TReversedCollection<T> class
+  Ñollection that contains original collection with a reverse enumerator }
+
+  TReversedCollection<T> = class(TCustomProxyCollection<T>)
+  protected
+    function DoTryGetReversedEnumerator(var Enumerator: TCollectionEnumerator<T>): Boolean; override;
+    function DoGetEnumerator: TCollectionEnumerator<T>; override;
+  public
+    function ToArray: TArray<T>; overload; override;
+    function ToArray(const APredicate: TFunction<T,Boolean>): TArray<T>; overload; override;
+    function TryGetElementAt(var{out} Value: T; const AIndex: Integer): Boolean; override;
+    function First: T; overload; override;
+    function FirstOrDefault: T; overload; override;
+    function FirstOrDefault(const ADefaultValue: T): T; overload; override;
+    function TryGetFirst(var{out} Value: T): Boolean; overload; override;
+    function First(const APredicate: TFunction<T,Boolean>): T; overload; override;
+    function FirstOrDefault(const APredicate: TFunction<T,Boolean>): T; overload; override;
+    function FirstOrDefault(const APredicate: TFunction<T,Boolean>; const ADefaultValue: T): T; overload; override;
+    function TryGetFirst(var{out} Value: T; const APredicate: TFunction<T,Boolean>): Boolean; overload; override;
+    function Last: T; overload; override;
+    function LastOrDefault: T; overload; override;
+    function LastOrDefault(const ADefaultValue: T): T; overload; override;
+    function TryGetLast(var{out} Value: T): Boolean; overload; override;
+    function Last(const APredicate: TFunction<T,Boolean>): T; overload; override;
+    function LastOrDefault(const APredicate: TFunction<T,Boolean>): T; overload; override;
+    function LastOrDefault(const APredicate: TFunction<T,Boolean>; const ADefaultValue: T): T; overload; override;
+    function TryGetLast(var{out} Value: T; const APredicate: TFunction<T,Boolean>): Boolean; overload; override;
+    function IndexOf(const AValue: T; const AComparer: TEqualityComparison<T>): Integer; overload; override;
+    function LastIndexOf(const AValue: T; const AComparer: TEqualityComparison<T>): Integer; overload; override;
+    function Reversed: ICollection<T>; override;
   end;
 
 
@@ -18578,6 +18691,11 @@ begin
   Result := False;
 end;
 
+function TCollection<T>.DoGetIsOrdered: Boolean;
+begin
+  Result := False;
+end;
+
 function TCollection<T>.DoTryGetLinearItems(var ALinearItems: TLinearItems): Boolean;
 begin
   Result := False;
@@ -18603,12 +18721,7 @@ begin
   Result := TEqualityComparison<T>(FEqualityComparer);
 end;
 
-function TCollection<T>.DoTryGetOrderedEnumerator(const Enumerator: PCollectionEnumerator): Boolean;
-begin
-  Result := False;
-end;
-
-function TCollection<T>.DoTryGetReversedEnumerator(const Enumerator: PCollectionEnumerator): Boolean;
+function TCollection<T>.DoTryGetReversedEnumerator(var Enumerator: TCollectionEnumerator<T>): Boolean;
 begin
   Result := False;
 end;
@@ -19289,7 +19402,7 @@ begin
   end else
   if (not DoGetIsEmpty) then
   begin
-    if (DoTryGetReversedEnumerator(@Enumerator)) then
+    if (DoTryGetReversedEnumerator(Enumerator)) then
     begin
       if (Enumerator.MoveNext) then
       begin
@@ -19347,7 +19460,7 @@ begin
   end else
   if (not DoGetIsEmpty) then
   begin
-    if (DoTryGetReversedEnumerator(@Enumerator)) then
+    if (DoTryGetReversedEnumerator(Enumerator)) then
     begin
       while (Enumerator.MoveNext) do
       begin
@@ -19590,7 +19703,7 @@ begin
 
   if (not DoGetIsEmpty) then
   begin
-    if (DoTryGetReversedEnumerator(@Enumerator)) then
+    if (DoTryGetReversedEnumerator(Enumerator)) then
     begin
       Result := DoGetCount - 1;
       while (Index >= 0) and (Enumerator.MoveNext) do
@@ -19857,9 +19970,15 @@ function TCollection<T>.Ordered(const AComparer: IComparer<T>): ICollection<T>;
 var
   LArray: TArray<T>;
 begin
-  LArray := ToArray;
-  TArray.Sort<T>(LArray, AComparer);
-  Result := TArrayCollection<T>.Create(LArray, AComparer, FEqualityComparer);
+  if (DoGetIsOrdered) then
+  begin
+    Result := TProxyCollection<T>.Create(Self);
+  end else
+  begin
+    LArray := ToArray;
+    TArray.Sort<T>(LArray, AComparer);
+    Result := TArrayCollection<T>.Create(LArray, AComparer, FEqualityComparer);
+  end;
 end;
 
 function TCollection<T>.Ordered(const AComparer: TComparison<T>): ICollection<T>;
@@ -19871,9 +19990,15 @@ function TCollection<T>.Reversed: ICollection<T>;
 var
   LArray: TArray<T>;
 begin
-  LArray := ToArray;
-  TArray.Reverse<T>(LArray);
-  Result := TArrayCollection<T>.Create(LArray, FComparer, FEqualityComparer);
+  if (DoTryGetReversedEnumerator(TCollectionEnumerator<T>(nil^))) then
+  begin
+    Result := TReversedCollection<T>.Create(Self);
+  end else
+  begin
+    LArray := ToArray;
+    TArray.Reverse<T>(LArray);
+    Result := TArrayCollection<T>.Create(LArray, FComparer, FEqualityComparer);
+  end;
 end;
 
 function TCollection<T>.Shuffled: ICollection<T>;
@@ -19950,7 +20075,7 @@ begin
   Result := (FCount.Native = 0);
 end;
 
-function TCustomListCollection<T1,T,T3,T4>.DoTryGetLinearItems(var ALinearItems: TCollection<T>.TLinearItems): Boolean;
+function TCustomListCollection<T1,T,T3,T4>.DoTryGetLinearItems(var ALinearItems: TLinearItems): Boolean;
 begin
   ALinearItems.Values1 := @FItems[0].Field2;
   ALinearItems.Count1 := FCount.Int;
@@ -19959,9 +20084,9 @@ begin
   Result := True;
 end;
 
-function TCustomListCollection<T1,T,T3,T4>.DoTryGetReversedEnumerator(const Enumerator: TCollection<T>.PCollectionEnumerator): Boolean;
+function TCustomListCollection<T1,T,T3,T4>.DoTryGetReversedEnumerator(var Enumerator: TCollectionEnumerator<T>): Boolean;
 begin
-  if (Assigned(Enumerator)) then
+  if (Assigned(@Enumerator)) then
   begin
     Enumerator.Data.Init(Self);
     Enumerator.Data.Tag := FCount.Native;
@@ -20895,16 +21020,16 @@ begin
   end;
 end;
 
-function TConcatedCollection<T>.DoTryGetReversedEnumerator(const Enumerator: PCollectionEnumerator): Boolean;
+function TConcatedCollection<T>.DoTryGetReversedEnumerator(var Enumerator: TCollectionEnumerator<T>): Boolean;
 begin
-  if (Assigned(FSecondInstance)) and (FCollection.DoTryGetOrderedEnumerator(nil)) and
-    (FSecondInstance.DoTryGetReversedEnumerator(nil)) then
+  if (Assigned(FSecondInstance)) and (FCollection.DoTryGetReversedEnumerator(TCollectionEnumerator<T>(nil^))) and
+    (FSecondInstance.DoTryGetReversedEnumerator(TCollectionEnumerator<T>(nil^))) then
   begin
-    if (Assigned(Enumerator)) then
+    if (Assigned(@Enumerator)) then
     begin
-      FSecondInstance.DoTryGetReversedEnumerator(Enumerator^.InitProxyInteface);
-      Enumerator^.Data.Owner := Self;
-      Enumerator^.DoMoveNext := ReversedEnumeratorMoveNext;
+      FSecondInstance.DoTryGetReversedEnumerator(TCollectionEnumerator<T>(Enumerator.InitProxyInteface^));
+      Enumerator.Data.Owner := Self;
+      Enumerator.DoMoveNext := ReversedEnumeratorMoveNext;
     end;
 
     Result := True;
@@ -20923,7 +21048,7 @@ end;
 
 class function TConcatedCollection<T>.ReversedEnumeratorMoveNext(var AEnumerator: TCollectionEnumerator<T>): Boolean;
 var
-  LEnumerator: PCollectionEnumerator;
+  LEnumerator: ^TCollectionEnumerator<T>;
 begin
   LEnumerator := AEnumerator.GetProxyInteface;
   if (LEnumerator^.DoMoveNext(LEnumerator^)) then
@@ -20933,7 +21058,7 @@ begin
     Exit;
   end;
 
-  if (TConcatedCollection<T>(AEnumerator.Data.Owner).FCollection.DoTryGetReversedEnumerator(@AEnumerator)) then
+  if (TConcatedCollection<T>(AEnumerator.Data.Owner).FCollection.DoTryGetReversedEnumerator(AEnumerator)) then
     raise EMethodNotFound(AEnumerator.Data.Owner.ClassType, 'DoTryGetReversedEnumerator');
 
   Result := AEnumerator.DoMoveNext(AEnumerator);
@@ -20941,7 +21066,7 @@ end;
 
 class function TConcatedCollection<T>.EnumeratorMoveNext(var AEnumerator: TCollectionEnumerator<T>): Boolean;
 var
-  LEnumerator: PCollectionEnumerator;
+  LEnumerator: ^TCollectionEnumerator<T>;
   {$ifdef AUTOREFCOUNT}[Unsafe]{$endif} LOwner: TConcatedCollection<T>;
 begin
   LEnumerator := AEnumerator.GetProxyInteface;
@@ -21698,6 +21823,428 @@ begin
   begin
     Result := FCollection.LastIndexOf(AValue, AComparer);
   end;
+end;
+
+
+{ TCustomProxyCollection<T> }
+
+constructor TCustomProxyCollection<T>.Create(const ACollection: TCollection<T>);
+begin
+  inherited Create;
+  FCollection := ACollection;
+  FComparer := ACollection.FComparer;
+  FEqualityComparer := ACollection.FEqualityComparer;
+end;
+
+function TCustomProxyCollection<T>.DoGetCount: Integer;
+begin
+  Result := FCollection.DoGetCount;
+end;
+
+function TCustomProxyCollection<T>.DoGetIsEmpty: Boolean;
+begin
+  Result := FCollection.DoGetIsEmpty;
+end;
+
+function TCustomProxyCollection<T>.DoGetIsSynchronized: Boolean;
+begin
+  Result := FCollection.DoGetIsSynchronized;
+end;
+
+function TCustomProxyCollection<T>.All(const APredicate: TFunction<T,Boolean>): Boolean;
+begin
+  Result := FCollection.All(APredicate);
+end;
+
+function TCustomProxyCollection<T>.Any(const APredicate: TFunction<T,Boolean>): Boolean;
+begin
+  Result := FCollection.Any(APredicate);
+end;
+
+function TCustomProxyCollection<T>.TryGetMin(var{out} Value: T; const AComparer: TComparison<T>): Boolean;
+begin
+  Result := FCollection.TryGetMin(Value, AComparer);
+end;
+
+function TCustomProxyCollection<T>.TryGetMin(var{out} Value: Integer; const ASelector: TFunction<T,Integer>): Boolean;
+begin
+  Result := FCollection.TryGetMin(Value, ASelector);
+end;
+
+function TCustomProxyCollection<T>.TryGetMax(var{out} Value: T; const AComparer: TComparison<T>): Boolean;
+begin
+  Result := FCollection.TryGetMax(Value, AComparer);
+end;
+
+function TCustomProxyCollection<T>.TryGetMax(var{out} Value: Integer; const ASelector: TFunction<T,Integer>): Boolean;
+begin
+  Result := FCollection.TryGetMax(Value, ASelector);
+end;
+
+function TCustomProxyCollection<T>.Single: T;
+begin
+  Result := FCollection.Single;
+end;
+
+function TCustomProxyCollection<T>.SingleOrDefault: T;
+begin
+  Result := FCollection.SingleOrDefault;
+end;
+
+function TCustomProxyCollection<T>.SingleOrDefault(const ADefaultValue: T): T;
+begin
+  Result := FCollection.SingleOrDefault;
+end;
+
+function TCustomProxyCollection<T>.TryGetSingle(var{out} Value: T): Boolean;
+begin
+  Result := FCollection.TryGetSingle(Value);
+end;
+
+function TCustomProxyCollection<T>.Single(const APredicate: TFunction<T,Boolean>): T;
+begin
+  Result := FCollection.Single(APredicate);
+end;
+
+function TCustomProxyCollection<T>.SingleOrDefault(const APredicate: TFunction<T,Boolean>): T;
+begin
+  Result := FCollection.SingleOrDefault(APredicate);
+end;
+
+function TCustomProxyCollection<T>.SingleOrDefault(const APredicate: TFunction<T,Boolean>; const ADefaultValue: T): T;
+begin
+  Result := FCollection.SingleOrDefault(APredicate, ADefaultValue);
+end;
+
+function TCustomProxyCollection<T>.TryGetSingle(var{out} Value: T; const APredicate: TFunction<T,Boolean>): Boolean;
+begin
+  Result := FCollection.TryGetSingle(Value, APredicate);
+end;
+
+function TCustomProxyCollection<T>.Sum: T;
+begin
+  Result := FCollection.Sum;
+end;
+
+function TCustomProxyCollection<T>.Sum(const ASelector: TFunction<T,Integer>): Integer;
+begin
+  Result := FCollection.Sum(ASelector);
+end;
+
+function TCustomProxyCollection<T>.Sum(const ASelector: TFunction<T,Int64>): Int64;
+begin
+  Result := FCollection.Sum(ASelector);
+end;
+
+function TCustomProxyCollection<T>.Sum(const ASelector: TFunction<T,Extended>): Extended;
+begin
+  Result := FCollection.Sum(ASelector);
+end;
+
+function TCustomProxyCollection<T>.Contains(const AValue: T; const AComparer: TEqualityComparison<T>): Boolean;
+begin
+  Result := FCollection.Contains(AValue, AComparer);
+end;
+
+function TCustomProxyCollection<T>.Ordered(const AComparer: TComparison<T>): ICollection<T>;
+begin
+  Result := FCollection.Ordered(AComparer);
+end;
+
+function TCustomProxyCollection<T>.Shuffled: ICollection<T>;
+begin
+  Result := FCollection.Shuffled;
+end;
+
+
+{ TProxyCollection<T> }
+
+
+function TProxyCollection<T>.DoGetIsOrdered: Boolean;
+begin
+  Result := FCollection.DoGetIsOrdered;
+end;
+
+function TProxyCollection<T>.DoTryGetLinearItems(var ALinearItems: TLinearItems): Boolean;
+begin
+  Result := FCollection.DoTryGetLinearItems(ALinearItems);
+end;
+
+function TProxyCollection<T>.DoTryGetReversedEnumerator(var Enumerator: TCollectionEnumerator<T>): Boolean;
+begin
+  Result := FCollection.DoTryGetReversedEnumerator(Enumerator);
+end;
+
+function TProxyCollection<T>.DoGetEnumerator: TCollectionEnumerator<T>;
+begin
+  Result := FCollection.DoGetEnumerator;
+end;
+
+function TProxyCollection<T>.ToArray: TArray<T>;
+begin
+  Result := FCollection.ToArray;
+end;
+
+function TProxyCollection<T>.ToArray(const APredicate: TFunction<T,Boolean>): TArray<T>;
+begin
+  Result := FCollection.ToArray(APredicate);
+end;
+
+function TProxyCollection<T>.TryAggregate(var{out} Value: T; const AFunc: TFunction<T,T,T>): Boolean;
+begin
+  Result := FCollection.TryAggregate(Value, AFunc);
+end;
+
+function TProxyCollection<T>.TryGetMin(var{out} Value: T; const AComparer: TComparison<T>): Boolean;
+begin
+  Result := FCollection.TryGetMin(Value, AComparer);
+end;
+
+function TProxyCollection<T>.TryGetMin(var{out} Value: Integer; const ASelector: TFunction<T,Integer>): Boolean;
+begin
+  Result := FCollection.TryGetMin(Value, ASelector);
+end;
+
+function TProxyCollection<T>.TryGetMax(var{out} Value: T; const AComparer: TComparison<T>): Boolean;
+begin
+  Result := FCollection.TryGetMax(Value, AComparer);
+end;
+
+function TProxyCollection<T>.TryGetMax(var{out} Value: Integer; const ASelector: TFunction<T,Integer>): Boolean;
+begin
+  Result := FCollection.TryGetMax(Value, ASelector);
+end;
+
+procedure TProxyCollection<T>.ForEach(const AAction: TProcedure<T>);
+begin
+  FCollection.ForEach(AAction);
+end;
+
+function TProxyCollection<T>.ForEach(const AAction: TFunction<T,Boolean>): Boolean;
+begin
+  Result := FCollection.ForEach(AAction);
+end;
+
+function TProxyCollection<T>.TryGetElementAt(var{out} Value: T; const AIndex: Integer): Boolean;
+begin
+  Result := FCollection.TryGetElementAt(Value, AIndex);
+end;
+
+function TProxyCollection<T>.TryGetFirst(var{out} Value: T): Boolean;
+begin
+  Result := FCollection.TryGetFirst(Value);
+end;
+
+function TProxyCollection<T>.TryGetFirst(var{out} Value: T; const APredicate: TFunction<T,Boolean>): Boolean;
+begin
+  Result := FCollection.TryGetFirst(Value, APredicate);
+end;
+
+function TProxyCollection<T>.TryGetLast(var{out} Value: T): Boolean;
+begin
+  Result := FCollection.TryGetLast(Value);
+end;
+
+function TProxyCollection<T>.TryGetLast(var{out} Value: T; const APredicate: TFunction<T,Boolean>): Boolean;
+begin
+  Result := FCollection.TryGetLast(Value, APredicate);
+end;
+
+function TProxyCollection<T>.IndexOf(const AValue: T; const AComparer: TEqualityComparison<T>): Integer;
+begin
+  Result := FCollection.IndexOf(AValue, AComparer);
+end;
+
+function TProxyCollection<T>.LastIndexOf(const AValue: T; const AComparer: TEqualityComparison<T>): Integer;
+begin
+  Result := FCollection.LastIndexOf(AValue, AComparer);
+end;
+
+function TProxyCollection<T>.EqualsTo(const AValues: array of T; const AComparer: TEqualityComparison<T>): Boolean;
+begin
+  Result := FCollection.EqualsTo(AValues, AComparer);
+end;
+
+function TProxyCollection<T>.EqualsTo(const ACollection: TCollection<T>; const AComparer: TEqualityComparison<T>): Boolean;
+begin
+  Result := FCollection.EqualsTo(ACollection, AComparer);
+end;
+
+function TProxyCollection<T>.EqualsTo(const ACollection: ICollection<T>; const AComparer: TEqualityComparison<T>): Boolean;
+begin
+  Result := FCollection.EqualsTo(ACollection, AComparer);
+end;
+
+function TProxyCollection<T>.EqualsTo(const AEnumerable: IEnumerable<T>; const AComparer: TEqualityComparison<T>): Boolean;
+begin
+  Result := FCollection.EqualsTo(AEnumerable, AComparer);
+end;
+
+function TProxyCollection<T>.Concat(const ACollection: TCollection<T>): ICollection<T>;
+begin
+  Result := FCollection.Concat(ACollection);
+end;
+
+function TProxyCollection<T>.Concat(const ACollection: ICollection<T>): ICollection<T>;
+begin
+  Result := FCollection.Concat(ACollection);
+end;
+
+function TProxyCollection<T>.Concat(const AEnumerable: IEnumerable<T>): ICollection<T>;
+begin
+  Result := FCollection.Concat(AEnumerable);
+end;
+
+function TProxyCollection<T>.Where(const APredicate: TFunction<T,Boolean>): ICollection<T>;
+begin
+  Result := FCollection.Where(APredicate);
+end;
+
+function TProxyCollection<T>.Reversed: ICollection<T>;
+begin
+  Result := FCollection.Reversed;
+end;
+
+
+{ TReversedCollection<T> }
+
+function TReversedCollection<T>.DoTryGetReversedEnumerator(var Enumerator: TCollectionEnumerator<T>): Boolean;
+begin
+  Enumerator := FCollection.DoGetEnumerator;
+  Result := True;
+end;
+
+function TReversedCollection<T>.DoGetEnumerator: TCollectionEnumerator<T>;
+begin
+  DoTryGetReversedEnumerator(Result);
+end;
+
+function TReversedCollection<T>.ToArray: TArray<T>;
+begin
+  Result := FCollection.ToArray;
+  TArray.Reverse<T>(Result);
+end;
+
+function TReversedCollection<T>.ToArray(const APredicate: TFunction<T,Boolean>): TArray<T>;
+begin
+  Result := FCollection.ToArray(APredicate);
+  TArray.Reverse<T>(Result);
+end;
+
+function TReversedCollection<T>.TryGetElementAt(var{out} Value: T; const AIndex: Integer): Boolean;
+var
+  Count: Integer;
+begin
+  Count := FCollection.DoGetCount;
+  Result := (Cardinal(AIndex) < Cardinal(Count)) and
+    (FCollection.TryGetElementAt(Value, Count - 1 - AIndex));
+end;
+
+function TReversedCollection<T>.First: T;
+begin
+  Result := FCollection.Last;
+end;
+
+function TReversedCollection<T>.FirstOrDefault: T;
+begin
+  Result := FCollection.LastOrDefault;
+end;
+
+function TReversedCollection<T>.FirstOrDefault(const ADefaultValue: T): T;
+begin
+  Result := FCollection.LastOrDefault(ADefaultValue);
+end;
+
+function TReversedCollection<T>.TryGetFirst(var{out} Value: T): Boolean;
+begin
+  Result := FCollection.TryGetLast(Value);
+end;
+
+function TReversedCollection<T>.First(const APredicate: TFunction<T,Boolean>): T;
+begin
+  Result := FCollection.Last(APredicate);
+end;
+
+function TReversedCollection<T>.FirstOrDefault(const APredicate: TFunction<T,Boolean>): T;
+begin
+  Result := FCollection.LastOrDefault(APredicate);
+end;
+
+function TReversedCollection<T>.FirstOrDefault(const APredicate: TFunction<T,Boolean>; const ADefaultValue: T): T;
+begin
+  Result := FCollection.LastOrDefault(APredicate, ADefaultValue);
+end;
+
+function TReversedCollection<T>.TryGetFirst(var{out} Value: T; const APredicate: TFunction<T,Boolean>): Boolean;
+begin
+  Result := FCollection.TryGetLast(Value, APredicate);
+end;
+
+function TReversedCollection<T>.Last: T;
+begin
+  Result := FCollection.First;
+end;
+
+function TReversedCollection<T>.LastOrDefault: T;
+begin
+  Result := FCollection.FirstOrDefault;
+end;
+
+function TReversedCollection<T>.LastOrDefault(const ADefaultValue: T): T;
+begin
+  Result := FCollection.FirstOrDefault(ADefaultValue);
+end;
+
+function TReversedCollection<T>.TryGetLast(var{out} Value: T): Boolean;
+begin
+  Result := FCollection.TryGetFirst(Value);
+end;
+
+function TReversedCollection<T>.Last(const APredicate: TFunction<T,Boolean>): T;
+begin
+  Result := FCollection.First(APredicate);
+end;
+
+function TReversedCollection<T>.LastOrDefault(const APredicate: TFunction<T,Boolean>): T;
+begin
+  Result := FCollection.FirstOrDefault(APredicate);
+end;
+
+function TReversedCollection<T>.LastOrDefault(const APredicate: TFunction<T,Boolean>; const ADefaultValue: T): T;
+begin
+  Result := FCollection.FirstOrDefault(APredicate, ADefaultValue);
+end;
+
+function TReversedCollection<T>.TryGetLast(var{out} Value: T; const APredicate: TFunction<T,Boolean>): Boolean;
+begin
+  Result := FCollection.TryGetFirst(Value, APredicate);
+end;
+
+function TReversedCollection<T>.IndexOf(const AValue: T; const AComparer: TEqualityComparison<T>): Integer;
+begin
+  Result := FCollection.LastIndexOf(AValue, AComparer);
+  if (Result >= 0) then
+  begin
+    Result := FCollection.DoGetCount - 1 - Result;
+    if (Result < 0) then
+      Result := -1;
+  end;
+end;
+
+function TReversedCollection<T>.LastIndexOf(const AValue: T; const AComparer: TEqualityComparison<T>): Integer;
+begin
+  Result := FCollection.IndexOf(AValue, AComparer);
+  if (Result >= 0) then
+  begin
+    Result := FCollection.DoGetCount - 1 - Result;
+    if (Result < 0) then
+      Result := -1;
+  end;
+end;
+
+function TReversedCollection<T>.Reversed: ICollection<T>;
+begin
+  Result := TProxyCollection<T>.Create(FCollection);
 end;
 
 
