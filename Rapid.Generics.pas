@@ -1318,18 +1318,23 @@ type
     function All(const APredicate: TFunction<T,Boolean>): Boolean;
     function Any(const APredicate: TFunction<T,Boolean>): Boolean;
     function Aggregate(const AFunc: TFunction<T,T,T>): T;
+    function TryAggregate(var{out} Value: T; const AFunc: TFunction<T,T,T>): Boolean;
     function Min: T; overload;
     function Min(const AComparer: IComparer<T>): T; overload;
     function Min(const AComparer: TComparison<T>): T; overload;
-    function Min(const ASelector: TFunction<T, Integer>): Integer; overload;
+    function Min(const ASelector: TFunction<T,Integer>): Integer; overload;
+    function TryGetMin(var{out} Value: T; const AComparer: TComparison<T>): Boolean; overload;
+    function TryGetMin(var{out} Value: Integer; const ASelector: TFunction<T,Integer>): Boolean; overload;
     function Max: T; overload;
     function Max(const AComparer: IComparer<T>): T; overload;
     function Max(const AComparer: TComparison<T>): T; overload;
-    function Max(const ASelector: TFunction<T, Integer>): Integer; overload;
+    function Max(const ASelector: TFunction<T,Integer>): Integer; overload;
+    function TryGetMax(var{out} Value: T; const AComparer: TComparison<T>): Boolean; overload;
+    function TryGetMax(var{out} Value: Integer; const ASelector: TFunction<T,Integer>): Boolean; overload;
     function Sum: T; overload;
-    function Sum(const ASelector: TFunction<T, Integer>): Integer; overload;
-    function Sum(const ASelector: TFunction<T, Int64>): Int64; overload;
-    function Sum(const ASelector: TFunction<T, Extended>): Extended; overload;
+    function Sum(const ASelector: TFunction<T,Integer>): Integer; overload;
+    function Sum(const ASelector: TFunction<T,Int64>): Int64; overload;
+    function Sum(const ASelector: TFunction<T,Extended>): Extended; overload;
     procedure ForEach(const AAction: TProcedure<T>); overload;
     function ForEach(const AAction: TFunction<T,Boolean>): Boolean; overload;
     function ElementAt(const AIndex: Integer): T;
@@ -1465,19 +1470,20 @@ type
         function All(const APredicate: TFunction<T,Boolean>): Boolean;
         function Any(const APredicate: TFunction<T,Boolean>): Boolean;
         function Aggregate(const AFunc: TFunction<T,T,T>): T;
+        function TryAggregate(var{out} Value: T; const AFunc: TFunction<T,T,T>; const AFound: Boolean): Boolean;
         function Min(const AComparer: TComparison<T>): T; overload;
-        function Min(const ASelector: TFunction<T, Integer>): Integer; overload;
+        function Min(const ASelector: TFunction<T,Integer>): Integer; overload;
         function Max(const AComparer: TComparison<T>): T; overload;
-        function Max(const ASelector: TFunction<T, Integer>): Integer; overload;
+        function Max(const ASelector: TFunction<T,Integer>): Integer; overload;
         function Sum: T; overload;
-        function Sum(const ASelector: TFunction<T, Integer>): Integer; overload;
-        function Sum(const ASelector: TFunction<T, Int64>): Int64; overload;
-        function Sum(const ASelector: TFunction<T, Extended>): Extended; overload;
+        function Sum(const ASelector: TFunction<T,Integer>): Integer; overload;
+        function Sum(const ASelector: TFunction<T,Int64>): Int64; overload;
+        function Sum(const ASelector: TFunction<T,Extended>): Extended; overload;
         procedure ForEach(const AAction: TProcedure<T>); overload;
         function ForEach(const AAction: TFunction<T,Boolean>): Boolean; overload;
         function TryGetFirst(var{out} Value: T; const APredicate: TFunction<T,Boolean>): Boolean;
         function TryGetLast(var{out} Value: T; const APredicate: TFunction<T,Boolean>): Boolean;
-        function TryGetSingle(var{out} Value: T; const APredicate: TFunction<T,Boolean>): Integer;
+        function TryGetSingle(var{out} Value: T; const APredicate: TFunction<T,Boolean>; const AFound: Boolean): Integer;
         function IndexOf(const AValue: T; const AComparer: TEqualityComparison<T>): Integer;
         function LastIndexOf(const AValue: T; const AComparer: TEqualityComparison<T>): Integer;
         function EqualsTo(const ALinearItems: TLinearItems; const AComparer: TEqualityComparison<T>): Boolean; overload;
@@ -1486,25 +1492,78 @@ type
       end;
       PLinearItems = ^TLinearItems;
 
-    class function InternalAll(Value: P; Offset: NativeInt; Count: Integer; const APredicate: TFunction<T,Boolean>): Boolean; static;
-    class function InternalAny(Value: P; Offset: NativeInt; Count: Integer; const APredicate: TFunction<T,Boolean>): Boolean; static;
+    class function InternalAll(Value: P; Offset: NativeInt; Count: Integer; const APredicate: TFunction<T,Boolean>): Boolean; overload; static;
+    class function InternalAll(const AEnumerator: IEnumerator<T>; const APredicate: TFunction<T,Boolean>): Boolean; overload; static;
+    class function InternalAll(const AEnumerable: IEnumerable<T>; const APredicate: TFunction<T,Boolean>): Boolean; overload; static;
+    class function InternalAny(Value: P; Offset: NativeInt; Count: Integer; const APredicate: TFunction<T,Boolean>): Boolean; overload; static;
+    class function InternalAny(const AEnumerator: IEnumerator<T>; const APredicate: TFunction<T,Boolean>): Boolean; overload; static;
+    class function InternalAny(const AEnumerable: IEnumerable<T>; const APredicate: TFunction<T,Boolean>): Boolean; overload; static;
     class function InternalAggregate(Value: P; Offset: NativeInt; Count: Integer; const ABaseValue: T; const AFunc: TFunction<T,T,T>): T; static;
+    class function InternalTryAggregate(var AEnumerator: TCollectionEnumerator<T>; var{out} Value: T; const AFunc: TFunction<T,T,T>; const AFound: Boolean): Boolean; overload; static;
+    class function InternalTryAggregate(const ACollection: TCollection<T>; var{out} Value: T; const AFunc: TFunction<T,T,T>; const AFound: Boolean): Boolean; overload; static;
+    class function InternalTryAggregate(const ACollection: ICollection<T>; var{out} Value: T; const AFunc: TFunction<T,T,T>; const AFound: Boolean): Boolean; overload; static;
+    class function InternalTryAggregate(const AEnumerator: IEnumerator<T>; var{out} Value: T; const AFunc: TFunction<T,T,T>; const AFound: Boolean): Boolean; overload; static;
+    class function InternalTryAggregate(const AEnumerable: IEnumerable<T>; var{out} Value: T; const AFunc: TFunction<T,T,T>; const AFound: Boolean): Boolean; overload; static;
     class function InternalMin(Value: P; Offset: NativeInt; Count: Integer; const AComparer: TComparison<T>): T; overload; static;
-    class function InternalMin(Value: P; Offset: NativeInt; Count: Integer; const ASelector: TFunction<T, Integer>): Integer; overload; static;
+    class function InternalMin(Value: P; Offset: NativeInt; Count: Integer; const ASelector: TFunction<T,Integer>): Integer; overload; static;
+    class function InternalTryGetMin(var{out} Value: T; const AEnumerator: IEnumerator<T>; const AComparer: TComparison<T>): Boolean; overload; static;
+    class function InternalTryGetMin(var{out} Value: T; const AEnumerable: IEnumerable<T>; const AComparer: TComparison<T>): Boolean; overload; static;
+    class function InternalTryGetMin(var{out} Value: Integer; const AEnumerator: IEnumerator<T>; const ASelector: TFunction<T,Integer>): Boolean; overload; static;
+    class function InternalTryGetMin(var{out} Value: Integer; const AEnumerable: IEnumerable<T>; const ASelector: TFunction<T,Integer>): Boolean; overload; static;
     class function InternalMax(Value: P; Offset: NativeInt; Count: Integer; const AComparer: TComparison<T>): T; overload; static;
-    class function InternalMax(Value: P; Offset: NativeInt; Count: Integer; const ASelector: TFunction<T, Integer>): Integer; overload; static;
-    class function InternalSum(Value: P; Offset: NativeInt; Count: Integer; const ASelector: TFunction<T, Integer>): Integer; overload; static;
-    class function InternalSum(Value: P; Offset: NativeInt; Count: Integer; const ASelector: TFunction<T, Int64>): Int64; overload; static;
-    class function InternalSum(Value: P; Offset: NativeInt; Count: Integer; const ASelector: TFunction<T, Extended>): Extended; overload; static;
+    class function InternalMax(Value: P; Offset: NativeInt; Count: Integer; const ASelector: TFunction<T,Integer>): Integer; overload; static;
+    class function InternalTryGetMax(var{out} Value: T; const AEnumerator: IEnumerator<T>; const AComparer: TComparison<T>): Boolean; overload; static;
+    class function InternalTryGetMax(var{out} Value: T; const AEnumerable: IEnumerable<T>; const AComparer: TComparison<T>): Boolean; overload; static;
+    class function InternalTryGetMax(var{out} Value: Integer; const AEnumerator: IEnumerator<T>; const ASelector: TFunction<T,Integer>): Boolean; overload; static;
+    class function InternalTryGetMax(var{out} Value: Integer; const AEnumerable: IEnumerable<T>; const ASelector: TFunction<T,Integer>): Boolean; overload; static;
+    class function InternalSum(Value: P; Offset: NativeInt; Count: Integer; const ASelector: TFunction<T,Integer>): Integer; overload; static;
+    class function InternalSum(Value: P; Offset: NativeInt; Count: Integer; const ASelector: TFunction<T,Int64>): Int64; overload; static;
+    class function InternalSum(Value: P; Offset: NativeInt; Count: Integer; const ASelector: TFunction<T,Extended>): Extended; overload; static;
+    class function InternalSum(const AEnumerator: IEnumerator<T>): T; overload; static;
+    class function InternalSum(const AEnumerable: IEnumerable<T>): T; overload; static;
+    class function InternalSum(const AEnumerator: IEnumerator<T>; const ASelector: TFunction<T,Integer>): Integer; overload; static;
+    class function InternalSum(const AEnumerable: IEnumerable<T>; const ASelector: TFunction<T,Integer>): Integer; overload; static;
+    class function InternalSum(const AEnumerator: IEnumerator<T>; const ASelector: TFunction<T,Int64>): Int64; overload; static;
+    class function InternalSum(const AEnumerable: IEnumerable<T>; const ASelector: TFunction<T,Int64>): Int64; overload; static;
+    class function InternalSum(const AEnumerator: IEnumerator<T>; const ASelector: TFunction<T,Extended>): Extended; overload; static;
+    class function InternalSum(const AEnumerable: IEnumerable<T>; const ASelector: TFunction<T,Extended>): Extended; overload; static;
     class procedure InternalForEach(Value: P; Offset: NativeInt; Count: Integer; const AAction: TProcedure<T>); overload; static;
+    class procedure InternalForEach(const AEnumerator: IEnumerator<T>; const AAction: TProcedure<T>); overload; static;
+    class procedure InternalForEach(const AEnumerable: IEnumerable<T>; const AAction: TProcedure<T>); overload; static;
     class function InternalForEach(Value: P; Offset: NativeInt; Count: Integer; const AAction: TFunction<T,Boolean>): Boolean; overload; static;
-    class function InternalGetFirst(Value: P; Offset: NativeInt; Count: Integer; const APredicate: TFunction<T,Boolean>): Integer; static;
+    class function InternalForEach(const AEnumerator: IEnumerator<T>; const AAction: TFunction<T,Boolean>): Boolean; overload; static;
+    class function InternalForEach(const AEnumerable: IEnumerable<T>; const AAction: TFunction<T,Boolean>): Boolean; overload; static;
+    class function InternalTryGetElementAt(const AEnumerator: IEnumerator<T>; var{out} Value: T; const AIndex: Integer): Boolean; overload; static;
+    class function InternalTryGetElementAt(const AEnumerable: IEnumerable<T>; var{out} Value: T; const AIndex: Integer): Boolean; overload; static;
+    class function InternalGetFirst(Value: P; Offset: NativeInt; Count: Integer; const APredicate: TFunction<T,Boolean>): Integer; overload; static;
+    class function InternalTryGetFirst(const AEnumerator: IEnumerator<T>; var{out} Value: T): Boolean; overload; static;
+    class function InternalTryGetFirst(const AEnumerable: IEnumerable<T>; var{out} Value: T): Boolean; overload; static;
+    class function InternalTryGetFirst(const AEnumerator: IEnumerator<T>; var{out} Value: T; const APredicate: TFunction<T,Boolean>): Boolean; overload; static;
+    class function InternalTryGetFirst(const AEnumerable: IEnumerable<T>; var{out} Value: T; const APredicate: TFunction<T,Boolean>): Boolean; overload; static;
     class function InternalGetLast(Value: P; Offset: NativeInt; Count: Integer; const APredicate: TFunction<T,Boolean>): Integer; static;
-    class function InternalGetSingle(Value: P; Offset: NativeInt; Count: Integer; const APredicate: TFunction<T,Boolean>): Integer; static;
+    class function InternalTryGetLast(const AEnumerator: IEnumerator<T>; var{out} Value: T): Boolean; overload; static;
+    class function InternalTryGetLast(const AEnumerable: IEnumerable<T>; var{out} Value: T): Boolean; overload; static;
+    class function InternalTryGetLast(const AEnumerator: IEnumerator<T>; var{out} Value: T; const APredicate: TFunction<T,Boolean>): Boolean; overload; static;
+    class function InternalTryGetLast(const AEnumerable: IEnumerable<T>; var{out} Value: T; const APredicate: TFunction<T,Boolean>): Boolean; overload; static;
+    class function InternalGetSingle(Value: P; Offset: NativeInt; Count: Integer; const APredicate: TFunction<T,Boolean>; const AFound: Boolean): Integer; overload; static;
+    class function InternalTryGetSingle(var AEnumerator: TCollectionEnumerator<T>; var{out} Value: T; const AFound: Boolean): Integer; overload; static;
+    class function InternalTryGetSingle(const ACollection: TCollection<T>; var{out} Value: T; const AFound: Boolean): Integer; overload; static;
+    class function InternalTryGetSingle(const ACollection: ICollection<T>; var{out} Value: T; const AFound: Boolean): Integer; overload; static;
+    class function InternalTryGetSingle(const AEnumerator: IEnumerator<T>; var{out} Value: T; const AFound: Boolean): Integer; overload; static;
+    class function InternalTryGetSingle(const AEnumerable: IEnumerable<T>; var{out} Value: T; const AFound: Boolean): Integer; overload; static;
+    class function InternalTryGetSingle(var AEnumerator: TCollectionEnumerator<T>; var{out} Value: T; const APredicate: TFunction<T,Boolean>; const AFound: Boolean): Integer; overload; static;
+    class function InternalTryGetSingle(const ACollection: TCollection<T>; var{out} Value: T; const APredicate: TFunction<T,Boolean>; const AFound: Boolean): Integer; overload; static;
+    class function InternalTryGetSingle(const ACollection: ICollection<T>; var{out} Value: T; const APredicate: TFunction<T,Boolean>; const AFound: Boolean): Integer; overload; static;
+    class function InternalTryGetSingle(const AEnumerator: IEnumerator<T>; var{out} Value: T; const APredicate: TFunction<T,Boolean>; const AFound: Boolean): Integer; overload; static;
+    class function InternalTryGetSingle(const AEnumerable: IEnumerable<T>; var{out} Value: T; const APredicate: TFunction<T,Boolean>; const AFound: Boolean): Integer; overload; static;
     class function InternalIndexOf(const AValue: T; Value: P; Offset: NativeInt; Count: Integer; const AComparer: TComparison<T>): Integer; overload; static;
     class function InternalIndexOf(const AValue: T; Value: P; Offset: NativeInt; Count: Integer; const AComparer: TEqualityComparison<T>): Integer; overload; static;
+    class function InternalIndexOf(const AValue: T; const AEnumerator: IEnumerator<T>; const AComparer: TEqualityComparison<T>): Integer; overload; static;
+    class function InternalIndexOf(const AValue: T; const AEnumerable: IEnumerable<T>; const AComparer: TEqualityComparison<T>): Integer; overload; static;
     class function InternalLastIndexOf(const AValue: T; Value: P; Offset: NativeInt; Count: Integer; const AComparer: TComparison<T>): Integer; overload; static;
     class function InternalLastIndexOf(const AValue: T; Value: P; Offset: NativeInt; Count: Integer; const AComparer: TEqualityComparison<T>): Integer; overload; static;
+    class function InternalLastIndexOf(const AValue: T; const AEnumerator: IEnumerator<T>; const AComparer: TEqualityComparison<T>): Integer; overload; static;
+    class function InternalLastIndexOf(const AValue: T; const AEnumerable: IEnumerable<T>; const AComparer: TEqualityComparison<T>): Integer; overload; static;
     class function InternalEqualsTo(Value1, Value2: P; Offset1, Offset2: NativeInt; Count: Integer; const AComparer: TEqualityComparison<T>): Boolean; overload; static;
     class function InternalEqualsTo(Value: P; Offset: NativeInt; Count: Integer; var AEnumerator: TCollectionEnumerator<T>; const AComparer: TEqualityComparison<T>): Boolean; overload; static;
     class function InternalEqualsTo(Value: P; Offset: NativeInt; Count: Integer; const AEnumerator: IEnumerator<T>; const AComparer: TEqualityComparison<T>): Boolean; overload; static;
@@ -1541,18 +1600,23 @@ type
     function All(const APredicate: TFunction<T,Boolean>): Boolean; virtual;
     function Any(const APredicate: TFunction<T,Boolean>): Boolean; virtual;
     function Aggregate(const AFunc: TFunction<T,T,T>): T; virtual;
+    function TryAggregate(var{out} Value: T; const AFunc: TFunction<T,T,T>): Boolean; virtual;
     function Min: T; overload; virtual;
     function Min(const AComparer: IComparer<T>): T; overload; virtual;
     function Min(const AComparer: TComparison<T>): T; overload; virtual;
-    function Min(const ASelector: TFunction<T, Integer>): Integer; overload; virtual;
+    function Min(const ASelector: TFunction<T,Integer>): Integer; overload; virtual;
+    function TryGetMin(var{out} Value: T; const AComparer: TComparison<T>): Boolean; overload; virtual;
+    function TryGetMin(var{out} Value: Integer; const ASelector: TFunction<T,Integer>): Boolean; overload; virtual;
     function Max: T; overload; virtual;
     function Max(const AComparer: IComparer<T>): T; overload; virtual;
     function Max(const AComparer: TComparison<T>): T; overload; virtual;
-    function Max(const ASelector: TFunction<T, Integer>): Integer; overload; virtual;
+    function Max(const ASelector: TFunction<T,Integer>): Integer; overload; virtual;
+    function TryGetMax(var{out} Value: T; const AComparer: TComparison<T>): Boolean; overload; virtual;
+    function TryGetMax(var{out} Value: Integer; const ASelector: TFunction<T,Integer>): Boolean; overload; virtual;
     function Sum: T; overload; virtual;
-    function Sum(const ASelector: TFunction<T, Integer>): Integer; overload; virtual;
-    function Sum(const ASelector: TFunction<T, Int64>): Int64; overload; virtual;
-    function Sum(const ASelector: TFunction<T, Extended>): Extended; overload; virtual;
+    function Sum(const ASelector: TFunction<T,Integer>): Integer; overload; virtual;
+    function Sum(const ASelector: TFunction<T,Int64>): Int64; overload; virtual;
+    function Sum(const ASelector: TFunction<T,Extended>): Extended; overload; virtual;
     procedure ForEach(const AAction: TProcedure<T>); overload; virtual;
     function ForEach(const AAction: TFunction<T,Boolean>): Boolean; overload; virtual;
     function ElementAt(const AIndex: Integer): T; virtual;
@@ -1673,18 +1737,23 @@ type
     function All(const APredicate: TFunction<T,Boolean>): Boolean; override;
     function Any(const APredicate: TFunction<T,Boolean>): Boolean; override;
     function Aggregate(const AFunc: TFunction<T,T,T>): T; override;
+    function TryAggregate(var{out} Value: T; const AFunc: TFunction<T,T,T>): Boolean; override;
     function Min: T; overload; override;
     function Min(const AComparer: IComparer<T>): T; overload; override;
     function Min(const AComparer: TComparison<T>): T; overload; override;
-    function Min(const ASelector: TFunction<T, Integer>): Integer; overload; override;
+    function Min(const ASelector: TFunction<T,Integer>): Integer; overload; override;
+    function TryGetMin(var{out} Value: T; const AComparer: TComparison<T>): Boolean; overload; override;
+    function TryGetMin(var{out} Value: Integer; const ASelector: TFunction<T,Integer>): Boolean; overload; override;
     function Max: T; overload; override;
     function Max(const AComparer: IComparer<T>): T; overload; override;
     function Max(const AComparer: TComparison<T>): T; overload; override;
-    function Max(const ASelector: TFunction<T, Integer>): Integer; overload; override;
+    function Max(const ASelector: TFunction<T,Integer>): Integer; overload; override;
+    function TryGetMax(var{out} Value: T; const AComparer: TComparison<T>): Boolean; overload; override;
+    function TryGetMax(var{out} Value: Integer; const ASelector: TFunction<T,Integer>): Boolean; overload; override;
     function Sum: T; overload; override;
-    function Sum(const ASelector: TFunction<T, Integer>): Integer; overload; override;
-    function Sum(const ASelector: TFunction<T, Int64>): Int64; overload; override;
-    function Sum(const ASelector: TFunction<T, Extended>): Extended; overload; override;
+    function Sum(const ASelector: TFunction<T,Integer>): Integer; overload; override;
+    function Sum(const ASelector: TFunction<T,Int64>): Int64; overload; override;
+    function Sum(const ASelector: TFunction<T,Extended>): Extended; overload; override;
     procedure ForEach(const AAction: TProcedure<T>); overload; override;
     function ForEach(const AAction: TFunction<T,Boolean>): Boolean; overload; override;
     function ElementAt(const AIndex: Integer): T; override;
@@ -1766,11 +1835,39 @@ type
     function DoGetIsEmpty: Boolean; override;
     function InternalEnumerableCount: Integer;
     function InternalEnumerableEmpty: Boolean;
+    function InternalEnumerableToArray: TArray<T>; overload;
+    function InternalEnumerableToArray(const APredicate: TFunction<T,Boolean>): TArray<T>; overload;
     function DoTryGetLinearItems(var ALinearItems: TLinearItems): Boolean; override;
     function DoTryGetReversedEnumerator(const Enumerator: PCollectionEnumerator): Boolean; override;
     function DoGetEnumerator: TCollectionEnumerator<T>; override;
+    function InternalTryGetSingle(var{out} Value: T): Integer; overload;
+    function InternalTryGetSingle(var{out} Value: T; const APredicate: TFunction<T,Boolean>): Integer; overload;
   public
     constructor Create(const ACollection: TCollection<T>; const ASecond: Pointer; const ASecondMode: TSecondMode);
+    function ToArray: TArray<T>; overload; override;
+    function ToArray(const APredicate: TFunction<T,Boolean>): TArray<T>; overload; override;
+
+    function All(const APredicate: TFunction<T,Boolean>): Boolean; override;
+    function Any(const APredicate: TFunction<T,Boolean>): Boolean; override;
+    function TryAggregate(var{out} Value: T; const AFunc: TFunction<T,T,T>): Boolean; override;
+    function TryGetMin(var{out} Value: T; const AComparer: TComparison<T>): Boolean; override;
+    function TryGetMin(var{out} Value: Integer; const ASelector: TFunction<T,Integer>): Boolean; override;
+    function TryGetMax(var{out} Value: T; const AComparer: TComparison<T>): Boolean; override;
+    function TryGetMax(var{out} Value: Integer; const ASelector: TFunction<T,Integer>): Boolean; override;
+    function Sum: T; overload; override;
+    function Sum(const ASelector: TFunction<T,Integer>): Integer; overload; override;
+    function Sum(const ASelector: TFunction<T,Int64>): Int64; overload; override;
+    function Sum(const ASelector: TFunction<T,Extended>): Extended; overload; override;
+    procedure ForEach(const AAction: TProcedure<T>); overload; override;
+    function ForEach(const AAction: TFunction<T,Boolean>): Boolean; overload; override;
+    function TryGetElementAt(var{out} Value: T; const AIndex: Integer): Boolean; override;
+
+    function TryGetFirst(var{out} Value: T): Boolean; overload; override;
+    function TryGetFirst(var{out} Value: T; const APredicate: TFunction<T,Boolean>): Boolean; overload; override;
+    function TryGetLast(var{out} Value: T): Boolean; overload; override;
+    function TryGetLast(var{out} Value: T; const APredicate: TFunction<T,Boolean>): Boolean; overload; override;
+    function IndexOf(const AValue: T; const AComparer: TEqualityComparison<T>): Integer; overload; override;
+    function LastIndexOf(const AValue: T; const AComparer: TEqualityComparison<T>): Integer; overload; override;
 
     property SecondMode: TSecondMode read FSecondMode;
   end;
@@ -16785,6 +16882,45 @@ begin
     Result := InternalAggregate(Item, Offset, Count, Result, AFunc);
 end;
 
+function TCollection<T>.TLinearItems.TryAggregate(var{out} Value: T; const AFunc: TFunction<T,T,T>;
+  const AFound: Boolean): Boolean;
+var
+  Count: Integer;
+  Item: P;
+begin
+  Result := AFound;
+
+  Count := Count1;
+  if (Count <> 0) then
+  begin
+    Item := Values1;
+    if (not Result) then
+    begin
+      Value := Item^;
+      Inc(Item);
+      Dec(Count);
+      Result := True;
+    end;
+    if (Count <> 0) then
+      Value := InternalAggregate(Item, Offset, Count, Value, AFunc);
+  end;
+
+  Count := Count2;
+  if (Count <> 0) then
+  begin
+    Item := Values2;
+    if (not Result) then
+    begin
+      Value := Item^;
+      Inc(Item);
+      Dec(Count);
+      Result := True;
+    end;
+    if (Count <> 0) then
+      Value := InternalAggregate(Item, Offset, Count, Value, AFunc);
+  end;
+end;
+
 function TCollection<T>.TLinearItems.Min(const AComparer: TComparison<T>): T;
 var
   Temp: T;
@@ -16808,7 +16944,7 @@ begin
   end;
 end;
 
-function TCollection<T>.TLinearItems.Min(const ASelector: TFunction<T, Integer>): Integer;
+function TCollection<T>.TLinearItems.Min(const ASelector: TFunction<T,Integer>): Integer;
 var
   Temp: Integer;
   Count: Integer;
@@ -16854,7 +16990,7 @@ begin
   end;
 end;
 
-function TCollection<T>.TLinearItems.Max(const ASelector: TFunction<T, Integer>): Integer;
+function TCollection<T>.TLinearItems.Max(const ASelector: TFunction<T,Integer>): Integer;
 var
   Temp: Integer;
   Count: Integer;
@@ -16932,19 +17068,19 @@ begin
   end;
 end;
 
-function TCollection<T>.TLinearItems.Sum(const ASelector: TFunction<T, Integer>): Integer;
+function TCollection<T>.TLinearItems.Sum(const ASelector: TFunction<T,Integer>): Integer;
 begin
   Result := InternalSum(Values1, Offset, Count1, ASelector) +
     InternalSum(Values2, Offset, Count2, ASelector);
 end;
 
-function TCollection<T>.TLinearItems.Sum(const ASelector: TFunction<T, Int64>): Int64;
+function TCollection<T>.TLinearItems.Sum(const ASelector: TFunction<T,Int64>): Int64;
 begin
   Result := InternalSum(Values1, Offset, Count1, ASelector) +
     InternalSum(Values2, Offset, Count2, ASelector);
 end;
 
-function TCollection<T>.TLinearItems.Sum(const ASelector: TFunction<T, Extended>): Extended;
+function TCollection<T>.TLinearItems.Sum(const ASelector: TFunction<T,Extended>): Extended;
 begin
   Result := InternalSum(Values1, Offset, Count1, ASelector) +
     InternalSum(Values2, Offset, Count2, ASelector);
@@ -17049,13 +17185,14 @@ begin
   Result := False;
 end;
 
-function TCollection<T>.TLinearItems.TryGetSingle(var{out} Value: T; const APredicate: TFunction<T,Boolean>): Integer;
+function TCollection<T>.TLinearItems.TryGetSingle(var{out} Value: T;
+  const APredicate: TFunction<T,Boolean>; const AFound: Boolean): Integer;
 var
   Index: Integer;
 begin
   if (Count1 <> 0) then
   begin
-    Index := InternalGetSingle(Values1, Offset, Count1, APredicate);
+    Index := InternalGetSingle(Values1, Offset, Count1, APredicate, AFound);
     if (Index < 0) then
     begin
       if (Index = -2) then
@@ -17064,8 +17201,9 @@ begin
         Exit;
       end;
     end else
+    // if (Index >= 0) then
     begin
-      if (Count2 = 0) or (InternalGetSingle(Values2, Offset, Count2, APredicate) = -1) then
+      if (not AFound) and ((Count2 = 0) or (InternalGetSingle(Values2, Offset, Count2, APredicate, False) = -1)) then
       begin
         Value := Values1[Index];
         Result := 1;
@@ -17080,7 +17218,7 @@ begin
 
   if (Count2 <> 0) then
   begin
-    Index := InternalGetSingle(Values2, Offset, Count2, APredicate);
+    Index := InternalGetSingle(Values2, Offset, Count2, APredicate, AFound);
     if (Index >= 0) then
     begin
       Value := Values2[Index];
@@ -17089,7 +17227,7 @@ begin
     end
   end;
 
-  Result := 0;
+  Result := Ord(AFound);
 end;
 
 function TCollection<T>.TLinearItems.IndexOf(const AValue: T; const AComparer: TEqualityComparison<T>): Integer;
@@ -17296,6 +17434,28 @@ begin
   Result := True;
 end;
 
+class function TCollection<T>.InternalAll(const AEnumerator: IEnumerator<T>;
+  const APredicate: TFunction<T,Boolean>): Boolean;
+begin
+  while (AEnumerator.MoveNext) do
+  begin
+    Result := APredicate(AEnumerator.Current);
+    if (not Result) then
+      Exit;
+  end;
+
+  Result := True;
+end;
+
+class function TCollection<T>.InternalAll(const AEnumerable: IEnumerable<T>;
+  const APredicate: TFunction<T,Boolean>): Boolean;
+var
+  LEnumerator: IEnumerator<T>;
+begin
+  LEnumerator := AEnumerable.GetEnumerator;
+  Result := (not Assigned(LEnumerator)) or InternalAll(LEnumerator, APredicate);
+end;
+
 class function TCollection<T>.InternalAny(Value: P; Offset: NativeInt; Count: Integer;
   const APredicate: TFunction<T,Boolean>): Boolean;
 var
@@ -17313,6 +17473,28 @@ begin
   Result := False;
 end;
 
+class function TCollection<T>.InternalAny(const AEnumerator: IEnumerator<T>;
+  const APredicate: TFunction<T,Boolean>): Boolean;
+begin
+  while (AEnumerator.MoveNext) do
+  begin
+    Result := APredicate(AEnumerator.Current);
+    if (Result) then
+      Exit;
+  end;
+
+  Result := False;
+end;
+
+class function TCollection<T>.InternalAny(const AEnumerable: IEnumerable<T>;
+  const APredicate: TFunction<T,Boolean>): Boolean;
+var
+  LEnumerator: IEnumerator<T>;
+begin
+  LEnumerator := AEnumerable.GetEnumerator;
+  Result := Assigned(LEnumerator) and InternalAll(LEnumerator, APredicate);
+end;
+
 class function TCollection<T>.InternalAggregate(Value: P; Offset: NativeInt; Count: Integer;
   const ABaseValue: T; const AFunc: TFunction<T,T,T>): T;
 var
@@ -17323,6 +17505,91 @@ begin
   begin
     Result := AFunc(Result, Value^);
     Inc(NativeInt(Value), Offset);
+  end;
+end;
+
+class function TCollection<T>.InternalTryAggregate(var AEnumerator: TCollectionEnumerator<T>;
+  var{out} Value: T; const AFunc: TFunction<T,T,T>; const AFound: Boolean): Boolean;
+begin
+  if (not AEnumerator.MoveNext) then
+  begin
+    Result := AFound;
+    Exit;
+  end;
+
+  if (not AFound) then
+  begin
+    Value := AEnumerator.Data.Current;
+    if (not AEnumerator.MoveNext) then
+    begin
+      Result := True;
+      Exit;
+    end;
+  end;
+
+  repeat
+    Value := AFunc(Value, AEnumerator.Data.Current);
+  until (not AEnumerator.MoveNext);
+
+  Result := True;
+end;
+
+class function TCollection<T>.InternalTryAggregate(const ACollection: TCollection<T>;
+  var{out} Value: T; const AFunc: TFunction<T,T,T>; const AFound: Boolean): Boolean;
+var
+  LEnumerator: TCollectionEnumerator<T>;
+begin
+  LEnumerator := ACollection.Enumerator;
+  Result := InternalTryAggregate(LEnumerator, Value, AFunc, AFound);
+end;
+
+class function TCollection<T>.InternalTryAggregate(const ACollection: ICollection<T>;
+  var{out} Value: T; const AFunc: TFunction<T,T,T>; const AFound: Boolean): Boolean;
+var
+  LEnumerator: TCollectionEnumerator<T>;
+begin
+  LEnumerator := ACollection.Enumerator;
+  Result := InternalTryAggregate(LEnumerator, Value, AFunc, AFound);
+end;
+
+class function TCollection<T>.InternalTryAggregate(const AEnumerator: IEnumerator<T>;
+  var{out} Value: T; const AFunc: TFunction<T,T,T>; const AFound: Boolean): Boolean;
+begin
+  if (not AEnumerator.MoveNext) then
+  begin
+    Result := AFound;
+    Exit;
+  end;
+
+  if (not AFound) then
+  begin
+    Value := AEnumerator.Current;
+    if (not AEnumerator.MoveNext) then
+    begin
+      Result := True;
+      Exit;
+    end;
+  end;
+
+  repeat
+    Value := AFunc(Value, AEnumerator.Current);
+  until (not AEnumerator.MoveNext);
+
+  Result := True;
+end;
+
+class function TCollection<T>.InternalTryAggregate(const AEnumerable: IEnumerable<T>;
+  var{out} Value: T; const AFunc: TFunction<T,T,T>; const AFound: Boolean): Boolean;
+var
+  LEnumerator: IEnumerator<T>;
+begin
+  LEnumerator := AEnumerable.GetEnumerator;
+  if (Assigned(LEnumerator)) then
+  begin
+    Result := InternalTryAggregate(LEnumerator, Value, AFunc, AFound);
+  end else
+  begin
+    Result := AFound;
   end;
 end;
 
@@ -17343,7 +17610,7 @@ begin
 end;
 
 class function TCollection<T>.InternalMin(Value: P; Offset: NativeInt; Count: Integer;
-  const ASelector: TFunction<T, Integer>): Integer;
+  const ASelector: TFunction<T,Integer>): Integer;
 var
   i: Integer;
   LValue: Integer;
@@ -17358,6 +17625,64 @@ begin
 
     Inc(NativeInt(Value), Offset);
   end;
+end;
+
+class function TCollection<T>.InternalTryGetMin(var{out} Value: T;
+   const AEnumerator: IEnumerator<T>; const AComparer: TComparison<T>): Boolean;
+var
+  Temp: T;
+begin
+  Result := AEnumerator.MoveNext;
+  if (not Result) then
+    Exit;
+
+  Value := AEnumerator.Current;
+  while (AEnumerator.MoveNext) do
+  begin
+    Temp := AEnumerator.Current;
+    if (AComparer(Temp, Value) < 0) then
+      Value := Temp;
+  end;
+
+  Result := True;
+end;
+
+class function TCollection<T>.InternalTryGetMin(var{out} Value: T;
+  const AEnumerable: IEnumerable<T>; const AComparer: TComparison<T>): Boolean;
+var
+  LEnumerator: IEnumerator<T>;
+begin
+  LEnumerator := AEnumerable.GetEnumerator;
+  Result := Assigned(LEnumerator) and InternalTryGetMin(Value, LEnumerator, AComparer);
+end;
+
+class function TCollection<T>.InternalTryGetMin(var{out} Value: Integer;
+  const AEnumerator: IEnumerator<T>; const ASelector: TFunction<T,Integer>): Boolean;
+var
+  Temp: Integer;
+begin
+  Result := AEnumerator.MoveNext;
+  if (not Result) then
+    Exit;
+
+  Value := ASelector(AEnumerator.Current);
+  while (AEnumerator.MoveNext) do
+  begin
+    Temp := ASelector(AEnumerator.Current);
+    if (Temp < Value) then
+      Value := Temp;
+  end;
+
+  Result := True;
+end;
+
+class function TCollection<T>.InternalTryGetMin(var{out} Value: Integer;
+  const AEnumerable: IEnumerable<T>; const ASelector: TFunction<T,Integer>): Boolean;
+var
+  LEnumerator: IEnumerator<T>;
+begin
+  LEnumerator := AEnumerable.GetEnumerator;
+  Result := Assigned(LEnumerator) and InternalTryGetMin(Value, LEnumerator, ASelector);
 end;
 
 class function TCollection<T>.InternalMax(Value: P; Offset: NativeInt; Count: Integer;
@@ -17377,7 +17702,7 @@ begin
 end;
 
 class function TCollection<T>.InternalMax(Value: P; Offset: NativeInt; Count: Integer;
-  const ASelector: TFunction<T, Integer>): Integer;
+  const ASelector: TFunction<T,Integer>): Integer;
 var
   i: Integer;
   LValue: Integer;
@@ -17394,8 +17719,66 @@ begin
   end;
 end;
 
+class function TCollection<T>.InternalTryGetMax(var{out} Value: T;
+   const AEnumerator: IEnumerator<T>; const AComparer: TComparison<T>): Boolean;
+var
+  Temp: T;
+begin
+  Result := AEnumerator.MoveNext;
+  if (not Result) then
+    Exit;
+
+  Value := AEnumerator.Current;
+  while (AEnumerator.MoveNext) do
+  begin
+    Temp := AEnumerator.Current;
+    if (AComparer(Temp, Value) > 0) then
+      Value := Temp;
+  end;
+
+  Result := True;
+end;
+
+class function TCollection<T>.InternalTryGetMax(var{out} Value: T;
+   const AEnumerable: IEnumerable<T>; const AComparer: TComparison<T>): Boolean;
+var
+  LEnumerator: IEnumerator<T>;
+begin
+  LEnumerator := AEnumerable.GetEnumerator;
+  Result := (Assigned(LEnumerator)) and InternalTryGetMax(Value, LEnumerator, AComparer);
+end;
+
+class function TCollection<T>.InternalTryGetMax(var{out} Value: Integer;
+  const AEnumerator: IEnumerator<T>; const ASelector: TFunction<T,Integer>): Boolean;
+var
+  Temp: Integer;
+begin
+  Result := AEnumerator.MoveNext;
+  if (not Result) then
+    Exit;
+
+  Value := ASelector(AEnumerator.Current);
+  while (AEnumerator.MoveNext) do
+  begin
+    Temp := ASelector(AEnumerator.Current);
+    if (Temp > Value) then
+      Value := Temp;
+  end;
+
+  Result := True;
+end;
+
+class function TCollection<T>.InternalTryGetMax(var{out} Value: Integer;
+  const AEnumerable: IEnumerable<T>; const ASelector: TFunction<T,Integer>): Boolean;
+var
+  LEnumerator: IEnumerator<T>;
+begin
+  LEnumerator := AEnumerable.GetEnumerator;
+  Result := (Assigned(LEnumerator)) and InternalTryGetMax(Value, LEnumerator, ASelector);
+end;
+
 class function TCollection<T>.InternalSum(Value: P; Offset: NativeInt; Count: Integer;
-  const ASelector: TFunction<T, Integer>): Integer;
+  const ASelector: TFunction<T,Integer>): Integer;
 var
   i: Integer;
 begin
@@ -17408,7 +17791,7 @@ begin
 end;
 
 class function TCollection<T>.InternalSum(Value: P; Offset: NativeInt; Count: Integer;
-  const ASelector: TFunction<T, Int64>): Int64;
+  const ASelector: TFunction<T,Int64>): Int64;
 var
   i: Integer;
 begin
@@ -17421,7 +17804,7 @@ begin
 end;
 
 class function TCollection<T>.InternalSum(Value: P; Offset: NativeInt; Count: Integer;
-  const ASelector: TFunction<T, Extended>): Extended;
+  const ASelector: TFunction<T,Extended>): Extended;
 var
   i: Integer;
 begin
@@ -17430,6 +17813,141 @@ begin
   begin
     Result := Result + ASelector(Value^);
     Inc(NativeInt(Value), Offset);
+  end;
+end;
+
+class function TCollection<T>.InternalSum(const AEnumerator: IEnumerator<T>): T;
+var
+  Mode: Cardinal;
+  Temp: T;
+begin
+  Mode := Cardinal(-1);
+  case {$ifdef SMARTGENERICS}GetTypeKind(T){$else}PTypeInfo(TypeInfo(T)).Kind{$endif} of
+    tkInteger:
+    begin
+      case (GetTypeData(TypeInfo(T)).OrdType) of
+        otSByte, otUByte: Mode := 0;
+        otSWord, otUWord: Mode := 1;
+        otSLong, otULong: Mode := 2;
+      end;
+    end;
+    tkInt64:
+    begin
+      Mode := 3;
+    end;
+    tkFloat:
+    begin
+      case (GetTypeData(TypeInfo(T)).FloatType) of
+        ftSingle: Mode := 4;
+        ftDouble: Mode := 5;
+      ftExtended: Mode := 6;
+      else
+        Mode := 3;
+      end;
+    end;
+  end;
+
+  Result := Default(T);
+  if (Mode = Cardinal(-1)) then
+    Exit;
+
+  while (AEnumerator.MoveNext) do
+  begin
+    Temp := AEnumerator.Current;
+
+    case Mode of
+      0: PByte(@Result)^ := PByte(@Result)^ + PByte(@Temp)^;
+      1: PWord(@Result)^ := PWord(@Result)^ + PWord(@Temp)^;
+      2: PCardinal(@Result)^ := PCardinal(@Result)^ + PCardinal(@Temp)^;
+      3: PInt64(@Result)^ := PInt64(@Result)^ + PInt64(@Temp)^;
+      4: PSingle(@Result)^ := PSingle(@Result)^ + PSingle(@Temp)^;
+      5: PDouble(@Result)^ := PDouble(@Result)^ + PDouble(@Temp)^;
+    else
+      // 6:
+      PExtended(@Result)^ := PExtended(@Result)^ + PExtended(@Temp)^;
+    end;
+  end;
+end;
+
+class function TCollection<T>.InternalSum(const AEnumerable: IEnumerable<T>): T;
+var
+  LEnumerator: IEnumerator<T>;
+begin
+  LEnumerator := AEnumerable.GetEnumerator;
+  if (Assigned(LEnumerator)) then
+  begin
+    Result := InternalSum(LEnumerator);
+  end else
+  begin
+    Result := Default(T);
+  end;
+end;
+
+class function TCollection<T>.InternalSum(const AEnumerator: IEnumerator<T>;
+  const ASelector: TFunction<T,Integer>): Integer;
+begin
+  Result := 0;
+  while (AEnumerator.MoveNext) do
+    Result := Result + ASelector(AEnumerator.Current);
+end;
+
+class function TCollection<T>.InternalSum(const AEnumerable: IEnumerable<T>;
+  const ASelector: TFunction<T,Integer>): Integer;
+var
+  LEnumerator: IEnumerator<T>;
+begin
+  LEnumerator := AEnumerable.GetEnumerator;
+  if (Assigned(LEnumerator)) then
+  begin
+    Result := InternalSum(LEnumerator, ASelector);
+  end else
+  begin
+    Result := 0;
+  end;
+end;
+
+class function TCollection<T>.InternalSum(const AEnumerator: IEnumerator<T>;
+  const ASelector: TFunction<T,Int64>): Int64;
+begin
+  Result := 0;
+  while (AEnumerator.MoveNext) do
+    Result := Result + ASelector(AEnumerator.Current);
+end;
+
+class function TCollection<T>.InternalSum(const AEnumerable: IEnumerable<T>;
+  const ASelector: TFunction<T,Int64>): Int64;
+var
+  LEnumerator: IEnumerator<T>;
+begin
+  LEnumerator := AEnumerable.GetEnumerator;
+  if (Assigned(LEnumerator)) then
+  begin
+    Result := InternalSum(LEnumerator, ASelector);
+  end else
+  begin
+    Result := 0;
+  end;
+end;
+class function TCollection<T>.InternalSum(const AEnumerator: IEnumerator<T>;
+  const ASelector: TFunction<T,Extended>): Extended;
+begin
+  Result := 0;
+  while (AEnumerator.MoveNext) do
+    Result := Result + ASelector(AEnumerator.Current);
+end;
+
+class function TCollection<T>.InternalSum(const AEnumerable: IEnumerable<T>;
+  const ASelector: TFunction<T,Extended>): Extended;
+var
+  LEnumerator: IEnumerator<T>;
+begin
+  LEnumerator := AEnumerable.GetEnumerator;
+  if (Assigned(LEnumerator)) then
+  begin
+    Result := InternalSum(LEnumerator, ASelector);
+  end else
+  begin
+    Result := 0;
   end;
 end;
 
@@ -17442,6 +17960,27 @@ begin
   begin
     AAction(Value^);
     Inc(NativeInt(Value), Offset);
+  end;
+end;
+
+class procedure TCollection<T>.InternalForEach(const AEnumerator: IEnumerator<T>;
+  const AAction: TProcedure<T>);
+begin
+  while (AEnumerator.MoveNext) do
+  begin
+    AAction(AEnumerator.Current);
+  end;
+end;
+
+class procedure TCollection<T>.InternalForEach(const AEnumerable: IEnumerable<T>;
+  const AAction: TProcedure<T>);
+var
+  LEnumerator: IEnumerator<T>;
+begin
+  LEnumerator := AEnumerable.GetEnumerator;
+  if (Assigned(LEnumerator)) then
+  begin
+    InternalForEach(LEnumerator, AAction);
   end;
 end;
 
@@ -17462,6 +18001,69 @@ begin
   Result := True;
 end;
 
+class function TCollection<T>.InternalForEach(const AEnumerator: IEnumerator<T>;
+  const AAction: TFunction<T,Boolean>): Boolean;
+begin
+  while (AEnumerator.MoveNext) do
+  begin
+    Result := AAction(AEnumerator.Current);
+    if (not Result) then
+      Exit;
+  end;
+
+  Result := True;
+end;
+
+class function TCollection<T>.InternalForEach(const AEnumerable: IEnumerable<T>;
+  const AAction: TFunction<T,Boolean>): Boolean;
+var
+  LEnumerator: IEnumerator<T>;
+begin
+  LEnumerator := AEnumerable.GetEnumerator;
+  if (Assigned(LEnumerator)) then
+  begin
+    Result := InternalForEach(LEnumerator, AAction);
+  end else
+  begin
+    Result := True;
+  end;
+end;
+
+class function TCollection<T>.InternalTryGetElementAt(const AEnumerator: IEnumerator<T>;
+  var{out} Value: T; const AIndex: Integer): Boolean;
+var
+  LCounter: Integer;
+begin
+  LCounter := AIndex;
+  while (AEnumerator.MoveNext) do
+  begin
+    if (LCounter = 0) then
+    begin
+      Value := AEnumerator.Current;
+      Result := True;
+      Exit;
+    end;
+    Dec(LCounter);
+  end;
+
+  Result := True;
+end;
+
+class function TCollection<T>.InternalTryGetElementAt(const AEnumerable: IEnumerable<T>;
+  var{out} Value: T; const AIndex: Integer): Boolean;
+var
+  LEnumerator: IEnumerator<T>;
+begin
+  LEnumerator := AEnumerable.GetEnumerator;
+  if (Assigned(LEnumerator)) then
+  begin
+    Result := InternalTryGetElementAt(LEnumerator, Value, AIndex);
+  end else
+  begin
+    Result := False;
+  end;
+end;
+
 class function TCollection<T>.InternalGetFirst(Value: P; Offset: NativeInt; Count: Integer;
   const APredicate: TFunction<T,Boolean>): Integer;
 begin
@@ -17474,6 +18076,62 @@ begin
   end;
 
   Result := -1;
+end;
+
+class function TCollection<T>.InternalTryGetFirst(const AEnumerator: IEnumerator<T>;
+  var{out} Value: T): Boolean;
+begin
+  Result := AEnumerator.MoveNext;
+  if (Result) then
+  begin
+    Value := AEnumerator.Current;
+  end;
+end;
+
+class function TCollection<T>.InternalTryGetFirst(const AEnumerable: IEnumerable<T>;
+  var{out} Value: T): Boolean;
+var
+  LEnumerator: IEnumerator<T>;
+begin
+  LEnumerator := AEnumerable.GetEnumerator;
+  if (Assigned(LEnumerator)) then
+  begin
+    Result := InternalTryGetFirst(LEnumerator, Value);
+  end else
+  begin
+    Result := False;
+  end;
+end;
+
+class function TCollection<T>.InternalTryGetFirst(const AEnumerator: IEnumerator<T>;
+  var{out} Value: T; const APredicate: TFunction<T,Boolean>): Boolean;
+begin
+  if (AEnumerator.MoveNext) then
+  begin
+    Value := AEnumerator.Current;
+    if (APredicate(Value)) then
+    begin
+      Result := True;
+      Exit;
+    end;
+  end;
+
+  Result := False;
+end;
+
+class function TCollection<T>.InternalTryGetFirst(const AEnumerable: IEnumerable<T>;
+  var{out} Value: T; const APredicate: TFunction<T,Boolean>): Boolean;
+var
+  LEnumerator: IEnumerator<T>;
+begin
+  LEnumerator := AEnumerable.GetEnumerator;
+  if (Assigned(LEnumerator)) then
+  begin
+    Result := InternalTryGetFirst(LEnumerator, Value, APredicate);
+  end else
+  begin
+    Result := False;
+  end;
 end;
 
 class function TCollection<T>.InternalGetLast(Value: P; Offset: NativeInt; Count: Integer;
@@ -17491,8 +18149,70 @@ begin
   Result := -1;
 end;
 
+class function TCollection<T>.InternalTryGetLast(const AEnumerator: IEnumerator<T>;
+  var{out} Value: T): Boolean;
+begin
+  if (AEnumerator.MoveNext) then
+  begin
+    repeat
+      Value := AEnumerator.Current;
+    until (not AEnumerator.MoveNext);
+    Result := True;
+    Exit;
+  end;
+
+  Result := False;
+end;
+
+class function TCollection<T>.InternalTryGetLast(const AEnumerable: IEnumerable<T>;
+  var{out} Value: T): Boolean;
+var
+  LEnumerator: IEnumerator<T>;
+begin
+  LEnumerator := AEnumerable.GetEnumerator;
+  if (Assigned(LEnumerator)) then
+  begin
+    Result := InternalTryGetLast(LEnumerator, Value);
+  end else
+  begin
+    Result := False;
+  end;
+end;
+
+class function TCollection<T>.InternalTryGetLast(const AEnumerator: IEnumerator<T>;
+  var{out} Value: T; const APredicate: TFunction<T,Boolean>): Boolean;
+var
+  Temp: T;
+begin
+  Result := False;
+  while (AEnumerator.MoveNext) do
+  begin
+    Temp := AEnumerator.Current;
+    if (APredicate(Temp)) then
+    begin
+      Result := True;
+      Value := Temp;
+    end;
+  end;
+end;
+
+class function TCollection<T>.InternalTryGetLast(const AEnumerable: IEnumerable<T>;
+  var{out} Value: T; const APredicate: TFunction<T,Boolean>): Boolean;
+var
+  LEnumerator: IEnumerator<T>;
+begin
+  LEnumerator := AEnumerable.GetEnumerator;
+  if (Assigned(LEnumerator)) then
+  begin
+    Result := InternalTryGetLast(LEnumerator, Value, APredicate);
+  end else
+  begin
+    Result := False;
+  end;
+end;
+
 class function TCollection<T>.InternalGetSingle(Value: P; Offset: NativeInt; Count: Integer;
-  const APredicate: TFunction<T,Boolean>): Integer;
+  const APredicate: TFunction<T,Boolean>; const AFound: Boolean): Integer;
 var
   i: Integer;
 begin
@@ -17501,7 +18221,7 @@ begin
   begin
     if (APredicate(Value^)) then
     begin
-      if (Result < 0) then
+      if (Result < 0) and (not AFound) then
       begin
         Result := i;
       end else
@@ -17512,6 +18232,141 @@ begin
     end;
 
     Inc(NativeInt(Value), Offset);
+  end;
+end;
+
+class function TCollection<T>.InternalTryGetSingle(var AEnumerator: TCollectionEnumerator<T>;
+  var{out} Value: T; const AFound: Boolean): Integer;
+begin
+  Result := Ord(AFound);
+
+  while (AEnumerator.MoveNext) do
+  begin
+    Inc(Result);
+    if (Result > 1) then
+      Exit;
+
+    Value := AEnumerator.Data.Current;
+  end;
+end;
+
+class function TCollection<T>.InternalTryGetSingle(const ACollection: TCollection<T>;
+  var{out} Value: T; const AFound: Boolean): Integer;
+var
+  LEnumerator: TCollectionEnumerator<T>;
+begin
+  LEnumerator := ACollection.Enumerator;
+  Result := InternalTryGetSingle(LEnumerator, Value, AFound);
+end;
+
+class function TCollection<T>.InternalTryGetSingle(const ACollection: ICollection<T>;
+  var{out} Value: T; const AFound: Boolean): Integer;
+var
+  LEnumerator: TCollectionEnumerator<T>;
+begin
+  LEnumerator := ACollection.Enumerator;
+  Result := InternalTryGetSingle(LEnumerator, Value, AFound);
+end;
+
+class function TCollection<T>.InternalTryGetSingle(const AEnumerator: IEnumerator<T>;
+  var{out} Value: T; const AFound: Boolean): Integer;
+begin
+  Result := Ord(AFound);
+
+  while (AEnumerator.MoveNext) do
+  begin
+    Inc(Result);
+    if (Result > 1) then
+      Exit;
+
+    Value := AEnumerator.Current;
+  end;
+end;
+
+class function TCollection<T>.InternalTryGetSingle(const AEnumerable: IEnumerable<T>;
+  var{out} Value: T; const AFound: Boolean): Integer;
+var
+  LEnumerator: IEnumerator<T>;
+begin
+  LEnumerator := AEnumerable.GetEnumerator;
+  if (Assigned(LEnumerator)) then
+  begin
+    Result := InternalTryGetSingle(LEnumerator, Value, AFound);
+  end else
+  begin
+    Result := Ord(AFound);
+  end;
+end;
+
+class function TCollection<T>.InternalTryGetSingle(var AEnumerator: TCollectionEnumerator<T>;
+  var{out} Value: T; const APredicate: TFunction<T,Boolean>; const AFound: Boolean): Integer;
+begin
+  Result := Ord(AFound);
+
+  while (AEnumerator.MoveNext) do
+  begin
+    if (APredicate(AEnumerator.Data.Current)) then
+    begin
+      Inc(Result);
+      if (Result > 1) then
+        Exit;
+
+      Value := AEnumerator.Data.Current;
+    end;
+  end;
+end;
+
+class function TCollection<T>.InternalTryGetSingle(const ACollection: TCollection<T>;
+  var{out} Value: T; const APredicate: TFunction<T,Boolean>; const AFound: Boolean): Integer;
+var
+  LEnumerator: TCollectionEnumerator<T>;
+begin
+  LEnumerator := ACollection.Enumerator;
+  Result := InternalTryGetSingle(LEnumerator, Value, APredicate, AFound);
+end;
+
+class function TCollection<T>.InternalTryGetSingle(const ACollection: ICollection<T>;
+  var{out} Value: T; const APredicate: TFunction<T,Boolean>; const AFound: Boolean): Integer;
+var
+  LEnumerator: TCollectionEnumerator<T>;
+begin
+  LEnumerator := ACollection.Enumerator;
+  Result := InternalTryGetSingle(LEnumerator, Value, APredicate, AFound);
+end;
+
+class function TCollection<T>.InternalTryGetSingle(const AEnumerator: IEnumerator<T>;
+  var{out} Value: T; const APredicate: TFunction<T,Boolean>; const AFound: Boolean): Integer;
+var
+  Temp: T;
+begin
+  Result := Ord(AFound);
+
+  while (AEnumerator.MoveNext) do
+  begin
+    Temp := AEnumerator.Current;
+    if (APredicate(Temp)) then
+    begin
+      Inc(Result);
+      if (Result > 1) then
+        Exit;
+
+      Value := Temp;
+    end;
+  end;
+end;
+
+class function TCollection<T>.InternalTryGetSingle(const AEnumerable: IEnumerable<T>;
+  var{out} Value: T; const APredicate: TFunction<T,Boolean>; const AFound: Boolean): Integer;
+var
+  LEnumerator: IEnumerator<T>;
+begin
+  LEnumerator := AEnumerable.GetEnumerator;
+  if (Assigned(LEnumerator)) then
+  begin
+    Result := InternalTryGetSingle(LEnumerator, Value, APredicate, AFound);
+  end else
+  begin
+    Result := Ord(AFound);
   end;
 end;
 
@@ -17550,6 +18405,36 @@ begin
   Result := -1;
 end;
 
+class function TCollection<T>.InternalIndexOf(const AValue: T; const AEnumerator: IEnumerator<T>;
+  const AComparer: TEqualityComparison<T>): Integer;
+begin
+  Result := 0;
+  while (AEnumerator.MoveNext) do
+  begin
+    if (AComparer(AValue, AEnumerator.Current)) then
+      Exit;
+
+    Inc(Result);
+  end;
+
+  Result := -1;
+end;
+
+class function TCollection<T>.InternalIndexOf(const AValue: T; const AEnumerable: IEnumerable<T>;
+  const AComparer: TEqualityComparison<T>): Integer;
+var
+  LEnumerator: IEnumerator<T>;
+begin
+  LEnumerator := AEnumerable.GetEnumerator;
+  if (Assigned(LEnumerator)) then
+  begin
+    Result := InternalIndexOf(AValue, LEnumerator, AComparer);
+  end else
+  begin
+    Result := -1;
+  end;
+end;
+
 class function TCollection<T>.InternalLastIndexOf(const AValue: T; Value: P; Offset: NativeInt;
   Count: Integer; const AComparer: TComparison<T>): Integer;
 begin
@@ -17585,6 +18470,37 @@ begin
   end;
 
   Result := -1;
+end;
+
+class function TCollection<T>.InternalLastIndexOf(const AValue: T; const AEnumerator: IEnumerator<T>;
+  const AComparer: TEqualityComparison<T>): Integer;
+var
+  Index: Integer;
+begin
+  Result := -1;
+  Index := 0;
+  while (AEnumerator.MoveNext) do
+  begin
+    if (AComparer(AValue, AEnumerator.Current)) then
+      Result := Index;
+
+    Inc(Index);
+  end;
+end;
+
+class function TCollection<T>.InternalLastIndexOf(const AValue: T; const AEnumerable: IEnumerable<T>;
+  const AComparer: TEqualityComparison<T>): Integer;
+var
+  LEnumerator: IEnumerator<T>;
+begin
+  LEnumerator := AEnumerable.GetEnumerator;
+  if (Assigned(LEnumerator)) then
+  begin
+    Result := InternalLastIndexOf(AValue, LEnumerator, AComparer);
+  end else
+  begin
+    Result := -1;
+  end;
 end;
 
 class function TCollection<T>.InternalEqualsTo(Value1, Value2: P; Offset1, Offset2: NativeInt;
@@ -17730,7 +18646,7 @@ begin
   SetLength(Result, Count);
 end;
 
-function TCollection<T>.ToArray(const APredicate: TFunction<T, Boolean>): TArray<T>;
+function TCollection<T>.ToArray(const APredicate: TFunction<T,Boolean>): TArray<T>;
 var
   Count, Buffered: NativeUInt;
   Enumerator: TCollectionEnumerator<T>;
@@ -17817,6 +18733,12 @@ begin
 end;
 
 function TCollection<T>.Aggregate(const AFunc: TFunction<T,T,T>): T;
+begin
+  if (not TryAggregate(Result, AFunc)) then
+    raise EItemNotFound;
+end;
+
+function TCollection<T>.TryAggregate(var{out} Value: T; const AFunc: TFunction<T,T,T>): Boolean;
 var
   Enumerator: TCollectionEnumerator<T>;
   LinearItems: TLinearItems;
@@ -17826,32 +18748,57 @@ begin
   if (DoTryGetLinearItems(LinearItems)) then
   begin
     if (LinearItems.Count1 or LinearItems.Count2 = 0) then
-      raise EItemNotFound;
+    begin
+      Result := False;
+      Exit;
+    end;
 
-    Result := LinearItems.Aggregate(AFunc);
+    Value := LinearItems.Aggregate(AFunc);
+    Result := True;
     Exit;
   end;
 
   Enumerator := DoGetEnumerator;
   if (not Enumerator.MoveNext) then
-    raise EItemNotFound;
+  begin
+    Result := False;
+    Exit;
+  end;
 
-  Result := Enumerator.Data.Current;
+  Value := Enumerator.Data.Current;
   while (Enumerator.MoveNext) do
-    Result := AFunc(Result, Enumerator.Data.Current);
+  begin
+    Value := AFunc(Value, Enumerator.Data.Current);
+  end;
+
+  Result := True;
 end;
 
 function TCollection<T>.Min: T;
 begin
-  Result := Min(TComparison<T>(FComparer));
+  if (not TryGetMin(Result, TComparison<T>(FComparer))) then
+    raise EItemNotFound;
 end;
 
 function TCollection<T>.Min(const AComparer: IComparer<T>): T;
 begin
-  Result := Min(TComparison<T>(AComparer));
+  if (not TryGetMin(Result, TComparison<T>(AComparer))) then
+    raise EItemNotFound;
 end;
 
 function TCollection<T>.Min(const AComparer: TComparison<T>): T;
+begin
+  if (not TryGetMin(Result, AComparer)) then
+    raise EItemNotFound;
+end;
+
+function TCollection<T>.Min(const ASelector: TFunction<T,Integer>): Integer;
+begin
+  if (not TryGetMin(Result, ASelector)) then
+    raise EItemNotFound;
+end;
+
+function TCollection<T>.TryGetMin(var{out} Value: T; const AComparer: TComparison<T>): Boolean;
 var
   Enumerator: TCollectionEnumerator<T>;
   LinearItems: TLinearItems;
@@ -17860,66 +18807,88 @@ begin
 
   if (DoTryGetLinearItems(LinearItems)) then
   begin
-    if (LinearItems.Count1 or LinearItems.Count2 = 0) then
-      raise EItemNotFound;
+    Result := (LinearItems.Count1 or LinearItems.Count2 <> 0);
+    if (not Result) then
+      Exit;
 
-    Result := LinearItems.Min(AComparer);
+    Value := LinearItems.Min(AComparer);
+    Result := True;
     Exit;
   end;
 
   Enumerator := DoGetEnumerator;
-  if (not Enumerator.MoveNext) then
-    raise EItemNotFound;
+  Result := Enumerator.MoveNext;
+  if (not Result) then
+    Exit;
 
-  Result := Enumerator.Data.Current;
+  Value := Enumerator.Data.Current;
   while (Enumerator.MoveNext) do
   begin
-    if (AComparer(Enumerator.Data.Current, Result) < 0) then
-      Result := Enumerator.Data.Current;
+    if (AComparer(Enumerator.Data.Current, Value) < 0) then
+      Value := Enumerator.Data.Current;
   end;
+  Result := True;
 end;
 
-function TCollection<T>.Min(const ASelector: TFunction<T, Integer>): Integer;
+function TCollection<T>.TryGetMin(var{out} Value: Integer; const ASelector: TFunction<T,Integer>): Boolean;
 var
   Enumerator: TCollectionEnumerator<T>;
-  Value: Integer;
   LinearItems: TLinearItems;
+  Temp: Integer;
 begin
   CheckArgumentIsNil(Assigned(ASelector), 'Selector');
 
   if (DoTryGetLinearItems(LinearItems)) then
   begin
-    if (LinearItems.Count1 or LinearItems.Count2 = 0) then
-      raise EItemNotFound;
+    Result := (LinearItems.Count1 or LinearItems.Count2 <> 0);
+    if (not Result) then
+      Exit;
 
-    Result := LinearItems.Min(ASelector);
+    Value := LinearItems.Min(ASelector);
+    Result := True;
     Exit;
   end;
 
   Enumerator := DoGetEnumerator;
-  if (not Enumerator.MoveNext) then
-    raise EItemNotFound;
+  Result := Enumerator.MoveNext;
+  if (not Result) then
+    Exit;
 
-  Result := ASelector(Enumerator.Data.Current);
+  Value := ASelector(Enumerator.Data.Current);
   while (Enumerator.MoveNext) do
   begin
-    Value := ASelector(Enumerator.Data.Current);
-    if (Value < Result) then
-      Result := Value;
+    Temp := ASelector(Enumerator.Data.Current);
+    if (Temp < Value) then
+      Value := Temp;
   end;
+  Result := True;
 end;
 
 function TCollection<T>.Max: T;
 begin
-  Result := Max(TComparison<T>(FComparer));
+  if (not TryGetMax(Result, TComparison<T>(FComparer))) then
+    raise EItemNotFound;
 end;
 
 function TCollection<T>.Max(const AComparer: IComparer<T>): T;
 begin
-  Result := Max(TComparison<T>(AComparer));
+  if (not TryGetMax(Result, TComparison<T>(AComparer))) then
+    raise EItemNotFound;
 end;
 
 function TCollection<T>.Max(const AComparer: TComparison<T>): T;
+begin
+  if (not TryGetMax(Result, AComparer)) then
+    raise EItemNotFound;
+end;
+
+function TCollection<T>.Max(const ASelector: TFunction<T,Integer>): Integer;
+begin
+  if (not TryGetMax(Result, ASelector)) then
+    raise EItemNotFound;
+end;
+
+function TCollection<T>.TryGetMax(var{out} Value: T; const AComparer: TComparison<T>): Boolean;
 var
   Enumerator: TCollectionEnumerator<T>;
   LinearItems: TLinearItems;
@@ -17928,53 +18897,61 @@ begin
 
   if (DoTryGetLinearItems(LinearItems)) then
   begin
-    if (LinearItems.Count1 or LinearItems.Count2 = 0) then
-      raise EItemNotFound;
+    Result := (LinearItems.Count1 or LinearItems.Count2 <> 0);
+    if (not Result) then
+      Exit;
 
-    Result := LinearItems.Max(AComparer);
+    Value := LinearItems.Max(AComparer);
+    Result := True;
     Exit;
   end;
 
   Enumerator := DoGetEnumerator;
-  if (not Enumerator.MoveNext) then
-    raise EItemNotFound;
+  Result := Enumerator.MoveNext;
+  if (not Result) then
+    Exit;
 
-  Result := Enumerator.Data.Current;
+  Value := Enumerator.Data.Current;
   while (Enumerator.MoveNext) do
   begin
-    if (AComparer(Enumerator.Data.Current, Result) > 0) then
-      Result := Enumerator.Data.Current;
+    if (AComparer(Enumerator.Data.Current, Value) > 0) then
+      Value := Enumerator.Data.Current;
   end;
+  Result := True;
 end;
 
-function TCollection<T>.Max(const ASelector: TFunction<T, Integer>): Integer;
+function TCollection<T>.TryGetMax(var{out} Value: Integer; const ASelector: TFunction<T,Integer>): Boolean;
 var
   Enumerator: TCollectionEnumerator<T>;
-  Value: Integer;
   LinearItems: TLinearItems;
+  Temp: Integer;
 begin
   CheckArgumentIsNil(Assigned(ASelector), 'Selector');
 
   if (DoTryGetLinearItems(LinearItems)) then
   begin
-    if (LinearItems.Count1 or LinearItems.Count2 = 0) then
-      raise EItemNotFound;
+    Result := (LinearItems.Count1 or LinearItems.Count2 <> 0);
+    if (not Result) then
+      Exit;
 
-    Result := LinearItems.Max(ASelector);
+    Value := LinearItems.Max(ASelector);
+    Result := True;
     Exit;
   end;
 
   Enumerator := DoGetEnumerator;
-  if (not Enumerator.MoveNext) then
-    raise EItemNotFound;
+  Result := Enumerator.MoveNext;
+  if (not Result) then
+    Exit;
 
-  Result := ASelector(Enumerator.Data.Current);
+  Value := ASelector(Enumerator.Data.Current);
   while (Enumerator.MoveNext) do
   begin
-    Value := ASelector(Enumerator.Data.Current);
-    if (Value > Result) then
-      Result := Value;
+    Temp := ASelector(Enumerator.Data.Current);
+    if (Temp > Value) then
+      Value := Temp;
   end;
+  Result := True;
 end;
 
 function TCollection<T>.Sum: T;
@@ -17994,9 +18971,9 @@ begin
     tkInteger:
     begin
       case (GetTypeData(TypeInfo(T)).OrdType) of
-        otSByte, otUByte: PByte(@Result)^ := PByte(@Result)^ + PByte(@Enumerator.Data.Current)^;
-        otSWord, otUWord: PWord(@Result)^ := PWord(@Result)^ + PWord(@Enumerator.Data.Current)^;
-        otSLong, otULong: PCardinal(@Result)^ := PCardinal(@Result)^ + PCardinal(@Enumerator.Data.Current)^;
+        otSByte, otUByte: while (Enumerator.MoveNext) do PByte(@Result)^ := PByte(@Result)^ + PByte(@Enumerator.Data.Current)^;
+        otSWord, otUWord: while (Enumerator.MoveNext) do PWord(@Result)^ := PWord(@Result)^ + PWord(@Enumerator.Data.Current)^;
+        otSLong, otULong: while (Enumerator.MoveNext) do PCardinal(@Result)^ := PCardinal(@Result)^ + PCardinal(@Enumerator.Data.Current)^;
       end;
     end;
     tkInt64:
@@ -18016,7 +18993,7 @@ begin
   end;
 end;
 
-function TCollection<T>.Sum(const ASelector: TFunction<T, Integer>): Integer;
+function TCollection<T>.Sum(const ASelector: TFunction<T,Integer>): Integer;
 var
   Enumerator: TCollectionEnumerator<T>;
   LinearItems: TLinearItems;
@@ -18035,7 +19012,7 @@ begin
     Result := Result + ASelector(Enumerator.Data.Current);
 end;
 
-function TCollection<T>.Sum(const ASelector: TFunction<T, Int64>): Int64;
+function TCollection<T>.Sum(const ASelector: TFunction<T,Int64>): Int64;
 var
   Enumerator: TCollectionEnumerator<T>;
   LinearItems: TLinearItems;
@@ -18054,7 +19031,7 @@ begin
     Result := Result + ASelector(Enumerator.Data.Current);
 end;
 
-function TCollection<T>.Sum(const ASelector: TFunction<T, Extended>): Extended;
+function TCollection<T>.Sum(const ASelector: TFunction<T,Extended>): Extended;
 var
   Enumerator: TCollectionEnumerator<T>;
   LinearItems: TLinearItems;
@@ -18259,7 +19236,7 @@ begin
   end else
   begin
     Enumerator := DoGetEnumerator;
-    if (not Enumerator.MoveNext) then
+    if (Enumerator.MoveNext) then
     begin
       if (APredicate(Enumerator.Data.Current)) then
       begin
@@ -18448,7 +19425,7 @@ begin
 
   if (DoTryGetLinearItems(LinearItems)) then
   begin
-    Result := LinearItems.TryGetSingle(Value, APredicate);
+    Result := LinearItems.TryGetSingle(Value, APredicate, False);
     Exit;
   end;
 
@@ -19072,6 +20049,28 @@ begin
   end;
 end;
 
+function TCustomListCollection<T1,T,T3,T4>.TryAggregate(var{out} Value: T; const AFunc: TFunction<T,T,T>): Boolean;
+begin
+  CheckArgumentIsNil(Assigned(AFunc), 'Func');
+
+  case (FCount.Native) of
+    0:
+    begin
+      Result := False;
+      Exit;
+    end;
+    1:
+    begin
+      Value := FItems[0].Field2;
+      Result := True;
+      Exit;
+    end;
+  else
+    Value := InternalAggregate(@FItems[1].Field2, SizeOf(TItem), FCount.Int, FItems[0].Field2, AFunc);
+    Result := True;
+  end;
+end;
+
 function TCustomListCollection<T1,T,T3,T4>.Min: T;
 begin
   case (FCount.Native) of
@@ -19118,7 +20117,7 @@ begin
   end;
 end;
 
-function TCustomListCollection<T1,T,T3,T4>.Min(const ASelector: TFunction<T, Integer>): Integer;
+function TCustomListCollection<T1,T,T3,T4>.Min(const ASelector: TFunction<T,Integer>): Integer;
 begin
   CheckArgumentIsNil(Assigned(ASelector), 'Selector');
 
@@ -19131,6 +20130,50 @@ begin
     end;
   else
     Result := InternalMin(@FItems[0].Field2, SizeOf(TItem), FCount.Int, ASelector);
+  end;
+end;
+
+function TCustomListCollection<T1,T,T3,T4>.TryGetMin(var{out} Value: T; const AComparer: TComparison<T>): Boolean;
+begin
+  CheckArgumentIsNil(Assigned(AComparer), 'Comparer');
+
+  case (FCount.Native) of
+    0:
+    begin
+      Result := False;
+      Exit;
+    end;
+    1:
+    begin
+      Value := FItems[0].Field2;
+      Result := True;
+      Exit;
+    end;
+  else
+    Value := InternalMin(@FItems[0].Field2, SizeOf(TItem), FCount.Int, AComparer);
+    Result := True;
+  end;
+end;
+
+function TCustomListCollection<T1,T,T3,T4>.TryGetMin(var{out} Value: Integer; const ASelector: TFunction<T,Integer>): Boolean;
+begin
+  CheckArgumentIsNil(Assigned(ASelector), 'Selector');
+
+  case (FCount.Native) of
+    0:
+    begin
+      Result := False;
+      Exit;
+    end;
+    1:
+    begin
+      Value := ASelector(FItems[0].Field2);
+      Result := True;
+      Exit;
+    end;
+  else
+    Value := InternalMin(@FItems[0].Field2, SizeOf(TItem), FCount.Int, ASelector);
+    Result := True;
   end;
 end;
 
@@ -19180,7 +20223,7 @@ begin
   end;
 end;
 
-function TCustomListCollection<T1,T,T3,T4>.Max(const ASelector: TFunction<T, Integer>): Integer;
+function TCustomListCollection<T1,T,T3,T4>.Max(const ASelector: TFunction<T,Integer>): Integer;
 begin
   CheckArgumentIsNil(Assigned(ASelector), 'Selector');
 
@@ -19193,6 +20236,50 @@ begin
     end;
   else
     Result := InternalMax(@FItems[0].Field2, SizeOf(TItem), FCount.Int, ASelector);
+  end;
+end;
+
+function TCustomListCollection<T1,T,T3,T4>.TryGetMax(var{out} Value: T; const AComparer: TComparison<T>): Boolean;
+begin
+  CheckArgumentIsNil(Assigned(AComparer), 'Comparer');
+
+  case (FCount.Native) of
+    0:
+    begin
+      Result := False;
+      Exit;
+    end;
+    1:
+    begin
+      Value := FItems[0].Field2;
+      Result := True;
+      Exit;
+    end;
+  else
+    Value := InternalMax(@FItems[0].Field2, SizeOf(TItem), FCount.Int, AComparer);
+    Result := True;
+  end;
+end;
+
+function TCustomListCollection<T1,T,T3,T4>.TryGetMax(var{out} Value: Integer; const ASelector: TFunction<T,Integer>): Boolean;
+begin
+  CheckArgumentIsNil(Assigned(ASelector), 'Selector');
+
+  case (FCount.Native) of
+    0:
+    begin
+      Result := False;
+      Exit;
+    end;
+    1:
+    begin
+      Value := ASelector(FItems[0].Field2);
+      Result := True;
+      Exit;
+    end;
+  else
+    Value := InternalMax(@FItems[0].Field2, SizeOf(TItem), FCount.Int, ASelector);
+    Result := True;
   end;
 end;
 
@@ -19214,7 +20301,7 @@ begin
   end;
 end;
 
-function TCustomListCollection<T1,T,T3,T4>.Sum(const ASelector: TFunction<T, Integer>): Integer;
+function TCustomListCollection<T1,T,T3,T4>.Sum(const ASelector: TFunction<T,Integer>): Integer;
 begin
   CheckArgumentIsNil(Assigned(ASelector), 'Selector');
 
@@ -19228,7 +20315,7 @@ begin
   end;
 end;
 
-function TCustomListCollection<T1,T,T3,T4>.Sum(const ASelector: TFunction<T, Int64>): Int64;
+function TCustomListCollection<T1,T,T3,T4>.Sum(const ASelector: TFunction<T,Int64>): Int64;
 begin
   CheckArgumentIsNil(Assigned(ASelector), 'Selector');
 
@@ -19242,7 +20329,7 @@ begin
   end;
 end;
 
-function TCustomListCollection<T1,T,T3,T4>.Sum(const ASelector: TFunction<T, Extended>): Extended;
+function TCustomListCollection<T1,T,T3,T4>.Sum(const ASelector: TFunction<T,Extended>): Extended;
 begin
   CheckArgumentIsNil(Assigned(ASelector), 'Selector');
 
@@ -19536,7 +20623,7 @@ var
 begin
   CheckArgumentIsNil(Assigned(APredicate), 'Predicate');
 
-  LIndex := InternalGetSingle(@FItems[0].Field2, SizeOf(TItem), FCount.Int, APredicate);
+  LIndex := InternalGetSingle(@FItems[0].Field2, SizeOf(TItem), FCount.Int, APredicate, False);
   case (LIndex) of
     -1: raise EItemNotFound;
     -2: raise EDuplicatesNotAllowed;
@@ -19551,7 +20638,7 @@ var
 begin
   CheckArgumentIsNil(Assigned(APredicate), 'Predicate');
 
-  LIndex := InternalGetSingle(@FItems[0].Field2, SizeOf(TItem), FCount.Int, APredicate);
+  LIndex := InternalGetSingle(@FItems[0].Field2, SizeOf(TItem), FCount.Int, APredicate, False);
   if (LIndex >= 0) then
   begin
     Result := FItems[Cardinal(LIndex)].Field2;
@@ -19567,7 +20654,7 @@ var
 begin
   CheckArgumentIsNil(Assigned(APredicate), 'Predicate');
 
-  LIndex := InternalGetSingle(@FItems[0].Field2, SizeOf(TItem), FCount.Int, APredicate);
+  LIndex := InternalGetSingle(@FItems[0].Field2, SizeOf(TItem), FCount.Int, APredicate, False);
   if (LIndex >= 0) then
   begin
     Result := FItems[Cardinal(LIndex)].Field2;
@@ -19583,7 +20670,7 @@ var
 begin
   CheckArgumentIsNil(Assigned(APredicate), 'Predicate');
 
-  LIndex := InternalGetSingle(@FItems[0].Field2, SizeOf(TItem), FCount.Int, APredicate);
+  LIndex := InternalGetSingle(@FItems[0].Field2, SizeOf(TItem), FCount.Int, APredicate, False);
   if (LIndex >= 0) then
   begin
     Value := FItems[Cardinal(LIndex)].Field2;
@@ -19744,6 +20831,8 @@ begin
   inherited Create;
 
   FCollection := ACollection;
+  FComparer := ACollection.FComparer;
+  FEqualityComparer := ACollection.FEqualityComparer;
   FSecondMode := ASecondMode;
   case (ASecondMode) of
     smInstance:
@@ -19913,6 +21002,77 @@ begin
   Result := False;
 end;
 
+function TConcatedCollection<T>.InternalEnumerableToArray: TArray<T>;
+var
+  Count, Buffered: NativeUInt;
+  LEnumerator: IEnumerator<T>;
+begin
+  if (Pointer(Result) <> nil) then
+  begin
+    Result := nil;
+  end;
+
+  LEnumerator := FSecondEnumerable.GetEnumerator;
+  if (not Assigned(LEnumerator)) then
+    Exit;
+
+  Count := 0;
+  Buffered := 16;
+  SetLength(Result, Buffered);
+
+  while (Enumerator.MoveNext) do
+  begin
+    if (Count = Buffered) then
+    begin
+      Buffered := Buffered * 2;
+      SetLength(Result, Buffered);
+    end;
+
+    Result[Count] := Enumerator.Current;
+    Inc(Count);
+  end;
+
+  SetLength(Result, Count);
+end;
+
+function TConcatedCollection<T>.InternalEnumerableToArray(const APredicate: TFunction<T,Boolean>): TArray<T>;
+var
+  Count, Buffered: NativeUInt;
+  LEnumerator: IEnumerator<T>;
+  Temp: T;
+begin
+  if (Pointer(Result) <> nil) then
+  begin
+    Result := nil;
+  end;
+
+  LEnumerator := FSecondEnumerable.GetEnumerator;
+  if (not Assigned(LEnumerator)) then
+    Exit;
+
+  Count := 0;
+  Buffered := 16;
+  SetLength(Result, Buffered);
+
+  while (Enumerator.MoveNext) do
+  begin
+    Temp := Enumerator.Current;
+    if (APredicate(Temp)) then
+    begin
+      if (Count = Buffered) then
+      begin
+        Buffered := Buffered * 2;
+        SetLength(Result, Buffered);
+      end;
+
+      Result[Count] := Temp;
+      Inc(Count);
+    end;
+  end;
+
+  SetLength(Result, Count);
+end;
+
 function TConcatedCollection<T>.DoTryGetLinearItems(var ALinearItems: TLinearItems): Boolean;
 var
   LLeftItems, LRightItems: TLinearItems;
@@ -19927,6 +21087,617 @@ begin
   end;
 
   Result := False;
+end;
+
+function TConcatedCollection<T>.ToArray: TArray<T>;
+var
+  LinearItems: TLinearItems;
+  Temp: TArray<T>;
+begin
+  if (DoTryGetLinearItems(LinearItems)) then
+  begin
+    LinearItems.ToArray(Result);
+    Exit;
+  end;
+
+  Result := FCollection.ToArray;
+
+  if (Assigned(FSecondInstance)) then
+  begin
+    Temp := FSecondInstance.ToArray;
+  end else
+  if (SecondMode = smInterface) then
+  begin
+    Temp := FSecondInterface.ToArray;
+  end else
+  begin
+    Temp := InternalEnumerableToArray;
+  end;
+
+  if (Pointer(Result) = nil) then
+  begin
+    Result := Temp;
+  end else
+  begin
+    Insert(Temp, Result, Length(Result));
+  end;
+end;
+
+function TConcatedCollection<T>.ToArray(const APredicate: TFunction<T,Boolean>): TArray<T>;
+var
+  LinearItems: TLinearItems;
+  Temp: TArray<T>;
+begin
+  if (DoTryGetLinearItems(LinearItems)) then
+  begin
+    LinearItems.ToArray(Result, APredicate);
+    Exit;
+  end;
+
+  Result := FCollection.ToArray(APredicate);
+
+  if (Assigned(FSecondInstance)) then
+  begin
+    Temp := FSecondInstance.ToArray(APredicate);
+  end else
+  if (SecondMode = smInterface) then
+  begin
+    Temp := FSecondInterface.ToArray(APredicate);
+  end else
+  begin
+    Temp := InternalEnumerableToArray(APredicate);
+  end;
+
+  if (Pointer(Result) = nil) then
+  begin
+    Result := Temp;
+  end else
+  begin
+    Insert(Temp, Result, Length(Result));
+  end;
+end;
+
+function TConcatedCollection<T>.All(const APredicate: TFunction<T,Boolean>): Boolean;
+begin
+  Result := FCollection.All(APredicate);
+
+  if (Result) then
+  begin
+    if (Assigned(FSecondInstance)) then
+    begin
+      Result := FSecondInstance.All(APredicate);
+    end else
+    if (SecondMode = smInterface) then
+    begin
+      Result := FSecondInterface.All(APredicate);
+    end else
+    begin
+      Result := InternalAll(FSecondEnumerable, APredicate);
+    end;
+  end;
+end;
+
+function TConcatedCollection<T>.Any(const APredicate: TFunction<T,Boolean>): Boolean;
+begin
+  Result := FCollection.Any(APredicate);
+
+  if (not Result) then
+  begin
+    if (Assigned(FSecondInstance)) then
+    begin
+      Result := FSecondInstance.Any(APredicate);
+    end else
+    if (SecondMode = smInterface) then
+    begin
+      Result := FSecondInterface.Any(APredicate);
+    end else
+    begin
+      Result := InternalAny(FSecondEnumerable, APredicate);
+    end;
+  end;
+end;
+
+function TConcatedCollection<T>.TryAggregate(var{out} Value: T; const AFunc: TFunction<T,T,T>): Boolean;
+var
+  LinearItems: TLinearItems;
+begin
+  Result := FCollection.TryAggregate(Value, AFunc);
+
+  if (Assigned(FSecondInstance)) then
+  begin
+    if (FSecondInstance.DoTryGetLinearItems(LinearItems)) then
+    begin
+      Result := LinearItems.TryAggregate(Value, AFunc, Result);
+    end else
+    begin
+      Result := InternalTryAggregate(FSecondInstance, Value, AFunc, Result);
+    end;
+  end else
+  if (SecondMode = smInterface) then
+  begin
+    Result := InternalTryAggregate(FSecondInterface, Value, AFunc, Result);
+  end else
+  begin
+    Result := InternalTryAggregate(FSecondEnumerable, Value, AFunc, Result);
+  end;
+end;
+
+function TConcatedCollection<T>.TryGetMin(var{out} Value: T; const AComparer: TComparison<T>): Boolean;
+var
+  Temp: T;
+begin
+  if (Assigned(FSecondInstance)) then
+  begin
+    Result := FSecondInstance.TryGetMin(Value, AComparer);
+  end else
+  if (SecondMode = smInterface) then
+  begin
+    Result := FSecondInterface.TryGetMin(Value, AComparer);
+  end else
+  begin
+    CheckArgumentIsNil(Assigned(AComparer), 'Comparer');
+    Result := InternalTryGetMin(Value, FSecondEnumerable, AComparer);
+  end;
+
+  if (not Result) then
+  begin
+    Result := FCollection.TryGetMin(Value, AComparer);
+  end else
+  begin
+    if (FCollection.TryGetMin(Temp, AComparer)) then
+    begin
+      if (AComparer(Temp, Value) < 0) then
+        Value := Temp;
+    end;
+
+    Result := True;
+  end;
+end;
+
+function TConcatedCollection<T>.TryGetMin(var{out} Value: Integer; const ASelector: TFunction<T,Integer>): Boolean;
+var
+  Temp: Integer;
+begin
+  if (Assigned(FSecondInstance)) then
+  begin
+    Result := FSecondInstance.TryGetMin(Value, ASelector);
+  end else
+  if (SecondMode = smInterface) then
+  begin
+    Result := FSecondInterface.TryGetMin(Value, ASelector);
+  end else
+  begin
+    CheckArgumentIsNil(Assigned(ASelector), 'Selector');
+    Result := InternalTryGetMin(Value, FSecondEnumerable, ASelector);
+  end;
+
+  if (not Result) then
+  begin
+    Result := FCollection.TryGetMin(Value, ASelector);
+  end else
+  begin
+    if (FCollection.TryGetMin(Temp, ASelector)) then
+    begin
+      if (Temp < Value) then
+        Value := Temp;
+    end;
+
+    Result := True;
+  end;
+end;
+
+function TConcatedCollection<T>.TryGetMax(var{out} Value: T; const AComparer: TComparison<T>): Boolean;
+var
+  Temp: T;
+begin
+  if (Assigned(FSecondInstance)) then
+  begin
+    Result := FSecondInstance.TryGetMax(Value, AComparer);
+  end else
+  if (SecondMode = smInterface) then
+  begin
+    Result := FSecondInterface.TryGetMax(Value, AComparer);
+  end else
+  begin
+    CheckArgumentIsNil(Assigned(AComparer), 'Comparer');
+    Result := InternalTryGetMax(Value, FSecondEnumerable, AComparer);
+  end;
+
+  if (not Result) then
+  begin
+    Result := FCollection.TryGetMax(Value, AComparer);
+  end else
+  begin
+    if (FCollection.TryGetMax(Temp, AComparer)) then
+    begin
+      if (AComparer(Temp, Value) > 0) then
+        Value := Temp;
+    end;
+
+    Result := True;
+  end;
+end;
+
+function TConcatedCollection<T>.TryGetMax(var{out} Value: Integer; const ASelector: TFunction<T,Integer>): Boolean;
+var
+  Temp: Integer;
+begin
+  if (Assigned(FSecondInstance)) then
+  begin
+    Result := FSecondInstance.TryGetMax(Value, ASelector);
+  end else
+  if (SecondMode = smInterface) then
+  begin
+    Result := FSecondInterface.TryGetMax(Value, ASelector);
+  end else
+  begin
+    CheckArgumentIsNil(Assigned(ASelector), 'Selector');
+    Result := InternalTryGetMax(Value, FSecondEnumerable, ASelector);
+  end;
+
+  if (not Result) then
+  begin
+    Result := FCollection.TryGetMax(Value, ASelector);
+  end else
+  begin
+    if (FCollection.TryGetMax(Temp, ASelector)) then
+    begin
+      if (Temp > Value) then
+        Value := Temp;
+    end;
+
+    Result := True;
+  end;
+end;
+
+function TConcatedCollection<T>.Sum: T;
+var
+  Temp: T;
+begin
+  Result := FCollection.Sum;
+
+  if (Assigned(FSecondInstance)) then
+  begin
+    Temp := FSecondInstance.Sum;
+  end else
+  if (SecondMode = smInterface) then
+  begin
+    Temp := FSecondInterface.Sum;
+  end else
+  begin
+    Temp := InternalSum(FSecondEnumerable);
+  end;
+
+  case {$ifdef SMARTGENERICS}GetTypeKind(T){$else}PTypeInfo(TypeInfo(T)).Kind{$endif} of
+    tkInteger:
+    begin
+      case (GetTypeData(TypeInfo(T)).OrdType) of
+        otSByte, otUByte: PByte(@Result)^ := PByte(@Result)^ + PByte(@Temp)^;
+        otSWord, otUWord: PWord(@Result)^ := PWord(@Result)^ + PWord(@Temp)^;
+        otSLong, otULong: PCardinal(@Result)^ := PCardinal(@Result)^ + PCardinal(@Temp)^;
+      end;
+    end;
+    tkInt64:
+    begin
+      PInt64(@Result)^ := PInt64(@Result)^ + PInt64(@Temp)^;
+    end;
+    tkFloat:
+    begin
+      case (GetTypeData(TypeInfo(T)).FloatType) of
+        ftSingle: PSingle(@Result)^ := PSingle(@Result)^ + PSingle(@Temp)^;
+        ftDouble: PDouble(@Result)^ := PDouble(@Result)^ + PDouble(@Temp)^;
+      ftExtended: PExtended(@Result)^ := PExtended(@Result)^ + PExtended(@Temp)^;
+      else
+        PInt64(@Result)^ := PInt64(@Result)^ + PInt64(@Temp)^;
+      end;
+    end;
+  end;
+end;
+
+function TConcatedCollection<T>.Sum(const ASelector: TFunction<T,Integer>): Integer;
+begin
+  Result := FCollection.Sum(ASelector);
+
+  if (Assigned(FSecondInstance)) then
+  begin
+    Result := Result + FSecondInstance.Sum(ASelector);
+  end else
+  if (SecondMode = smInterface) then
+  begin
+    Result := Result + FSecondInterface.Sum(ASelector);
+  end else
+  begin
+    Result := Result + InternalSum(FSecondEnumerable, ASelector);
+  end;
+end;
+
+function TConcatedCollection<T>.Sum(const ASelector: TFunction<T,Int64>): Int64;
+begin
+  Result := FCollection.Sum(ASelector);
+
+  if (Assigned(FSecondInstance)) then
+  begin
+    Result := Result + FSecondInstance.Sum(ASelector);
+  end else
+  if (SecondMode = smInterface) then
+  begin
+    Result := Result + FSecondInterface.Sum(ASelector);
+  end else
+  begin
+    Result := Result + InternalSum(FSecondEnumerable, ASelector);
+  end;
+end;
+
+function TConcatedCollection<T>.Sum(const ASelector: TFunction<T,Extended>): Extended;
+begin
+  Result := FCollection.Sum(ASelector);
+
+  if (Assigned(FSecondInstance)) then
+  begin
+    Result := Result + FSecondInstance.Sum(ASelector);
+  end else
+  if (SecondMode = smInterface) then
+  begin
+    Result := Result + FSecondInterface.Sum(ASelector);
+  end else
+  begin
+    Result := Result + InternalSum(FSecondEnumerable, ASelector);
+  end;
+end;
+
+procedure TConcatedCollection<T>.ForEach(const AAction: TProcedure<T>);
+begin
+  FCollection.ForEach(AAction);
+
+  if (Assigned(FSecondInstance)) then
+  begin
+    FSecondInstance.ForEach(AAction);
+  end else
+  if (SecondMode = smInterface) then
+  begin
+    FSecondInterface.ForEach(AAction);
+  end else
+  begin
+    InternalForEach(FSecondEnumerable, AAction);
+  end;
+end;
+
+function TConcatedCollection<T>.ForEach(const AAction: TFunction<T,Boolean>): Boolean;
+begin
+  Result := FCollection.ForEach(AAction);
+  if (not Result) then
+    Exit;
+
+  if (Assigned(FSecondInstance)) then
+  begin
+    Result := FSecondInstance.ForEach(AAction);
+  end else
+  if (SecondMode = smInterface) then
+  begin
+    Result := FSecondInterface.ForEach(AAction);
+  end else
+  begin
+    Result := InternalForEach(FSecondEnumerable, AAction);
+  end;
+end;
+
+function TConcatedCollection<T>.TryGetElementAt(var{out} Value: T; const AIndex: Integer): Boolean;
+var
+  LIndex: Integer;
+begin
+  if (AIndex >= 0) then
+  begin
+    Result := FCollection.TryGetElementAt(Value, AIndex);
+    if (Result) then
+      Exit;
+
+    LIndex := AIndex - FCollection.DoGetCount;
+    if (LIndex >= 0) then
+    begin
+      if (Assigned(FSecondInstance)) then
+      begin
+        Result := FSecondInstance.TryGetElementAt(Value, LIndex);
+      end else
+      if (SecondMode = smInterface) then
+      begin
+        Result := FSecondInterface.TryGetElementAt(Value, LIndex);
+      end else
+      begin
+        Result := InternalTryGetElementAt(FSecondEnumerable, Value, LIndex);
+      end;
+    end;
+  end;
+
+  Result := False;
+end;
+
+function TConcatedCollection<T>.TryGetFirst(var{out} Value: T): Boolean;
+begin
+  Result := FCollection.TryGetFirst(Value);
+  if (Result) then
+    Exit;
+
+  if (Assigned(FSecondInstance)) then
+  begin
+    Result := FSecondInstance.TryGetFirst(Value);
+  end else
+  if (SecondMode = smInterface) then
+  begin
+    Result := FSecondInterface.TryGetFirst(Value);
+  end else
+  begin
+    Result := InternalTryGetFirst(FSecondEnumerable, Value);
+  end;
+end;
+
+function TConcatedCollection<T>.TryGetFirst(var{out} Value: T; const APredicate: TFunction<T,Boolean>): Boolean;
+begin
+  Result := FCollection.TryGetFirst(Value, APredicate);
+  if (Result) then
+    Exit;
+
+  if (Assigned(FSecondInstance)) then
+  begin
+    Result := FSecondInstance.TryGetFirst(Value, APredicate);
+  end else
+  if (SecondMode = smInterface) then
+  begin
+    Result := FSecondInterface.TryGetFirst(Value, APredicate);
+  end else
+  begin
+    Result := InternalTryGetFirst(FSecondEnumerable, Value, APredicate);
+  end;
+end;
+
+function TConcatedCollection<T>.TryGetLast(var{out} Value: T): Boolean;
+begin
+  if (Assigned(FSecondInstance)) then
+  begin
+    Result := FSecondInstance.TryGetLast(Value);
+  end else
+  if (SecondMode = smInterface) then
+  begin
+    Result := FSecondInterface.TryGetLast(Value);
+  end else
+  begin
+    Result := InternalTryGetLast(FSecondEnumerable, Value);
+  end;
+
+  if (not Result) then
+    Result := FCollection.TryGetLast(Value);
+end;
+
+function TConcatedCollection<T>.TryGetLast(var{out} Value: T; const APredicate: TFunction<T,Boolean>): Boolean;
+begin
+  if (Assigned(FSecondInstance)) then
+  begin
+    Result := FSecondInstance.TryGetLast(Value, APredicate);
+  end else
+  if (SecondMode = smInterface) then
+  begin
+    Result := FSecondInterface.TryGetLast(Value, APredicate);
+  end else
+  begin
+    Result := InternalTryGetLast(FSecondEnumerable, Value, APredicate);
+  end;
+
+  if (not Result) then
+    Result := FCollection.TryGetLast(Value, APredicate);
+end;
+
+function TConcatedCollection<T>.InternalTryGetSingle(var{out} Value: T): Integer;
+var
+  LinearItems: TLinearItems;
+begin
+  Result := FCollection.InternalTryGetSingle(Value);
+
+  if (Result <= 1) then
+  begin
+    if (Assigned(FSecondInstance)) then
+    begin
+      if (FSecondInstance.DoTryGetLinearItems(LinearItems)) then
+      begin
+        Result := Result + LinearItems.Count1 + LinearItems.Count2;
+        if (Result = 1) then
+        begin
+          if (LinearItems.Count1 = 1) then
+          begin
+            Value := LinearItems.Values1^;
+          end else
+          if (LinearItems.Count2 = 1) then
+          begin
+            Value := LinearItems.Values2^;
+          end;
+        end;
+      end else
+      begin
+        Result := InternalTryGetSingle(FSecondInstance, Value, Boolean(Result));
+      end;
+    end else
+    if (SecondMode = smInterface) then
+    begin
+      Result := InternalTryGetSingle(FSecondInterface, Value, Boolean(Result));
+    end else
+    begin
+      Result := InternalTryGetSingle(FSecondEnumerable, Value, Boolean(Result));
+    end;
+  end;
+end;
+
+function TConcatedCollection<T>.InternalTryGetSingle(var{out} Value: T;
+  const APredicate: TFunction<T,Boolean>): Integer;
+var
+  LinearItems: TLinearItems;
+begin
+  Result := FCollection.InternalTryGetSingle(Value, APredicate);
+
+  if (Result <= 1) then
+  begin
+    if (Assigned(FSecondInstance)) then
+    begin
+      if (FSecondInstance.DoTryGetLinearItems(LinearItems)) then
+      begin
+        Result := LinearItems.TryGetSingle(Value, APredicate, Boolean(Result));
+      end else
+      begin
+        Result := InternalTryGetSingle(FSecondInstance, Value, APredicate, Boolean(Result));
+      end;
+    end else
+    if (SecondMode = smInterface) then
+    begin
+      Result := InternalTryGetSingle(FSecondInterface, Value, APredicate, Boolean(Result));
+    end else
+    begin
+      Result := InternalTryGetSingle(FSecondEnumerable, Value, APredicate, Boolean(Result));
+    end;
+  end;
+end;
+
+function TConcatedCollection<T>.IndexOf(const AValue: T; const AComparer: TEqualityComparison<T>): Integer;
+begin
+  Result := FCollection.IndexOf(AValue, AComparer);
+  if (Result < 0) then
+  begin
+    if (Assigned(FSecondInstance)) then
+    begin
+      Result := FSecondInstance.IndexOf(AValue, AComparer);
+    end else
+    if (SecondMode = smInterface) then
+    begin
+      Result := FSecondInterface.IndexOf(AValue, AComparer);
+    end else
+    begin
+      Result := InternalIndexOf(AValue, FSecondEnumerable, AComparer);
+    end;
+
+    if (Result >= 0) then
+    begin
+      Inc(Result, FCollection.DoGetCount);
+    end;
+  end;
+end;
+
+function TConcatedCollection<T>.LastIndexOf(const AValue: T; const AComparer: TEqualityComparison<T>): Integer;
+begin
+  if (Assigned(FSecondInstance)) then
+  begin
+    Result := FSecondInstance.LastIndexOf(AValue, AComparer);
+  end else
+  if (SecondMode = smInterface) then
+  begin
+    Result := FSecondInterface.LastIndexOf(AValue, AComparer);
+  end else
+  begin
+    Result := InternalLastIndexOf(AValue, FSecondEnumerable, AComparer);
+  end;
+
+  if (Result >= 0) then
+  begin
+    Inc(Result, FCollection.DoGetCount);
+  end else
+  begin
+    Result := FCollection.LastIndexOf(AValue, AComparer);
+  end;
 end;
 
 
