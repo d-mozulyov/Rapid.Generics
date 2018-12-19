@@ -18678,6 +18678,8 @@ begin
   Result := True;
 end;
 
+{ TCollection<T> }
+
 constructor TCollection<T>.Create;
 begin
   inherited Create;
@@ -27681,7 +27683,7 @@ var
   Item, TopItem, DestItem: PItem;
   VarData: PVarData;
   {$ifNdef CPUX86}
-  VSingle, VSingleNull: Single;
+  VSingle, VSingleNull: System.Single;
   VDouble, VDoubleNull: Double;
   VExtended, VExtendedNull: Extended;
   {$endif}
@@ -27886,7 +27888,7 @@ var
   Item, TopItem, DestItem: PItem;
   VarData: PVarData;
   {$ifNdef CPUX86}
-  VSingle, VSingleNull: Single;
+  VSingle, VSingleNull: System.Single;
   VDouble, VDoubleNull: Double;
   VExtended, VExtendedNull: Extended;
   {$endif}
