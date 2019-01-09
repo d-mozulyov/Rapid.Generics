@@ -441,9 +441,13 @@ type
       MEMORY_SCHEME_SHIFT = 28;
       MEMORY_SCHEME_MASK = Integer(High(TMemoryScheme)) shl MEMORY_SCHEME_SHIFT;
       MEMORY_SCHEME_CLEAR = not MEMORY_SCHEME_MASK;
-      REFCOUNT_MASK = not (MEMORY_SCHEME_MASK or DISPOSED_FLAG);
+      DISPREFCOUNT_MASK = MEMORY_SCHEME_CLEAR;
+      DISPREFCOUNT_CLEAR = not DISPREFCOUNT_MASK;
+      REFCOUNT_MASK = DISPREFCOUNT_MASK and (not DISPOSED_FLAG);
+      REFCOUNT_CLEAR = not REFCOUNT_MASK;
       DEFAULT_REFCOUNT = {$ifdef AUTOREFCOUNT}1{$else}0{$endif};
       DUMMY_REFCOUNT = Integer($80000000);
+      DEFAULT_DESTROY_FLAGS = DISPOSED_FLAG or DUMMY_REFCOUNT;
       {$if CompilerVersion >= 32}
       monFlagsMask = NativeInt($01);
       monMonitorMask = not monFlagsMask;
@@ -3649,7 +3653,7 @@ begin
 
   // TCustomObject initialization
   LPtr[0] := NativeInt(Self);
-  LPtr[1]{FRefCount} := (1 or Ord(msHeap));
+  LPtr[1]{FRefCount} := (DUMMY_REFCOUNT or Ord(msHeap));
   LPtr[2] := NativeInt(@TCustomObject.FInterfaceTable);
   LPtr[3] := NativeInt(PInterfaceTable(PPointer(PByte(TCustomObject) + vmtIntfTable)^).Entries[0].VTable);
 
@@ -3746,7 +3750,7 @@ begin
 
   // TCustomObject initialization
   LPtr[0] := NativeInt(Self);
-  LPtr[1]{FRefCount} := 1 + (Ord(AMemoryScheme) shl MEMORY_SCHEME_SHIFT);
+  LPtr[1]{FRefCount} := DUMMY_REFCOUNT + (Ord(AMemoryScheme) shl MEMORY_SCHEME_SHIFT);
   LPtr[2] := NativeInt(@TCustomObject.FInterfaceTable);
   LPtr[3] := NativeInt(PInterfaceTable(PPointer(PByte(TCustomObject) + vmtIntfTable)^).Entries[0].VTable);
 
@@ -3847,7 +3851,7 @@ var
   {$ifend}
 begin
   // check reference count
-  LRefCount := FRefCount and (REFCOUNT_MASK xor DUMMY_REFCOUNT);
+  LRefCount := FRefCount and (REFCOUNT_MASK and (not DUMMY_REFCOUNT));
   if (LRefCount <> 0) then
     raise CreateEInvalidRefCount(Self, LRefCount);
 
@@ -4065,16 +4069,16 @@ begin
 end;
 
 procedure TCustomObject.AfterConstruction;
+const
+  NEGATIVE_DECREMENT = Integer(-(Int64(DUMMY_REFCOUNT) - DEFAULT_REFCOUNT));
 begin
-  {$ifNdef AUTOREFCOUNT}
-  if (FRefCount <> 1) then
+  if (FRefCount and REFCOUNT_MASK <> DUMMY_REFCOUNT) then
   begin
-    AtomicDecrement(FRefCount);
+    AtomicIncrement(FRefCount, NEGATIVE_DECREMENT);
   end else
   begin
-    FRefCount := 0;
+    Inc(FRefCount, NEGATIVE_DECREMENT);
   end;
-  {$endif}
 end;
 
 procedure TCustomObject.BeforeDestruction;
@@ -4101,48 +4105,86 @@ type
   TBeforeDestructionProc = procedure(Instance: Pointer);
   TDestructorProc = procedure(Instance: Pointer; OuterMost: ShortInt);
 var
-  LRef: Integer;
-  Proc: Pointer;
+  LRef, LFlags: Integer;
+  LProc: Pointer;
+  LSelf: Pointer{TCustomObject};
 begin
   if (Self = nil) then
     Exit;
 
-  // no references
-  {$ifNdef AUTOREFCOUNT}
-  if (FRefCount and MEMORY_SCHEME_CLEAR = DEFAULT_REFCOUNT) then
+  // check overloaded reference counter
+  // no references optimization
+  LFlags := DEFAULT_DESTROY_FLAGS;
+  if (PPointer(PNativeInt(Self)^ + vmtObjAddRef)^ <> @TCustomObject.__ObjAddRef) or
+    (PPointer(PNativeInt(Self)^ + vmtObjRelease)^ <> @TCustomObject.__ObjRelease) then
   begin
-    FRefCount := FRefCount or (DUMMY_REFCOUNT or DISPOSED_FLAG);
-    Destroy;
-    Exit;
+    LFlags := DISPOSED_FLAG;
+  end else
+  begin
+    {$ifNdef AUTOREFCOUNT}
+    if (FRefCount and DISPREFCOUNT_MASK = 0) then
+    begin
+      FRefCount := FRefCount or DEFAULT_DESTROY_FLAGS;
+      Destroy;
+      Exit;
+    end;
+    {$endif}
   end;
-  {$endif}
 
   // has references: the instance remains alive
-  // mark disposed (exit if already disposed)
+  // mark disposed (exit if already disposed) and dummy reference count
   repeat
     LRef := FRefCount;
     if (LRef and DISPOSED_FLAG <> 0) then
       Exit;
 
-    if (Cardinal(LRef and MEMORY_SCHEME_CLEAR) <= DEFAULT_REFCOUNT) then
+    if (LFlags = DEFAULT_DESTROY_FLAGS) and (Cardinal(LRef and REFCOUNT_MASK) = 1) then
     begin
-      FRefCount := LRef or DISPOSED_FLAG;
+      FRefCount := LRef or LFlags;
       Break;
     end;
 
-    if (AtomicCmpExchange(FRefCount, LRef or DISPOSED_FLAG, LRef) = LRef) then
+    if (AtomicCmpExchange(FRefCount, LRef or LFlags, LRef) = LRef) then
       Break;
   until (False);
 
-  // before destruction
-  Proc := PPointer(PNativeInt(Self)^ + vmtBeforeDestruction)^;
-  if (Proc <> @TCustomObject.BeforeDestruction) then
-    TBeforeDestructionProc(Proc)(Self);
+  // call destructor, optional free instance
+  LSelf := Self;
+  if (LFlags = DEFAULT_DESTROY_FLAGS) then
+  begin
+    try
+      LProc := PPointer(PNativeInt(Self)^ + vmtBeforeDestruction)^;
+      if (LProc <> @TCustomObject.BeforeDestruction) then
+        TBeforeDestructionProc(LProc)(Self);
 
-  // destructor
-  Proc := PPointer(PNativeInt(Self)^ + vmtDestroy)^;
-  if (Proc <> @TCustomObject.Destroy) then
-    TDestructorProc(Proc)(Self, 0);
+      LProc := PPointer(PNativeInt(Self)^ + vmtDestroy)^;
+      if (LProc <> @TCustomObject.Destroy) then
+        TDestructorProc(LProc)(Self, 0);
+    finally
+      with TCustomObject(LSelf) do
+      begin
+        if ((FRefCount - DUMMY_REFCOUNT) and REFCOUNT_MASK = 0) or
+         (AtomicIncrement(FRefCount, Integer(-Int64(DUMMY_REFCOUNT))) and REFCOUNT_MASK = 0) then
+        begin
+          FreeInstance;
+        end;
+      end;
+    end;
+  end else
+  begin
+    __ObjAddRef;
+    try
+      LProc := PPointer(PNativeInt(Self)^ + vmtBeforeDestruction)^;
+      if (LProc <> @TCustomObject.BeforeDestruction) then
+        TBeforeDestructionProc(LProc)(Self);
+
+      LProc := PPointer(PNativeInt(Self)^ + vmtDestroy)^;
+      if (LProc <> @TCustomObject.Destroy) then
+        TDestructorProc(LProc)(Self, 0);
+    finally
+      TCustomObject(LSelf).__ObjRelease;
+    end;
+  end;
 end;
 
 function TCustomObject.__ObjAddRef: Integer;
@@ -4201,7 +4243,7 @@ begin
   // no references: destroy/freeinstance
   if (FRefCount and DISPOSED_FLAG = 0) then
   begin
-    FRefCount := FRefCount or (DUMMY_REFCOUNT or DISPOSED_FLAG);
+    FRefCount := FRefCount or DEFAULT_DESTROY_FLAGS;
     Destroy;
     Exit;
   end else
@@ -4231,7 +4273,7 @@ begin
     // no references: destroy/freeinstance
     if (FRefCount and DISPOSED_FLAG = 0) then
     begin
-      FRefCount := FRefCount or (DUMMY_REFCOUNT or DISPOSED_FLAG);
+      FRefCount := FRefCount or DEFAULT_DESTROY_FLAGS;
       Destroy;
       Exit;
     end else
@@ -4354,7 +4396,7 @@ begin
 
   if (FRefCount and DISPOSED_FLAG = 0) then
   begin
-    FRefCount := FRefCount or (DUMMY_REFCOUNT or DISPOSED_FLAG);
+    FRefCount := FRefCount or DEFAULT_DESTROY_FLAGS;
     Destroy;
     Exit;
   end else
@@ -4375,7 +4417,7 @@ begin
 
     if (FRefCount and DISPOSED_FLAG = 0) then
     begin
-      FRefCount := FRefCount or (DUMMY_REFCOUNT or DISPOSED_FLAG);
+      FRefCount := FRefCount or DEFAULT_DESTROY_FLAGS;
       Destroy;
       Exit;
     end else
