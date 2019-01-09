@@ -1,7 +1,7 @@
 unit Rapid.Generics;
 
 {******************************************************************************}
-{ Copyright (c) 2018 Dmitry Mozulyov                                           }
+{ Copyright (c) 2019 Dmitry Mozulyov                                           }
 {                                                                              }
 { Permission is hereby granted, free of charge, to any person obtaining a copy }
 { of this software and associated documentation files (the "Software"), to deal}
@@ -216,12 +216,201 @@ type
   end;
 
 
+{ TSyncYield record
+  Improves the performance of spin loops by providing the processor with a hint
+  displaying that the current code is in a spin loop }
+
+  PSyncYield = ^TSyncYield;
+  TSyncYield = packed record
+  private
+    FCount: Byte;
+  public
+    class function Create: TSyncYield; static; inline;
+    procedure Reset; inline;
+    procedure Execute;
+
+    property Count: Byte read FCount write FCount;
+  end;
+
+
+{ TSyncSpinlock record
+  The simplest and sufficiently fast synchronization primitive
+  Accepts only two values: locked and unlocked }
+
+  PSyncSpinlock = ^TSyncSpinlock;
+  TSyncSpinlock = record
+  private
+    {$if CompilerVersion >= 29}[Volatile]{$ifend}
+    FValue: Byte;
+    function GetLocked: Boolean; inline;
+    procedure InternalEnter;
+  public
+    class function Create: TSyncSpinlock; static; inline;
+
+    function TryEnter: Boolean; {$ifNdef CPUINTELASM}inline;{$endif}
+    function Enter(const ATimeout: Cardinal): Boolean; overload;
+    procedure Enter; overload; inline;
+    procedure Leave; inline;
+
+    property Locked: Boolean read GetLocked;
+  end;
+
+
+{ TSyncLocker record
+  Synchronization primitive, minimizes thread serialization to gain
+  read access to a resource shared among threads while still providing complete
+  exclusivity to callers needing write access to the shared resource }
+
+  PSyncLocker = ^TSyncLocker;
+  TSyncLocker = record
+  private
+    {$if CompilerVersion >= 29}[Volatile]{$ifend}
+    FValue: Integer;
+    function GetLocked: Boolean; inline;
+    function GetLockedRead: Boolean; inline;
+    function GetLockedExclusive: Boolean; inline;
+    procedure InternalEnterRead;
+    procedure InternalEnterExclusive;
+  public
+    class function Create: TSyncLocker; static; inline;
+
+    function TryEnterRead: Boolean;
+    function TryEnterExclusive: Boolean;
+    function EnterRead(const ATimeout: Cardinal): Boolean; overload;
+    function EnterExclusive(const ATimeout: Cardinal): Boolean; overload;
+
+    procedure EnterRead; overload; inline;
+    procedure EnterExclusive; overload; inline;
+    procedure LeaveRead; inline;
+    procedure LeaveExclusive; inline;
+
+    property Locked: Boolean read GetLocked;
+    property LockedRead: Boolean read GetLockedRead;
+    property LockedExclusive: Boolean read GetLockedExclusive;
+  end;
+
+
+{ TSyncSmallLocker record
+  One-byte implementation of TSyncLocker }
+
+  PSyncSmallLocker = ^TSyncSmallLocker;
+  TSyncSmallLocker = record
+  private
+    {$if CompilerVersion >= 29}[Volatile]{$ifend}
+    FValue: Byte;
+    function GetLocked: Boolean; inline;
+    function GetLockedRead: Boolean; inline;
+    function GetLockedExclusive: Boolean; inline;
+    class function InternalCAS(var AValue: Byte; const NewValue, Comparand: Byte): Boolean; static; {$ifNdef CPUINTELASM}inline;{$endif}
+    procedure InternalEnterRead;
+    procedure InternalEnterExclusive;
+  public
+    class function Create: TSyncSmallLocker; static; inline;
+
+    function TryEnterRead: Boolean;
+    function TryEnterExclusive: Boolean;
+    function EnterRead(const ATimeout: Cardinal): Boolean; overload;
+    function EnterExclusive(const ATimeout: Cardinal): Boolean; overload;
+
+    procedure EnterRead; overload; inline;
+    procedure EnterExclusive; overload; inline;
+    procedure LeaveRead; {$ifNdef CPUINTELASM}inline;{$endif}
+    procedure LeaveExclusive; {$ifNdef CPUINTELASM}inline;{$endif}
+
+    property Locked: Boolean read GetLocked;
+    property LockedRead: Boolean read GetLockedRead;
+    property LockedExclusive: Boolean read GetLockedExclusive;
+  end;
+
+
+{ TaggedPointer record
+  Atomic 8 bytes sized tagged pointer structure, auto incremented for x86/x64 CPUs
+  May be useful for lock-free algorithms (should be 8 byte aligned)
+  Supports 48 bit addresses for CPUX64
+  Contains free list (stack) routine }
+
+  PTaggedPointer = ^TaggedPointer;
+  TaggedPointer = packed record
+  private
+    {$if CompilerVersion >= 29}[Volatile]{$ifend}
+    F: packed record
+    case Integer of
+      0: (Value: Pointer);
+      1: (VLow, VHigh: Integer);
+      2: (VInt64: Int64);
+      3: (VNative: NativeUInt);
+      4: (VDouble: Double);
+    end;
+
+    function GetIsEmpty: Boolean; inline;
+    function GetIsInvalid: Boolean; inline;
+    function GetIsEmptyOrInvalid: Boolean; inline;
+    {$ifdef CPUX64}
+    function GetValue: Pointer; inline;
+    {$endif}
+    {$ifdef CPUINTEL}
+    procedure SetValue(const AValue: Pointer);
+    {$endif}
+
+    {$ifdef CPUX64}
+    const
+      X64_TAGGEDPTR_MASK = (NativeUInt(1) shl 48) - 1;
+      X64_TAGGEDPTR_CLEAR = not X64_TAGGEDPTR_MASK;
+    {$endif}
+  public
+    const
+      INVALID_VALUE = Pointer(NativeInt(-1) {$ifdef CPUX64}and NativeInt(X64_TAGGEDPTR_MASK){$endif});
+  public
+    // initialization, copying, comparison
+    class function Create(const AValue: Pointer): TaggedPointer; overload; static; inline;
+    class function Create(const AValue: Int64): TaggedPointer; overload; static; inline;
+    class function Create(const ALow, AHigh: Integer): TaggedPointer; overload; static; inline;
+    class operator Equal(const a, b: TaggedPointer): Boolean; inline;
+    function Copy: TaggedPointer; {$ifNdef CPUX86}inline;{$endif}
+    procedure Fill(const AValue: TaggedPointer); {$ifNdef CPUX86}inline;{$endif}
+
+    // atomic helpers
+    function AtomicCmpExchange(const NewValue: Pointer; const Comparand: TaggedPointer): Boolean; overload;
+    function AtomicCmpExchange(const NewValue: TaggedPointer; const Comparand: TaggedPointer): Boolean; overload;
+    function AtomicExchange(const NewValue: Pointer): Pointer; overload;
+    function AtomicExchange(const NewValue: TaggedPointer): TaggedPointer; overload;
+
+    // pointer value
+    property IsEmpty: Boolean read GetIsEmpty;
+    property IsInvalid: Boolean read GetIsInvalid;
+    property IsEmptyOrInvalid: Boolean read GetIsEmptyOrInvalid;
+    {$if not Defined(CPUINTEL)}
+    property Value: Pointer read F.Value write F.Value;
+    {$elseif Defined(CPUX64)}
+    property Value: Pointer read GetValue write SetValue;
+    {$else .CPUX86}
+    property Value: Pointer read F.Value write SetValue;
+    {$ifend}
+  public
+    // free list (stack) routine
+    procedure Push(const Value: Pointer); inline;
+    function Pop: Pointer;
+    procedure PushList(const First, Last: Pointer); overload;
+    procedure PushList(const First: Pointer{Last calculated}); overload;
+    function PopList: Pointer;
+    function PopListReversed: Pointer;
+
+    // invalid value case
+    function TryPush(const Value: Pointer): Boolean; inline;
+    function TryPop: Pointer;
+    function TryPushList(const First, Last: Pointer): Boolean; overload;
+    function TryPushList(const First: Pointer{Last calculated}): Boolean; overload;
+    function TryPopList: Pointer;
+    function TryPopListReversed: Pointer;
+  end;
+
+
 { TCustomObject/ICustomObject class
   TInterfacedObject alternative (inheritor) and own interface, the differences:
    - contains an original object instance
    - optimized initialize, cleanup and atomic operations
    - NEXTGEN-like rule of DisposeOf method, i.e. allows to call destructor before reference count set to zero
-   - data in inherited classes is 8 byte aligned (this can be useful for lock-free algorithms)
+   - data in inherited classes is 8 byte aligned (this may be useful for lock-free algorithms)
    - allows to be placed not in memory heap
    - allows to make TMonitor operations faster
    - incompatible with TInterfacedObject.RefCount property }
@@ -1768,6 +1957,7 @@ type
     function Peek: T; inline;
   end;
 
+
 { TQueue<T>
   System.Generics.Collections equivalent }
 
@@ -1933,108 +2123,6 @@ type
     procedure SetNotifyMethods; override;
   public
     constructor Create(Ownerships: TDictionaryOwnerships; ACapacity: Integer = 0);
-  end;
-
-
-{ TSyncYield record
-  Improves the performance of spin loops by providing the processor with a hint
-  displaying that the current code is in a spin loop }
-
-  PSyncYield = ^TSyncYield;
-  TSyncYield = packed record
-  private
-    FCount: Byte;
-  public
-    class function Create: TSyncYield; static; inline;
-    procedure Reset; inline;
-    procedure Execute;
-
-    property Count: Byte read FCount write FCount;
-  end;
-
-
-{ TSyncSpinlock record
-  The simplest and sufficiently fast synchronization primitive
-  Accepts only two values: locked and unlocked }
-
-  PSyncSpinlock = ^TSyncSpinlock;
-  TSyncSpinlock = record
-  private
-    {$if CompilerVersion >= 29}[Volatile]{$ifend}
-    FValue: Byte;
-    function GetLocked: Boolean; inline;
-  public
-    class function Create: TSyncSpinlock; static;
-
-    function TryEnter: Boolean;
-    function Enter(const ATimeout: Cardinal): Boolean; overload;
-    procedure Enter; overload;
-    procedure Leave;
-
-    property Locked: Boolean read GetLocked;
-  end;
-
-
-{ TSyncLocker record
-  Synchronization primitive, minimizes thread serialization to gain
-  read access to a resource shared among threads while still providing complete
-  exclusivity to callers needing write access to the shared resource }
-
-  PSyncLocker = ^TSyncLocker;
-  TSyncLocker = record
-  private
-    {$if CompilerVersion >= 29}[Volatile]{$ifend}
-    FValue: Integer;
-    function GetLocked: Boolean; inline;
-    function GetLockedRead: Boolean; inline;
-    function GetLockedExclusive: Boolean; inline;
-  public
-    class function Create: TSyncLocker; static;
-
-    function TryEnterRead: Boolean;
-    function TryEnterExclusive: Boolean;
-    function EnterRead(const ATimeout: Cardinal): Boolean; overload;
-    function EnterExclusive(const ATimeout: Cardinal): Boolean; overload;
-
-    procedure EnterRead; overload;
-    procedure EnterExclusive; overload;
-    procedure LeaveRead;
-    procedure LeaveExclusive;
-
-    property Locked: Boolean read GetLocked;
-    property LockedRead: Boolean read GetLockedRead;
-    property LockedExclusive: Boolean read GetLockedExclusive;
-  end;
-
-
-{ TSyncSmallLocker record
-  One-byte implementation of TSyncLocker }
-
-  PSyncSmallLocker = ^TSyncSmallLocker;
-  TSyncSmallLocker = record
-  private
-    {$if CompilerVersion >= 29}[Volatile]{$ifend}
-    FValue: Byte;
-    function GetLocked: Boolean; inline;
-    function GetLockedRead: Boolean; inline;
-    function GetLockedExclusive: Boolean; inline;
-    class function InternalCAS(var AValue: Byte; const NewValue, Comparand: Byte): Boolean; static; {$ifNdef CPUINTELASM}inline;{$endif}
-  public
-    class function Create: TSyncSmallLocker; static;
-
-    function TryEnterRead: Boolean;
-    function TryEnterExclusive: Boolean;
-    function EnterRead(const ATimeout: Cardinal): Boolean; overload;
-    function EnterExclusive(const ATimeout: Cardinal): Boolean; overload;
-
-    procedure EnterRead; overload;
-    procedure EnterExclusive; overload;
-    procedure LeaveRead;
-    procedure LeaveExclusive;
-
-    property Locked: Boolean read GetLocked;
-    property LockedRead: Boolean read GetLockedRead;
-    property LockedExclusive: Boolean read GetLockedExclusive;
   end;
 
 
@@ -2289,6 +2377,1256 @@ begin
 end;
 
 
+{ TSyncYield }
+
+class function TSyncYield.Create: TSyncYield;
+begin
+  Result.FCount := 0;
+end;
+
+procedure TSyncYield.Reset;
+begin
+  Self.FCount := 0;
+end;
+
+procedure TSyncYield.Execute;
+var
+  LCount: Integer;
+begin
+  LCount := FCount;
+  Inc(LCount);
+  FCount := LCount;
+  Dec(LCount);
+
+  case (LCount and 7) of
+    0..4: System.YieldProcessor;
+    5, 6:
+    begin
+      {$ifdef MSWINDOWS}
+        SwitchToThread;
+      {$else .POSIX}
+        sched_yield;
+      {$endif}
+    end;
+  else
+    Sleep(1);
+  end;
+end;
+
+
+{ TSyncSpinlock }
+
+class function TSyncSpinlock.Create: TSyncSpinlock;
+begin
+  Result.FValue := 0;
+end;
+
+function TSyncSpinlock.GetLocked: Boolean;
+begin
+  Result := (FValue <> 0);
+end;
+
+function TSyncSpinlock.TryEnter: Boolean;
+{$ifdef CPUINTELASM}
+asm
+  {$ifdef CPUX86}
+  xchg eax, ecx
+  {$endif}
+  mov edx, 1
+  xor eax, eax
+
+  {$ifdef CPUX86}
+    cmp byte ptr [ECX].TSyncSpinlock.FValue, 0
+    jne @done
+    lock xchg byte ptr [ECX].TSyncSpinlock.FValue, dl
+  {$else .CPUX64}
+    cmp byte ptr [RCX].TSyncSpinlock.FValue, 0
+    jne @done
+    lock xchg byte ptr [RCX].TSyncSpinlock.FValue, dl
+  {$endif}
+@done:
+  sete al
+end;
+{$else .NEXTGEN}
+begin
+  Result := (FValue = 0) and
+    (AtomicCmpExchange(FValue, 1, 0) = 0);
+end;
+{$endif}
+
+function TSyncSpinlock.Enter(const ATimeout: Cardinal): Boolean;
+var
+  Yield: TSyncYield;
+  Timeout, TimeStart, TimeFinish, TimeDelta: Cardinal;
+begin
+  case (ATimeout) of
+    0:
+    begin
+      Result := TryEnter;
+    end;
+    INFINITE:
+    begin
+      Enter;
+      Result := True;
+    end;
+  else
+    Timeout := ATimeout;
+    Yield := TSyncYield.Create;
+    TimeStart := TOSTime.TickCount;
+    repeat
+      Result := TryEnter;
+      if (Result) then
+        Exit;
+
+      TimeFinish := TOSTime.TickCount;
+      TimeDelta := TimeFinish - TimeStart;
+      if (TimeDelta >= Timeout) then
+        Break;
+      Dec(Timeout, TimeDelta);
+      TimeStart := TimeFinish;
+
+      Yield.Execute;
+    until (False);
+
+    Result := False;
+  end;
+end;
+
+procedure TSyncSpinlock.InternalEnter;
+var
+  Yield: TSyncYield;
+begin
+  Yield := TSyncYield.Create;
+  repeat
+    Yield.Execute;
+  until (TryEnter);
+end;
+
+procedure TSyncSpinlock.Enter;
+begin
+  if (not TryEnter) then
+    InternalEnter;
+end;
+
+procedure TSyncSpinlock.Leave;
+begin
+  FValue := 0;
+end;
+
+
+{ TSyncLocker }
+
+class function TSyncLocker.Create: TSyncLocker;
+begin
+  Result.FValue := 0;
+end;
+
+function TSyncLocker.GetLocked: Boolean;
+begin
+  Result := (FValue <> 0);
+end;
+
+function TSyncLocker.GetLockedRead: Boolean;
+var
+  LValue: Integer;
+begin
+  LValue := FValue;
+  Result := (LValue <> 0) and (LValue and 1 = 0);
+end;
+
+function TSyncLocker.GetLockedExclusive: Boolean;
+begin
+  Result := (FValue and 1 <> 0);
+end;
+
+function TSyncLocker.TryEnterRead: Boolean;
+var
+  LValue: Integer;
+begin
+  LValue := FValue;
+  if (LValue and 1 = 0) then
+  begin
+    LValue := AtomicIncrement(FValue, 2);
+    if (LValue and 1 = 0) then
+    begin
+      Result := True;
+      Exit;
+    end else
+    begin
+      AtomicDecrement(FValue, 2)
+    end;
+  end;
+
+  Result := False;
+end;
+
+function TSyncLocker.TryEnterExclusive: Boolean;
+var
+  LValue: Integer;
+  Yield: TSyncYield;
+begin
+  repeat
+    LValue := FValue;
+    if (LValue and 1 <> 0) then
+      Break;
+
+    if (AtomicCmpExchange(FValue, LValue + 1, LValue) = LValue) then
+    begin
+      Yield := TSyncYield.Create;
+
+      repeat
+        if (FValue and -2 = 0) then
+          Break;
+
+        Yield.Execute;
+      until (False);
+
+      Result := True;
+      Exit;
+    end;
+  until (False);
+
+  Result := False;
+end;
+
+function TSyncLocker.EnterRead(const ATimeout: Cardinal): Boolean;
+var
+  Yield: TSyncYield;
+  Timeout, TimeStart, TimeFinish, TimeDelta: Cardinal;
+begin
+  case (ATimeout) of
+    0:
+    begin
+      Result := TryEnterRead;
+    end;
+    INFINITE:
+    begin
+      EnterRead;
+      Result := True;
+    end;
+  else
+    Timeout := ATimeout;
+    Yield := TSyncYield.Create;
+    TimeStart := TOSTime.TickCount;
+    repeat
+      Result := TryEnterRead;
+      if (Result) then
+        Exit;
+
+      TimeFinish := TOSTime.TickCount;
+      TimeDelta := TimeFinish - TimeStart;
+      if (TimeDelta >= Timeout) then
+        Break;
+      Dec(Timeout, TimeDelta);
+      TimeStart := TimeFinish;
+
+      Yield.Execute;
+    until (False);
+
+    Result := False;
+  end;
+end;
+
+function TSyncLocker.EnterExclusive(const ATimeout: Cardinal): Boolean;
+var
+  Yield: TSyncYield;
+  Timeout, TimeStart, TimeFinish, TimeDelta: Cardinal;
+begin
+  case (ATimeout) of
+    0:
+    begin
+      Result := TryEnterExclusive;
+    end;
+    INFINITE:
+    begin
+      EnterExclusive;
+      Result := True;
+    end;
+  else
+    Timeout := ATimeout;
+    Yield := TSyncYield.Create;
+    TimeStart := TOSTime.TickCount;
+    repeat
+      Result := TryEnterExclusive;
+      if (Result) then
+        Exit;
+
+      TimeFinish := TOSTime.TickCount;
+      TimeDelta := TimeFinish - TimeStart;
+      if (TimeDelta >= Timeout) then
+        Break;
+      Dec(Timeout, TimeDelta);
+      TimeStart := TimeFinish;
+
+      Yield.Execute;
+    until (False);
+
+    Result := False;
+  end;
+end;
+
+procedure TSyncLocker.InternalEnterRead;
+var
+  Yield: TSyncYield;
+begin
+  Yield := TSyncYield.Create;
+  repeat
+    Yield.Execute;
+  until (TryEnterRead);
+end;
+
+procedure TSyncLocker.EnterRead;
+var
+  LValue: Integer;
+begin
+  // if (not inline TryEnterRead) then
+  //   InternalEnterRead;
+
+  LValue := FValue;
+  if (LValue and 1 = 0) then
+  begin
+    LValue := AtomicIncrement(FValue, 2);
+    if (LValue and 1 = 0) then
+    begin
+      Exit;
+    end else
+    begin
+      AtomicDecrement(FValue, 2)
+    end;
+  end;
+
+  InternalEnterRead;
+end;
+
+procedure TSyncLocker.InternalEnterExclusive;
+var
+  Yield: TSyncYield;
+begin
+  Yield := TSyncYield.Create;
+  repeat
+    Yield.Execute;
+  until (TryEnterExclusive);
+end;
+
+procedure TSyncLocker.EnterExclusive;
+begin
+  if (not TryEnterExclusive) then
+    InternalEnterExclusive;
+end;
+
+procedure TSyncLocker.LeaveRead;
+begin
+  AtomicDecrement(FValue, 2);
+end;
+
+procedure TSyncLocker.LeaveExclusive;
+begin
+  AtomicDecrement(FValue, 1);
+end;
+
+
+{ TSyncSmallLocker }
+
+class function TSyncSmallLocker.Create: TSyncSmallLocker;
+begin
+  Result.FValue := 0;
+end;
+
+function TSyncSmallLocker.GetLocked: Boolean;
+begin
+  Result := (FValue <> 0);
+end;
+
+function TSyncSmallLocker.GetLockedRead: Boolean;
+var
+  LValue: Integer;
+begin
+  LValue := FValue;
+  Result := (LValue <> 0) and (LValue and 1 = 0);
+end;
+
+function TSyncSmallLocker.GetLockedExclusive: Boolean;
+begin
+  Result := (FValue and 1 <> 0);
+end;
+
+class function TSyncSmallLocker.InternalCAS(var AValue: Byte; const NewValue, Comparand: Byte): Boolean;
+{$ifdef CPUINTELASM}
+asm
+  {$ifdef CPUX86}
+    xchg eax, ecx
+    cmp byte ptr [ECX].TSyncSpinlock.FValue, al
+    jne @done
+    lock xchg byte ptr [ECX].TSyncSpinlock.FValue, dl
+  {$else .CPUX64}
+    xchg rax, r8
+    cmp byte ptr [RCX].TSyncSpinlock.FValue, al
+    jne @done
+    lock xchg byte ptr [RCX].TSyncSpinlock.FValue, dl
+  {$endif}
+@done:
+  sete al
+end;
+{$else .NEXTGEN}
+begin
+  Result := (AValue = Comparand) and (AtomicCmpExchange(AValue, NewValue, Comparand) = Comparand);
+end;
+{$endif}
+
+function TSyncSmallLocker.TryEnterRead: Boolean;
+var
+  LValue: Integer;
+begin
+  repeat
+    LValue := FValue;
+    if (LValue and 1 <> 0) or (LValue = 254) then
+      Break;
+
+    if (InternalCAS(FValue, LValue + 2, LValue)) then
+    begin
+      Result := True;
+      Exit;
+    end;
+  until (False);
+
+  Result := False;
+end;
+
+function TSyncSmallLocker.TryEnterExclusive: Boolean;
+var
+  LValue: Integer;
+  Yield: TSyncYield;
+begin
+  repeat
+    LValue := FValue;
+    if (LValue and 1 <> 0) then
+      Break;
+
+    if (InternalCAS(FValue, LValue + 1, LValue)) then
+    begin
+      Yield := TSyncYield.Create;
+
+      repeat
+        if (FValue and -2 = 0) then
+          Break;
+
+        Yield.Execute;
+      until (False);
+
+      Result := True;
+      Exit;
+    end;
+  until (False);
+
+  Result := False;
+end;
+
+function TSyncSmallLocker.EnterRead(const ATimeout: Cardinal): Boolean;
+var
+  Yield: TSyncYield;
+  Timeout, TimeStart, TimeFinish, TimeDelta: Cardinal;
+begin
+  case (ATimeout) of
+    0:
+    begin
+      Result := TryEnterRead;
+    end;
+    INFINITE:
+    begin
+      EnterRead;
+      Result := True;
+    end;
+  else
+    Timeout := ATimeout;
+    Yield := TSyncYield.Create;
+    TimeStart := TOSTime.TickCount;
+    repeat
+      Result := TryEnterRead;
+      if (Result) then
+        Exit;
+
+      TimeFinish := TOSTime.TickCount;
+      TimeDelta := TimeFinish - TimeStart;
+      if (TimeDelta >= Timeout) then
+        Break;
+      Dec(Timeout, TimeDelta);
+      TimeStart := TimeFinish;
+
+      Yield.Execute;
+    until (False);
+
+    Result := False;
+  end;
+end;
+
+function TSyncSmallLocker.EnterExclusive(const ATimeout: Cardinal): Boolean;
+var
+  Yield: TSyncYield;
+  Timeout, TimeStart, TimeFinish, TimeDelta: Cardinal;
+begin
+  case (ATimeout) of
+    0:
+    begin
+      Result := TryEnterExclusive;
+    end;
+    INFINITE:
+    begin
+      EnterExclusive;
+      Result := True;
+    end;
+  else
+    Timeout := ATimeout;
+    Yield := TSyncYield.Create;
+    TimeStart := TOSTime.TickCount;
+    repeat
+      Result := TryEnterExclusive;
+      if (Result) then
+        Exit;
+
+      TimeFinish := TOSTime.TickCount;
+      TimeDelta := TimeFinish - TimeStart;
+      if (TimeDelta >= Timeout) then
+        Break;
+      Dec(Timeout, TimeDelta);
+      TimeStart := TimeFinish;
+
+      Yield.Execute;
+    until (False);
+
+    Result := False;
+  end;
+end;
+
+procedure TSyncSmallLocker.InternalEnterRead;
+var
+  Yield: TSyncYield;
+begin
+  Yield := TSyncYield.Create;
+  repeat
+    Yield.Execute;
+  until (TryEnterRead);
+end;
+
+procedure TSyncSmallLocker.EnterRead;
+begin
+  if (not TryEnterRead) then
+    InternalEnterRead;
+end;
+
+procedure TSyncSmallLocker.InternalEnterExclusive;
+var
+  Yield: TSyncYield;
+begin
+  Yield := TSyncYield.Create;
+  repeat
+    Yield.Execute;
+  until (TryEnterExclusive);
+end;
+
+procedure TSyncSmallLocker.EnterExclusive;
+begin
+  if (not TryEnterExclusive) then
+    InternalEnterExclusive;
+end;
+
+procedure TSyncSmallLocker.LeaveRead;
+{$ifdef CPUINTELASM}
+asm
+  or edx, -2
+  {$ifdef CPUX86}
+  lock xadd [EAX].FValue, dl
+  {$else .CPUARM}
+  lock xadd [RCX].FValue, dl
+  {$endif}
+end;
+{$else .NEXTGEN}
+begin
+  AtomicDecrement(FValue, 2);
+end;
+{$endif}
+
+procedure TSyncSmallLocker.LeaveExclusive;
+{$ifdef CPUINTELASM}
+asm
+  or edx, -1
+  {$ifdef CPUX86}
+  lock xadd [EAX].FValue, dl
+  {$else .CPUARM}
+  lock xadd [RCX].FValue, dl
+  {$endif}
+end;
+{$else .NEXTGEN}
+begin
+  AtomicDecrement(FValue, 1);
+end;
+{$endif}
+
+
+{ TaggedPointer }
+
+class function TaggedPointer.Create(const AValue: Pointer): TaggedPointer;
+begin
+  Result.F.Value := AValue;
+  {$ifdef SMALLINT}
+    Result.F.VHigh := 0;
+  {$endif}
+end;
+
+class function TaggedPointer.Create(const AValue: Int64): TaggedPointer;
+begin
+  Result.F.VInt64 := AValue;
+end;
+
+class function TaggedPointer.Create(const ALow, AHigh: Integer): TaggedPointer;
+begin
+  Result.F.VLow := ALow;
+  Result.F.VHigh := AHigh;
+end;
+
+class operator TaggedPointer.Equal(const a, b: TaggedPointer): Boolean;
+begin
+  Result := (Int64(a) = Int64(b));
+end;
+
+function TaggedPointer.Copy: TaggedPointer;
+{$if Defined(LARGEINT)}
+begin
+  Result.F.VInt64 := Self.F.VInt64;
+end;
+{$elseif not Defined(CPUX86)}
+var
+  Temp: Double;
+begin
+  Temp := Self.F.VDouble;
+  Result.F.VDouble := Temp;
+end;
+{$else .CPUX86}
+asm
+  fild qword ptr [eax]
+  fistp qword ptr [edx]
+end;
+{$ifend}
+
+procedure TaggedPointer.Fill(const AValue: TaggedPointer);
+{$if Defined(LARGEINT)}
+begin
+  F.VInt64 := AValue.F.VInt64;
+end;
+{$elseif not Defined(CPUX86)}
+var
+  Temp: Double;
+begin
+  Temp := AValue.F.VDouble;
+  Self.F.VDouble := Temp;
+end;
+{$else .CPUX86}
+asm
+  fild qword ptr [edx]
+  fistp qword ptr [eax]
+end;
+{$ifend}
+
+function TaggedPointer.GetIsEmpty: Boolean;
+begin
+  {$ifdef CPUX64}
+    Result := (Self.F.VNative and X64_TAGGEDPTR_MASK = 0);
+  {$else}
+    Result := (Self.F.Value = nil);
+  {$endif}
+end;
+
+function TaggedPointer.GetIsInvalid: Boolean;
+begin
+  {$ifdef CPUX64}
+    Result := (Self.F.VNative and X64_TAGGEDPTR_MASK = NativeUInt(INVALID_VALUE));
+  {$else}
+    Result := (Self.F.Value = INVALID_VALUE);
+  {$endif}
+end;
+
+function TaggedPointer.GetIsEmptyOrInvalid: Boolean;
+var
+  LNative: NativeUInt;
+begin
+  LNative := Self.F.VNative {$ifdef CPUX64}and X64_TAGGEDPTR_MASK{$endif};
+  Result := (LNative = 0) or (LNative = NativeUInt(INVALID_VALUE));
+end;
+
+{$ifdef CPUX64}
+function TaggedPointer.GetValue: Pointer;
+begin
+  Result := Pointer(Self.F.VNative and X64_TAGGEDPTR_MASK);
+end;
+{$endif}
+
+{$ifdef CPUX64}
+procedure TaggedPointer.SetValue(const AValue: Pointer);
+var
+  Item, NewItem: NativeUInt;
+begin
+  repeat
+    Item := F.VNative;
+    NewItem := NativeUInt(AValue) + (((Item or X64_TAGGEDPTR_MASK) + 1) and X64_TAGGEDPTR_CLEAR);
+  until (Item = F.VNative) and (Item = System.AtomicCmpExchange(F.VNative, NewItem, Item));
+end;
+{$endif}
+
+{$ifdef CPUX86}
+procedure TaggedPointer.SetValue(const AValue: Pointer);
+asm
+  push esi
+  push ebx
+  mov esi, eax // Self
+  mov ebx, edx // AValue
+
+  // Item := F.VInt64
+  fild qword ptr [esi]
+  fistp qword ptr [esp - 8]
+  mov eax, [esp - 8]
+  mov edx, [esp - 4]
+
+  // lock-free loop
+  @loop:
+    // NewItem.Counter := Item.Counter + 1
+    lea ecx, [edx + 1]
+
+    // compare Item and F.VInt64
+    cmp eax, [esi]
+    jne @loop
+    cmp edx, [esi + 4]
+    jne @loop
+
+    // Item := AtomicCmpExchangeInt64(F.VInt64, NewItem, Item)
+    lock cmpxchg8b [esi]
+  jnz @loop
+
+@done:
+  pop ebx
+  pop esi
+end;
+{$endif}
+
+function TaggedPointer.AtomicCmpExchange(const NewValue: Pointer;
+  const Comparand: TaggedPointer): Boolean;
+{$ifNdef CPUX86}
+var
+  _NewValue: TaggedPointer;
+begin
+  _NewValue.F.VNative := NativeUInt(NewValue)
+    {$ifdef CPUX64}+ (((Comparand.F.VNative or X64_TAGGEDPTR_MASK) + 1) and X64_TAGGEDPTR_CLEAR){$endif};
+  {$ifdef SMALLINT}
+  _NewValue.F.VHigh := 0;
+  {$endif}
+
+  Result := (Self.F.VInt64 = Comparand.F.VInt64) and
+    (System.AtomicCmpExchange(Self.F.VInt64, _NewValue.F.VInt64, Comparand.F.VInt64) = Comparand.F.VInt64);
+end;
+{$else .CPUX86}
+asm
+  push esi
+  push ebx
+  mov esi, eax // Self
+  mov ebx, edx // AValue
+
+  // Item := F.VInt64
+  mov eax, [esi]
+  mov edx, [esi + 4]
+
+  // compare Item and Comparand
+  cmp eax, [ecx]
+  jne @done
+  cmp edx, [ecx + 4]
+  jne @done
+
+  // NewItem.Counter := Item.Counter + 1
+  lea ecx, [edx + 1]
+
+  // Item := AtomicCmpExchangeInt64(F.VInt64, NewItem, Item)
+  lock cmpxchg8b [esi]
+
+@done:
+  sete al
+  pop ebx
+  pop esi
+end;
+{$endif}
+
+function TaggedPointer.AtomicCmpExchange(const NewValue: TaggedPointer;
+  const Comparand: TaggedPointer): Boolean;
+{$ifNdef CPUX86}
+begin
+  Result := (Self.F.VInt64 = Comparand.F.VInt64) and
+    (System.AtomicCmpExchange(Self.F.VInt64, NewValue.F.VInt64, Comparand.F.VInt64) = Comparand.F.VInt64);
+end;
+{$else .CPUX86}
+asm
+  push esi
+  push ebx
+  mov esi, eax // Self
+  mov ebx, edx // NewValue
+
+  // Item := F.VInt64
+  mov eax, [esi]
+  mov edx, [esi + 4]
+
+  // compare Item and Comparand
+  cmp eax, [ecx]
+  jne @done
+  cmp edx, [ecx + 4]
+  jne @done
+
+  // NewItem := NewValue
+  mov ecx, [ebx + 4]
+  mov ebx, [ebx]
+
+  // Item := AtomicCmpExchangeInt64(F.VInt64, NewItem, Item)
+  lock cmpxchg8b [esi]
+
+@done:
+  sete al
+  pop ebx
+  pop esi
+end;
+{$endif}
+
+function TaggedPointer.AtomicExchange(const NewValue: Pointer): Pointer;
+{$if not Defined(CPUINTEL)}
+begin
+  Result := System.AtomicExchange(Self.F.Value, NewValue);
+end;
+{$elseif Defined(CPUX64)}
+var
+  Item, NewItem: NativeUInt;
+begin
+  repeat
+    Item := F.VNative;
+    NewItem := NativeUInt(NewValue) + (((Item or X64_TAGGEDPTR_MASK) + 1) and X64_TAGGEDPTR_CLEAR);
+  until (Item = F.VNative) and (Item = System.AtomicCmpExchange(F.VNative, NewItem, Item));
+
+  Result := Pointer(Item and X64_TAGGEDPTR_MASK);
+end;
+{$else .CPUX86}
+asm
+  push esi
+  push ebx
+  mov esi, eax // Self
+  mov ebx, edx // NewValue
+
+  // Item := F.VInt64
+  fild qword ptr [esi]
+  fistp qword ptr [esp - 8]
+  mov eax, [esp - 8]
+  mov edx, [esp - 4]
+
+  // lock-free loop
+  @loop:
+    // NewItem.Counter := Item.Counter + 1
+    lea ecx, [edx + 1]
+
+    // compare Item and F.VInt64
+    cmp eax, [esi]
+    jne @loop
+    cmp edx, [esi + 4]
+    jne @loop
+
+    // Item := AtomicCmpExchangeInt64(F.VInt64, NewItem, Item)
+    lock cmpxchg8b [esi]
+  jnz @loop
+
+@done:
+  // mov eax, eax
+  pop ebx
+  pop esi
+end;
+{$ifend}
+
+function TaggedPointer.AtomicExchange(const NewValue: TaggedPointer): TaggedPointer;
+begin
+  Result.F.VInt64 := System.AtomicExchange(Self.F.VInt64, NewValue.F.VInt64);
+end;
+
+procedure TaggedPointer.PushList(const First, Last: Pointer);
+{$ifNdef CPUX86}
+var
+  Item, NewItem: NativeUInt;
+begin
+  repeat
+    Item := F.VNative;
+    PNativeUInt(Last)^ := Item {$ifdef CPUX64}and X64_TAGGEDPTR_MASK{$endif};
+    NewItem := NativeUInt(First) {$ifdef CPUX64}+ (((Item or X64_TAGGEDPTR_MASK) + 1) and X64_TAGGEDPTR_CLEAR){$endif};
+  until (Item = System.AtomicCmpExchange(F.VNative, NewItem, Item));
+end;
+{$else .CPUX86}
+asm
+  push esi
+  push ebx
+  push edi
+  mov esi, eax // Self
+  mov ebx, edx // NewItem = First
+  mov edi, ecx // Last
+
+  // Item := F.VInt64
+  fild qword ptr [esi]
+  fistp qword ptr [esp - 8]
+  mov eax, [esp - 8]
+  mov edx, [esp - 4]
+
+  // lock-free loop
+  @loop:
+    // PItem(Last).Next := Item
+    mov [edi], eax
+
+    // NewItem.Counter := Item.Counter + 1
+    lea ecx, [edx + 1]
+
+    // Item := AtomicCmpExchangeInt64(F.VInt64, NewItem, Item)
+    lock cmpxchg8b [esi]
+  jnz @loop
+
+@done:
+  pop edi
+  pop ebx
+  pop esi
+end;
+{$endif}
+
+procedure TaggedPointer.PushList(const First: Pointer{Last calculated});
+var
+  Last, Next: Pointer;
+begin
+  Next := PPointer(First)^;
+  Last := First;
+
+  if (Assigned(Next)) then
+  repeat
+    Last := Next;
+    Next := PPointer(Next)^;
+  until (not Assigned(Next));
+
+  Self.PushList(First, Last);
+end;
+
+procedure TaggedPointer.Push(const Value: Pointer);
+begin
+  Self.PushList(Value, Value);
+end;
+
+function TaggedPointer.Pop: Pointer;
+{$ifNdef CPUX86}
+var
+  Item, NewItem: NativeUInt;
+begin
+  repeat
+    Item := F.VNative;
+    Result := Pointer(Item {$ifdef CPUX64}and X64_TAGGEDPTR_MASK{$endif});
+    if (not Assigned(Result)) then Exit;
+
+    NewItem := PNativeUInt(Result)^ {$ifdef CPUX64}+ (Item and X64_TAGGEDPTR_CLEAR){$endif};
+  until (Item = System.AtomicCmpExchange(F.VNative, NewItem, Item));
+end;
+{$else .CPUX86}
+asm
+  push esi
+  push ebx
+  mov esi, eax // Self
+
+  // Item := F.VInt64
+  fild qword ptr [esi]
+  fistp qword ptr [esp - 8]
+  mov eax, [esp - 8]
+  mov edx, [esp - 4]
+
+  // lock-free loop
+  @loop:
+    // Result := Item
+    // if (not Assigned(Result)) then Exit;
+    test eax, eax
+    jz @done
+
+    // NewItem := PItem(Item).Next, leave Counter
+    mov ebx, [eax]
+    mov ecx, edx
+
+    // Item := AtomicCmpExchangeInt64(F.VInt64, NewItem, Item)
+    lock cmpxchg8b [esi]
+  jnz @loop
+
+@done:
+  pop ebx
+  pop esi
+end;
+{$endif}
+
+function TaggedPointer.PopList: Pointer;
+{$ifNdef CPUX86}
+var
+  Item, NewItem: NativeUInt;
+begin
+  repeat
+    Item := F.VNative;
+    Result := Pointer(Item {$ifdef CPUX64}and X64_TAGGEDPTR_MASK{$endif});
+    if (not Assigned(Result)) then Exit;
+
+    NewItem := {nil}0 {$ifdef CPUX64}+ (Item and X64_TAGGEDPTR_CLEAR){$endif};
+  until (Item = System.AtomicCmpExchange(F.VNative, NewItem, Item));
+end;
+{$else .CPUX86}
+asm
+  push esi
+  push ebx
+  mov esi, eax // Self
+
+  // Item := F.VInt64
+  fild qword ptr [esi]
+  fistp qword ptr [esp - 8]
+  mov eax, [esp - 8]
+  mov edx, [esp - 4]
+
+  // lock-free loop
+  @loop:
+    // Result := Item
+    // if (not Assigned(Result)) then Exit;
+    test eax, eax
+    jz @done
+
+    // NewItem := 0, leave Counter
+    xor ebx, ebx
+    mov ecx, edx
+
+    // Item := AtomicCmpExchangeInt64(F.VInt64, NewItem, Item)
+    lock cmpxchg8b [esi]
+  jnz @loop
+
+@done:
+  pop ebx
+  pop esi
+end;
+{$endif}
+
+function TaggedPointer.PopListReversed: Pointer;
+var
+  Current, Next: Pointer;
+begin
+  Result := Self.PopList;
+
+  if (Assigned(Result)) then
+  begin
+    Current := PPointer(Result)^;
+    PPointer(Result)^ := nil;
+
+    if (Assigned(Current)) then
+    repeat
+      Next := PPointer(Current)^;
+      PPointer(Current)^ := Result;
+      Result := Current;
+
+      Current := Next;
+    until (not Assigned(Next));
+  end;
+end;
+
+function TaggedPointer.TryPushList(const First, Last: Pointer): Boolean;
+{$ifNdef CPUX86}
+var
+  Item, NewItem: NativeUInt;
+begin
+  repeat
+    Item := F.VNative;
+    Result := False;
+    if (Item = NativeUInt(INVALID_VALUE)) then
+      Exit;
+
+    PNativeUInt(Last)^ := Item {$ifdef CPUX64}and X64_TAGGEDPTR_MASK{$endif};
+    NewItem := NativeUInt(First) {$ifdef CPUX64}+ (((Item or X64_TAGGEDPTR_MASK) + 1) and X64_TAGGEDPTR_CLEAR){$endif};
+  until (Item = System.AtomicCmpExchange(F.VNative, NewItem, Item));
+
+  Result := True;
+end;
+{$else .CPUX86}
+asm
+  push esi
+  push ebx
+  push edi
+  mov esi, eax // Self
+  mov ebx, edx // NewItem = First
+  mov edi, ecx // Last
+
+  // Item := F.VInt64
+  fild qword ptr [esi]
+  fistp qword ptr [esp - 8]
+  mov eax, [esp - 8]
+  mov edx, [esp - 4]
+
+  // lock-free loop
+  @loop:
+    // if (Item = NativeUInt(INVALID_VALUE)) then Exit(False);
+    cmp eax, -1
+    je @invalid_value
+
+    // PItem(Last).Next := Item
+    mov [edi], eax
+
+    // NewItem.Counter := Item.Counter + 1
+    lea ecx, [edx + 1]
+
+    // Item := AtomicCmpExchangeInt64(F.VInt64, NewItem, Item)
+    lock cmpxchg8b [esi]
+  jnz @loop
+
+@done:
+  mov eax, 1
+  pop edi
+  pop ebx
+  pop esi
+  ret
+@invalid_value:
+  xor eax, eax
+  pop edi
+  pop ebx
+  pop esi
+end;
+{$endif}
+
+function TaggedPointer.TryPushList(const First: Pointer{Last calculated}): Boolean;
+var
+  Last, Next: Pointer;
+begin
+  Next := PPointer(First)^;
+  Last := First;
+
+  if (Assigned(Next)) then
+  repeat
+    Last := Next;
+    Next := PPointer(Next)^;
+  until (not Assigned(Next));
+
+  Result := Self.TryPushList(First, Last);
+end;
+
+function TaggedPointer.TryPush(const Value: Pointer): Boolean;
+begin
+  Result := TryPushList(Value, Value);
+end;
+
+function TaggedPointer.TryPop: Pointer;
+{$ifNdef CPUX86}
+var
+  Item, NewItem: NativeUInt;
+begin
+  repeat
+    Item := F.VNative;
+    Result := Pointer(Item {$ifdef CPUX64}and X64_TAGGEDPTR_MASK{$endif});
+    if (not Assigned(Result)) or (Result = INVALID_VALUE) then Exit;
+
+    NewItem := PNativeUInt(Result)^ {$ifdef CPUX64}+ (Item and X64_TAGGEDPTR_CLEAR){$endif};
+  until (Item = System.AtomicCmpExchange(F.VNative, NewItem, Item));
+end;
+{$else .CPUX86}
+asm
+  push esi
+  push ebx
+  mov esi, eax // Self
+
+  // Item := F.VInt64
+  fild qword ptr [esi]
+  fistp qword ptr [esp - 8]
+  mov eax, [esp - 8]
+  mov edx, [esp - 4]
+
+  // lock-free loop
+  @loop:
+    // Result := Item
+    // if (not Assigned(Result)) or (Result = INVALID_VALUE) then Exit;
+    test eax, eax
+    jz @done
+    cmp eax, -1
+    je @done
+
+    // NewItem := PItem(Item).Next, leave Counter
+    mov ebx, [eax]
+    mov ecx, edx
+
+    // Item := AtomicCmpExchangeInt64(F.VInt64, NewItem, Item)
+    lock cmpxchg8b [esi]
+  jnz @loop
+
+@done:
+  pop ebx
+  pop esi
+end;
+{$endif}
+
+function TaggedPointer.TryPopList: Pointer;
+{$ifNdef CPUX86}
+var
+  Item, NewItem: NativeUInt;
+begin
+  repeat
+    Item := F.VNative;
+    Result := Pointer(Item {$ifdef CPUX64}and X64_TAGGEDPTR_MASK{$endif});
+    if (not Assigned(Result)) or (Result = INVALID_VALUE) then Exit;
+
+    NewItem := {nil}0 {$ifdef CPUX64}+ (Item and X64_TAGGEDPTR_CLEAR){$endif};
+  until (Item = System.AtomicCmpExchange(F.VNative, NewItem, Item));
+end;
+{$else .CPUX86}
+asm
+  push esi
+  push ebx
+  mov esi, eax // Self
+
+  // Item := F.VInt64
+  fild qword ptr [esi]
+  fistp qword ptr [esp - 8]
+  mov eax, [esp - 8]
+  mov edx, [esp - 4]
+
+  // lock-free loop
+  @loop:
+    // Result := Item
+    // if (not Assigned(Result)) or (Result = INVALID_VALUE) then Exit;
+    test eax, eax
+    jz @done
+    cmp eax, -1
+    je @done
+
+    // NewItem := 0, leave Counter
+    xor ebx, ebx
+    mov ecx, edx
+
+    // Item := AtomicCmpExchangeInt64(F.VInt64, NewItem, Item)
+    lock cmpxchg8b [esi]
+  jnz @loop
+
+@done:
+  pop ebx
+  pop esi
+end;
+{$endif}
+
+function TaggedPointer.TryPopListReversed: Pointer;
+var
+  Current, Next: Pointer;
+begin
+  Result := Self.TryPopList;
+
+  if (Assigned(Result)) and (Result <> INVALID_VALUE) then
+  begin
+    Current := PPointer(Result)^;
+    PPointer(Result)^ := nil;
+
+    if (Assigned(Current)) then
+    repeat
+      Next := PPointer(Current)^;
+      PPointer(Current)^ := Result;
+      Result := Current;
+
+      Current := Next;
+    until (not Assigned(Next));
+  end;
+end;
+
+
 { TCustomObject }
 
 class function TCustomObject.NewInstance: TObject;
@@ -2508,10 +3846,10 @@ var
     VType: Integer;
   {$ifend}
 begin
-   // check reference count
-   LRefCount := FRefCount and (REFCOUNT_MASK xor DUMMY_REFCOUNT);
-   if (LRefCount <> 0) then
-     raise CreateEInvalidRefCount(Self, LRefCount);
+  // check reference count
+  LRefCount := FRefCount and (REFCOUNT_MASK xor DUMMY_REFCOUNT);
+  if (LRefCount <> 0) then
+    raise CreateEInvalidRefCount(Self, LRefCount);
 
   {$if (not Defined(WEAKREF)) or Defined(CPUINTELASM) or (CompilerVersion >= 32)}
     // monitor start, weak references
@@ -23991,558 +25329,6 @@ begin
     end;
   end;
 end;
-
-{ TSyncYield }
-
-class function TSyncYield.Create: TSyncYield;
-begin
-  Result.FCount := 0;
-end;
-
-procedure TSyncYield.Reset;
-begin
-  Self.FCount := 0;
-end;
-
-procedure TSyncYield.Execute;
-var
-  LCount: Integer;
-begin
-  LCount := FCount;
-  Inc(LCount);
-  FCount := LCount;
-  Dec(LCount);
-
-  case (LCount and 7) of
-    0..4: System.YieldProcessor;
-    5, 6:
-    begin
-      {$ifdef MSWINDOWS}
-        SwitchToThread;
-      {$else .POSIX}
-        sched_yield;
-      {$endif}
-    end;
-  else
-    Sleep(1);
-  end;
-end;
-
-
-{ TSyncSpinlock }
-
-class function TSyncSpinlock.Create: TSyncSpinlock;
-begin
-  Result.FValue := 0;
-end;
-
-function TSyncSpinlock.GetLocked: Boolean;
-begin
-  Result := (FValue <> 0);
-end;
-
-function TSyncSpinlock.TryEnter: Boolean;
-{$ifdef CPUINTELASM}
-asm
-  {$ifdef CPUX86}
-  xchg eax, ecx
-  {$endif}
-  mov edx, 1
-  xor eax, eax
-
-  {$ifdef CPUX86}
-    cmp byte ptr [ECX].TSyncSpinlock.FValue, 0
-    jne @done
-    lock xchg byte ptr [ECX].TSyncSpinlock.FValue, dl
-  {$else .CPUX64}
-    cmp byte ptr [RCX].TSyncSpinlock.FValue, 0
-    jne @done
-    lock xchg byte ptr [RCX].TSyncSpinlock.FValue, dl
-  {$endif}
-@done:
-  sete al
-end;
-{$else .NEXTGEN}
-begin
-  Result := (FValue = 0) and
-    (AtomicCmpExchange(FValue, 1, 0) = 0);
-end;
-{$endif}
-
-function TSyncSpinlock.Enter(const ATimeout: Cardinal): Boolean;
-var
-  Yield: TSyncYield;
-  Timeout, TimeStart, TimeFinish, TimeDelta: Cardinal;
-begin
-  case (ATimeout) of
-    0:
-    begin
-      Result := TryEnter;
-    end;
-    INFINITE:
-    begin
-      Enter;
-      Result := True;
-    end;
-  else
-    Timeout := ATimeout;
-    Yield := TSyncYield.Create;
-    TimeStart := TOSTime.TickCount;
-    repeat
-      Result := TryEnter;
-      if (Result) then
-        Exit;
-
-      TimeFinish := TOSTime.TickCount;
-      TimeDelta := TimeFinish - TimeStart;
-      if (TimeDelta >= Timeout) then
-        Break;
-      Dec(Timeout, TimeDelta);
-      TimeStart := TimeFinish;
-
-      Yield.Execute;
-    until (False);
-
-    Result := False;
-  end;
-end;
-
-procedure TSyncSpinlock.Enter;
-var
-  Yield: TSyncYield;
-begin
-  if (not TryEnter) then
-  begin
-    Yield := TSyncYield.Create;
-    repeat
-      Yield.Execute;
-    until (TryEnter);
-  end;
-end;
-
-procedure TSyncSpinlock.Leave;
-begin
-  FValue := 0;
-end;
-
-
-{ TSyncLocker }
-
-class function TSyncLocker.Create: TSyncLocker;
-begin
-  Result.FValue := 0;
-end;
-
-function TSyncLocker.GetLocked: Boolean;
-begin
-  Result := (FValue <> 0);
-end;
-
-function TSyncLocker.GetLockedRead: Boolean;
-var
-  LValue: Integer;
-begin
-  LValue := FValue;
-  Result := (LValue <> 0) and (LValue and 1 = 0);
-end;
-
-function TSyncLocker.GetLockedExclusive: Boolean;
-begin
-  Result := (FValue and 1 <> 0);
-end;
-
-function TSyncLocker.TryEnterRead: Boolean;
-var
-  LValue: Integer;
-begin
-  LValue := FValue;
-  if (LValue and 1 = 0) then
-  begin
-    LValue := AtomicIncrement(FValue, 2);
-    if (LValue and 1 = 0) then
-    begin
-      Result := True;
-      Exit;
-    end else
-    begin
-      AtomicDecrement(FValue, 2)
-    end;
-  end;
-
-  Result := False;
-end;
-
-function TSyncLocker.TryEnterExclusive: Boolean;
-var
-  LValue: Integer;
-  Yield: TSyncYield;
-begin
-  repeat
-    LValue := FValue;
-    if (LValue and 1 <> 0) then
-      Break;
-
-    if (AtomicCmpExchange(FValue, LValue + 1, LValue) = LValue) then
-    begin
-      Yield := TSyncYield.Create;
-
-      repeat
-        if (FValue and -2 = 0) then
-          Break;
-
-        Yield.Execute;
-      until (False);
-
-      Result := True;
-      Exit;
-    end;
-  until (False);
-
-  Result := False;
-end;
-
-function TSyncLocker.EnterRead(const ATimeout: Cardinal): Boolean;
-var
-  Yield: TSyncYield;
-  Timeout, TimeStart, TimeFinish, TimeDelta: Cardinal;
-begin
-  case (ATimeout) of
-    0:
-    begin
-      Result := TryEnterRead;
-    end;
-    INFINITE:
-    begin
-      EnterRead;
-      Result := True;
-    end;
-  else
-    Timeout := ATimeout;
-    Yield := TSyncYield.Create;
-    TimeStart := TOSTime.TickCount;
-    repeat
-      Result := TryEnterRead;
-      if (Result) then
-        Exit;
-
-      TimeFinish := TOSTime.TickCount;
-      TimeDelta := TimeFinish - TimeStart;
-      if (TimeDelta >= Timeout) then
-        Break;
-      Dec(Timeout, TimeDelta);
-      TimeStart := TimeFinish;
-
-      Yield.Execute;
-    until (False);
-
-    Result := False;
-  end;
-end;
-
-function TSyncLocker.EnterExclusive(const ATimeout: Cardinal): Boolean;
-var
-  Yield: TSyncYield;
-  Timeout, TimeStart, TimeFinish, TimeDelta: Cardinal;
-begin
-  case (ATimeout) of
-    0:
-    begin
-      Result := TryEnterExclusive;
-    end;
-    INFINITE:
-    begin
-      EnterExclusive;
-      Result := True;
-    end;
-  else
-    Timeout := ATimeout;
-    Yield := TSyncYield.Create;
-    TimeStart := TOSTime.TickCount;
-    repeat
-      Result := TryEnterExclusive;
-      if (Result) then
-        Exit;
-
-      TimeFinish := TOSTime.TickCount;
-      TimeDelta := TimeFinish - TimeStart;
-      if (TimeDelta >= Timeout) then
-        Break;
-      Dec(Timeout, TimeDelta);
-      TimeStart := TimeFinish;
-
-      Yield.Execute;
-    until (False);
-
-    Result := False;
-  end;
-end;
-
-procedure TSyncLocker.EnterRead;
-var
-  Yield: TSyncYield;
-begin
-  if (not TryEnterRead) then
-  begin
-    Yield := TSyncYield.Create;
-    repeat
-      Yield.Execute;
-    until (TryEnterRead);
-  end;
-end;
-
-procedure TSyncLocker.EnterExclusive;
-var
-  Yield: TSyncYield;
-begin
-  if (not TryEnterExclusive) then
-  begin
-    Yield := TSyncYield.Create;
-    repeat
-      Yield.Execute;
-    until (TryEnterExclusive);
-  end;
-end;
-
-procedure TSyncLocker.LeaveRead;
-begin
-  AtomicDecrement(FValue, 2);
-end;
-
-procedure TSyncLocker.LeaveExclusive;
-begin
-  AtomicDecrement(FValue, 1);
-end;
-
-
-{ TSyncSmallLocker }
-
-class function TSyncSmallLocker.Create: TSyncSmallLocker;
-begin
-  Result.FValue := 0;
-end;
-
-function TSyncSmallLocker.GetLocked: Boolean;
-begin
-  Result := (FValue <> 0);
-end;
-
-function TSyncSmallLocker.GetLockedRead: Boolean;
-var
-  LValue: Integer;
-begin
-  LValue := FValue;
-  Result := (LValue <> 0) and (LValue and 1 = 0);
-end;
-
-function TSyncSmallLocker.GetLockedExclusive: Boolean;
-begin
-  Result := (FValue and 1 <> 0);
-end;
-
-class function TSyncSmallLocker.InternalCAS(var AValue: Byte; const NewValue, Comparand: Byte): Boolean;
-{$ifdef CPUINTELASM}
-asm
-  {$ifdef CPUX86}
-    xchg eax, ecx
-    cmp byte ptr [ECX].TSyncSpinlock.FValue, al
-    jne @done
-    lock xchg byte ptr [ECX].TSyncSpinlock.FValue, dl
-  {$else .CPUX64}
-    xchg rax, r8
-    cmp byte ptr [RCX].TSyncSpinlock.FValue, al
-    jne @done
-    lock xchg byte ptr [RCX].TSyncSpinlock.FValue, dl
-  {$endif}
-@done:
-  sete al
-end;
-{$else .NEXTGEN}
-begin
-  Result := (AValue = Comparand) and (AtomicCmpExchange(AValue, NewValue, Comparand) = Comparand);
-end;
-{$endif}
-
-function TSyncSmallLocker.TryEnterRead: Boolean;
-var
-  LValue: Integer;
-begin
-  repeat
-    LValue := FValue;
-    if (LValue and 1 <> 0) or (LValue = 254) then
-      Break;
-
-    if (InternalCAS(FValue, LValue + 2, LValue)) then
-    begin
-      Result := True;
-      Exit;
-    end;
-  until (False);
-
-  Result := False;
-end;
-
-function TSyncSmallLocker.TryEnterExclusive: Boolean;
-var
-  LValue: Integer;
-  Yield: TSyncYield;
-begin
-  repeat
-    LValue := FValue;
-    if (LValue and 1 <> 0) then
-      Break;
-
-    if (InternalCAS(FValue, LValue + 1, LValue)) then
-    begin
-      Yield := TSyncYield.Create;
-
-      repeat
-        if (FValue and -2 = 0) then
-          Break;
-
-        Yield.Execute;
-      until (False);
-
-      Result := True;
-      Exit;
-    end;
-  until (False);
-
-  Result := False;
-end;
-
-function TSyncSmallLocker.EnterRead(const ATimeout: Cardinal): Boolean;
-var
-  Yield: TSyncYield;
-  Timeout, TimeStart, TimeFinish, TimeDelta: Cardinal;
-begin
-  case (ATimeout) of
-    0:
-    begin
-      Result := TryEnterRead;
-    end;
-    INFINITE:
-    begin
-      EnterRead;
-      Result := True;
-    end;
-  else
-    Timeout := ATimeout;
-    Yield := TSyncYield.Create;
-    TimeStart := TOSTime.TickCount;
-    repeat
-      Result := TryEnterRead;
-      if (Result) then
-        Exit;
-
-      TimeFinish := TOSTime.TickCount;
-      TimeDelta := TimeFinish - TimeStart;
-      if (TimeDelta >= Timeout) then
-        Break;
-      Dec(Timeout, TimeDelta);
-      TimeStart := TimeFinish;
-
-      Yield.Execute;
-    until (False);
-
-    Result := False;
-  end;
-end;
-
-function TSyncSmallLocker.EnterExclusive(const ATimeout: Cardinal): Boolean;
-var
-  Yield: TSyncYield;
-  Timeout, TimeStart, TimeFinish, TimeDelta: Cardinal;
-begin
-  case (ATimeout) of
-    0:
-    begin
-      Result := TryEnterExclusive;
-    end;
-    INFINITE:
-    begin
-      EnterExclusive;
-      Result := True;
-    end;
-  else
-    Timeout := ATimeout;
-    Yield := TSyncYield.Create;
-    TimeStart := TOSTime.TickCount;
-    repeat
-      Result := TryEnterExclusive;
-      if (Result) then
-        Exit;
-
-      TimeFinish := TOSTime.TickCount;
-      TimeDelta := TimeFinish - TimeStart;
-      if (TimeDelta >= Timeout) then
-        Break;
-      Dec(Timeout, TimeDelta);
-      TimeStart := TimeFinish;
-
-      Yield.Execute;
-    until (False);
-
-    Result := False;
-  end;
-end;
-
-procedure TSyncSmallLocker.EnterRead;
-var
-  Yield: TSyncYield;
-begin
-  if (not TryEnterRead) then
-  begin
-    Yield := TSyncYield.Create;
-    repeat
-      Yield.Execute;
-    until (TryEnterRead);
-  end;
-end;
-
-procedure TSyncSmallLocker.EnterExclusive;
-var
-  Yield: TSyncYield;
-begin
-  if (not TryEnterExclusive) then
-  begin
-    Yield := TSyncYield.Create;
-    repeat
-      Yield.Execute;
-    until (TryEnterExclusive);
-  end;
-end;
-
-procedure TSyncSmallLocker.LeaveRead;
-{$ifdef CPUINTELASM}
-asm
-  or edx, -2
-  {$ifdef CPUX86}
-  lock xadd [EAX].FValue, dl
-  {$else .CPUARM}
-  lock xadd [RCX].FValue, dl
-  {$endif}
-end;
-{$else .NEXTGEN}
-begin
-  AtomicDecrement(FValue, 2);
-end;
-{$endif}
-
-procedure TSyncSmallLocker.LeaveExclusive;
-{$ifdef CPUINTELASM}
-asm
-  or edx, -1
-  {$ifdef CPUX86}
-  lock xadd [EAX].FValue, dl
-  {$else .CPUARM}
-  lock xadd [RCX].FValue, dl
-  {$endif}
-end;
-{$else .NEXTGEN}
-begin
-  AtomicDecrement(FValue, 1);
-end;
-{$endif}
 
 initialization
   TOSTime.Initialize;
