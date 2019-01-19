@@ -71,17 +71,17 @@ unit Rapid.Generics;
 {$U-}{$V+}{$B-}{$X+}{$T+}{$P+}{$H+}{$J-}{$Z1}{$A4}
 {$O+}{$R-}{$I-}{$Q-}{$W-}
 {$ifdef CPUX86}
-  {$ifNdef NEXTGEN}
+  {$if not Defined(NEXTGEN)}
     {$define CPUX86ASM}
     {$define CPUINTELASM}
-  {$endif}
+  {$ifend}
   {$define CPUINTEL}
 {$endif}
 {$ifdef CPUX64}
-  {$ifNdef NEXTGEN}
+  {$if not Defined(POSIX)}
     {$define CPUX64ASM}
     {$define CPUINTELASM}
-  {$endif}
+  {$ifend}
   {$define CPUINTEL}
 {$endif}
 {$if Defined(CPUX64) or Defined(CPUARM64)}
@@ -244,6 +244,7 @@ type
     FValue: Byte;
     function GetLocked: Boolean; inline;
     procedure InternalEnter;
+    procedure InternalWait;
   public
     class function Create: TSyncSpinlock; static; inline;
 
@@ -251,6 +252,8 @@ type
     function Enter(const ATimeout: Cardinal): Boolean; overload;
     procedure Enter; overload; inline;
     procedure Leave; inline;
+    function Wait(const ATimeout: Cardinal): Boolean; overload;
+    procedure Wait; overload; inline;
 
     property Locked: Boolean read GetLocked;
   end;
@@ -271,6 +274,7 @@ type
     function GetLockedExclusive: Boolean; inline;
     procedure InternalEnterRead;
     procedure InternalEnterExclusive;
+    procedure InternalWait;
   public
     class function Create: TSyncLocker; static; inline;
 
@@ -283,6 +287,9 @@ type
     procedure EnterExclusive; overload; inline;
     procedure LeaveRead; inline;
     procedure LeaveExclusive; inline;
+
+    function Wait(const ATimeout: Cardinal): Boolean; overload;
+    procedure Wait; overload; inline;
 
     property Locked: Boolean read GetLocked;
     property LockedRead: Boolean read GetLockedRead;
@@ -304,6 +311,7 @@ type
     class function InternalCAS(var AValue: Byte; const NewValue, Comparand: Byte): Boolean; static; {$ifNdef CPUINTELASM}inline;{$endif}
     procedure InternalEnterRead;
     procedure InternalEnterExclusive;
+    procedure InternalWait;
   public
     class function Create: TSyncSmallLocker; static; inline;
 
@@ -316,6 +324,9 @@ type
     procedure EnterExclusive; overload; inline;
     procedure LeaveRead; {$ifNdef CPUINTELASM}inline;{$endif}
     procedure LeaveExclusive; {$ifNdef CPUINTELASM}inline;{$endif}
+
+    function Wait(const ATimeout: Cardinal): Boolean; overload;
+    procedure Wait; overload; inline;
 
     property Locked: Boolean read GetLocked;
     property LockedRead: Boolean read GetLockedRead;
@@ -425,9 +436,12 @@ type
     function GetDisposed: Boolean;
     function GetRefCount: Integer;
     procedure DisposeOf;
-    {$ifdef MONITORSUPPORT}
-    procedure OptimizeMonitor;
-    {$endif}
+    function TryEnter: Boolean;
+    function Enter(const ATimeout: Cardinal): Boolean; overload;
+    procedure Enter; overload;
+    procedure Leave;
+    function Wait(const ATimeout: Cardinal): Boolean; overload;
+    procedure Wait; overload;
     property Self: TCustomObject read GetSelf;
     property MemoryScheme: TMemoryScheme read GetMemoryScheme;
     property Disposed: Boolean read GetDisposed;
@@ -438,10 +452,13 @@ type
   protected
     const
       DISPOSED_FLAG = Integer($40000000);
-      MEMORY_SCHEME_SHIFT = 28;
+      {$ifNdef MONITORSUPPORT}
+      LOCKED_FLAG = Integer($20000000);
+      {$endif}
+      MEMORY_SCHEME_SHIFT = 27;
       MEMORY_SCHEME_MASK = Integer(High(TMemoryScheme)) shl MEMORY_SCHEME_SHIFT;
       MEMORY_SCHEME_CLEAR = not MEMORY_SCHEME_MASK;
-      DISPREFCOUNT_MASK = MEMORY_SCHEME_CLEAR;
+      DISPREFCOUNT_MASK = MEMORY_SCHEME_CLEAR {$ifNdef MONITORSUPPORT}and (not LOCKED_FLAG){$endif};
       DISPREFCOUNT_CLEAR = not DISPREFCOUNT_MASK;
       REFCOUNT_MASK = DISPREFCOUNT_MASK and (not DISPOSED_FLAG);
       REFCOUNT_CLEAR = not REFCOUNT_MASK;
@@ -482,6 +499,10 @@ type
     function QueryInterface(const IID: TGUID; out Obj): HResult; stdcall; inline;
     function _AddRef: Integer; stdcall; inline;
     function _Release: Integer; stdcall; inline;
+    {$ifdef MONITORSUPPORT}
+    function InternalMonitorOptimize(const ASpinCount: Integer): TCustomObject {$ifdef AUTOREFCOUNT}unsafe{$endif};
+    function MonitorOptimize: TCustomObject {$ifdef AUTOREFCOUNT}unsafe{$endif}; inline;
+    {$endif}
   public
     class function NewInstance: TObject; override;
     class function PreallocatedInstance(const AMemory: Pointer; const AMemoryScheme: TMemoryScheme): TObject {$ifdef AUTOREFCOUNT}unsafe{$endif}; virtual;
@@ -494,9 +515,12 @@ type
     procedure DisposeOf; {$if CompilerVersion >= 25}reintroduce;{$ifend}
     function __ObjAddRef: Integer; {$ifdef AUTOREFCOUNT}override{$else}virtual{$endif};
     function __ObjRelease: Integer; {$ifdef AUTOREFCOUNT}override{$else}virtual{$endif};
-    {$ifdef MONITORSUPPORT}
-    procedure OptimizeMonitor;
-    {$endif}
+    function TryEnter: Boolean;
+    function Enter(const ATimeout: Cardinal): Boolean; overload;
+    procedure Enter; overload;
+    procedure Leave;
+    function Wait(const ATimeout: Cardinal): Boolean; overload;
+    procedure Wait; overload;
     property MemoryScheme: TMemoryScheme read GetMemoryScheme;
     property Disposed: Boolean read GetDisposed;
     property RefCount: Integer read GetRefCount;
@@ -504,7 +528,7 @@ type
 
 
 { TLiteCustomObject class
-  Single-thread code optimized TCustomObject class }
+  Single-thread and non-locking code optimized TCustomObject class }
 
   TLiteCustomObject = class(TCustomObject)
   protected
@@ -786,7 +810,7 @@ type
   private
     class var
       FCreated: Boolean;
-      FSpinlock: Byte;
+      FSpinlock: TSyncSpinlock;
       FOptions: TRAIIHelper;
 
     class procedure InternalCreate; static;
@@ -2517,6 +2541,60 @@ begin
   FValue := 0;
 end;
 
+function TSyncSpinlock.Wait(const ATimeout: Cardinal): Boolean;
+var
+  Yield: TSyncYield;
+  Timeout, TimeStart, TimeFinish, TimeDelta: Cardinal;
+begin
+  case (ATimeout) of
+    0:
+    begin
+      Result := (FValue = 0);
+    end;
+    INFINITE:
+    begin
+      Wait;
+      Result := True;
+    end;
+  else
+    Timeout := ATimeout;
+    Yield := TSyncYield.Create;
+    TimeStart := TOSTime.TickCount;
+    repeat
+      Result := (FValue = 0);
+      if (Result) then
+        Exit;
+
+      TimeFinish := TOSTime.TickCount;
+      TimeDelta := TimeFinish - TimeStart;
+      if (TimeDelta >= Timeout) then
+        Break;
+      Dec(Timeout, TimeDelta);
+      TimeStart := TimeFinish;
+
+      Yield.Execute;
+    until (False);
+
+    Result := False;
+  end;
+end;
+
+procedure TSyncSpinlock.InternalWait;
+var
+  Yield: TSyncYield;
+begin
+  Yield := TSyncYield.Create;
+  repeat
+    Yield.Execute;
+  until (FValue = 0);
+end;
+
+procedure TSyncSpinlock.Wait;
+begin
+  if (FValue <> 0) then
+    InternalWait;
+end;
+
 
 { TSyncLocker }
 
@@ -2726,6 +2804,60 @@ end;
 procedure TSyncLocker.LeaveExclusive;
 begin
   AtomicDecrement(FValue, 1);
+end;
+
+function TSyncLocker.Wait(const ATimeout: Cardinal): Boolean;
+var
+  Yield: TSyncYield;
+  Timeout, TimeStart, TimeFinish, TimeDelta: Cardinal;
+begin
+  case (ATimeout) of
+    0:
+    begin
+      Result := (FValue = 0);
+    end;
+    INFINITE:
+    begin
+      Wait;
+      Result := True;
+    end;
+  else
+    Timeout := ATimeout;
+    Yield := TSyncYield.Create;
+    TimeStart := TOSTime.TickCount;
+    repeat
+      Result := (FValue = 0);
+      if (Result) then
+        Exit;
+
+      TimeFinish := TOSTime.TickCount;
+      TimeDelta := TimeFinish - TimeStart;
+      if (TimeDelta >= Timeout) then
+        Break;
+      Dec(Timeout, TimeDelta);
+      TimeStart := TimeFinish;
+
+      Yield.Execute;
+    until (False);
+
+    Result := False;
+  end;
+end;
+
+procedure TSyncLocker.InternalWait;
+var
+  Yield: TSyncYield;
+begin
+  Yield := TSyncYield.Create;
+  repeat
+    Yield.Execute;
+  until (FValue = 0);
+end;
+
+procedure TSyncLocker.Wait;
+begin
+  if (FValue <> 0) then
+    InternalWait;
 end;
 
 
@@ -2964,6 +3096,60 @@ begin
   AtomicDecrement(FValue, 1);
 end;
 {$endif}
+
+function TSyncSmallLocker.Wait(const ATimeout: Cardinal): Boolean;
+var
+  Yield: TSyncYield;
+  Timeout, TimeStart, TimeFinish, TimeDelta: Cardinal;
+begin
+  case (ATimeout) of
+    0:
+    begin
+      Result := (FValue = 0);
+    end;
+    INFINITE:
+    begin
+      Wait;
+      Result := True;
+    end;
+  else
+    Timeout := ATimeout;
+    Yield := TSyncYield.Create;
+    TimeStart := TOSTime.TickCount;
+    repeat
+      Result := (FValue = 0);
+      if (Result) then
+        Exit;
+
+      TimeFinish := TOSTime.TickCount;
+      TimeDelta := TimeFinish - TimeStart;
+      if (TimeDelta >= Timeout) then
+        Break;
+      Dec(Timeout, TimeDelta);
+      TimeStart := TimeFinish;
+
+      Yield.Execute;
+    until (False);
+
+    Result := False;
+  end;
+end;
+
+procedure TSyncSmallLocker.InternalWait;
+var
+  Yield: TSyncYield;
+begin
+  Yield := TSyncYield.Create;
+  repeat
+    Yield.Execute;
+  until (FValue = 0);
+end;
+
+procedure TSyncSmallLocker.Wait;
+begin
+  if (FValue <> 0) then
+    InternalWait;
+end;
 
 
 { TaggedPointer }
@@ -3855,6 +4041,13 @@ begin
   if (LRefCount <> 0) then
     raise CreateEInvalidRefCount(Self, LRefCount);
 
+  {$ifNdef MONITORSUPPORT}
+  if (FRefCount and LOCKED_FLAG <> 0) then
+  begin
+    Self.Wait;
+  end;
+  {$endif}
+
   {$if (not Defined(WEAKREF)) or Defined(CPUINTELASM) or (CompilerVersion >= 32)}
     // monitor start, weak references
     {$ifdef MONITORSUPPORT} // XE2+
@@ -4072,13 +4265,17 @@ procedure TCustomObject.AfterConstruction;
 const
   NEGATIVE_DECREMENT = Integer(-(Int64(DUMMY_REFCOUNT) - DEFAULT_REFCOUNT));
 begin
+  {$ifdef MONITORSUPPORT}
   if (FRefCount and REFCOUNT_MASK <> DUMMY_REFCOUNT) then
   begin
+  {$endif}
     AtomicIncrement(FRefCount, NEGATIVE_DECREMENT);
+  {$ifdef MONITORSUPPORT}
   end else
   begin
     Inc(FRefCount, NEGATIVE_DECREMENT);
   end;
+  {$endif}
 end;
 
 procedure TCustomObject.BeforeDestruction;
@@ -4121,14 +4318,14 @@ begin
     LFlags := DISPOSED_FLAG;
   end else
   begin
-    {$ifNdef AUTOREFCOUNT}
+    {$if Defined(MONITORSUPPORT) and (not Defined(AUTOREFCOUNT))}
     if (FRefCount and DISPREFCOUNT_MASK = 0) then
     begin
       FRefCount := FRefCount or DEFAULT_DESTROY_FLAGS;
       Destroy;
       Exit;
     end;
-    {$endif}
+    {$ifend}
   end;
 
   // has references: the instance remains alive
@@ -4138,11 +4335,13 @@ begin
     if (LRef and DISPOSED_FLAG <> 0) then
       Exit;
 
+    {$ifdef MONITORSUPPORT}
     if (LFlags = DEFAULT_DESTROY_FLAGS) and (Cardinal(LRef and REFCOUNT_MASK) = 1) then
     begin
       FRefCount := LRef or LFlags;
       Break;
     end;
+    {$endif}
 
     if (AtomicCmpExchange(FRefCount, LRef or LFlags, LRef) = LRef) then
       Break;
@@ -4163,7 +4362,7 @@ begin
     finally
       with TCustomObject(LSelf) do
       begin
-        if ((FRefCount - DUMMY_REFCOUNT) and REFCOUNT_MASK = 0) or
+        if {$ifdef MONITORSUPPORT}((FRefCount - DUMMY_REFCOUNT) and REFCOUNT_MASK = 0) or{$endif}
          (AtomicIncrement(FRefCount, Integer(-Int64(DUMMY_REFCOUNT))) and REFCOUNT_MASK = 0) then
         begin
           FreeInstance;
@@ -4189,6 +4388,7 @@ end;
 
 function TCustomObject.__ObjAddRef: Integer;
 begin
+  {$ifdef MONITORSUPPORT}
   Result := FRefCount;
   if (Cardinal(Result and REFCOUNT_MASK) <= DEFAULT_REFCOUNT) then
   begin
@@ -4197,8 +4397,9 @@ begin
     Result := Result and REFCOUNT_MASK;
     Exit;
   end else
+  {$endif}
   begin
-    Result := AtomicIncrement(FRefCount);
+    Result := AtomicIncrement(FRefCount) and REFCOUNT_MASK;
   end;
 end;
 
@@ -4206,6 +4407,7 @@ function TCustomObject._AddRef: Integer; stdcall;
 begin
   if (PPointer(PNativeInt(Self)^ + vmtObjAddRef)^ = @TCustomObject.__ObjAddRef) then
   begin
+    {$ifdef MONITORSUPPORT}
     Result := FRefCount;
     if (Cardinal(Result and REFCOUNT_MASK) <= DEFAULT_REFCOUNT) then
     begin
@@ -4214,8 +4416,9 @@ begin
       Result := Result and REFCOUNT_MASK;
       Exit;
     end else
+    {$endif}
     begin
-      Result := AtomicIncrement(FRefCount);
+      Result := AtomicIncrement(FRefCount) and REFCOUNT_MASK;
       Exit;
     end;
   end else
@@ -4227,23 +4430,31 @@ end;
 function TCustomObject.__ObjRelease: Integer;
 begin
   // release reference
+  {$ifdef MONITORSUPPORT}
   Result := FRefCount;
   if (Result and REFCOUNT_MASK <> 1) then
   begin
+  {$endif}
     Result := AtomicDecrement(FRefCount) and REFCOUNT_MASK;
     if (Result <> 0) then
       Exit;
+  {$ifdef MONITORSUPPORT}
   end else
   begin
     Dec(Result);
     FRefCount := Result;
-    Result := 0{Result and REFCOUNT_MASK};
+    Result := Result and REFCOUNT_MASK;
   end;
+  {$endif}
 
   // no references: destroy/freeinstance
   if (FRefCount and DISPOSED_FLAG = 0) then
   begin
+    {$ifdef MONITORSUPPORT}
     FRefCount := FRefCount or DEFAULT_DESTROY_FLAGS;
+    {$else}
+    AtomicIncrement(FRefCount, DEFAULT_DESTROY_FLAGS);
+    {$endif}
     Destroy;
     Exit;
   end else
@@ -4257,13 +4468,15 @@ begin
   if (PPointer(PNativeInt(Self)^ + vmtObjRelease)^ = @TCustomObject.__ObjRelease) then
   begin
     // release reference
+    {$ifdef MONITORSUPPORT}
     Result := FRefCount;
     if (Result and REFCOUNT_MASK = 1) then
     begin
       Dec(Result);
       FRefCount := Result;
-      Result := 0{Result and REFCOUNT_MASK};
+      Result := Result and REFCOUNT_MASK;
     end else
+    {$endif}
     begin
       Result := AtomicDecrement(FRefCount) and REFCOUNT_MASK;
       if (Result <> 0) then
@@ -4273,7 +4486,11 @@ begin
     // no references: destroy/freeinstance
     if (FRefCount and DISPOSED_FLAG = 0) then
     begin
+      {$ifdef MONITORSUPPORT}
       FRefCount := FRefCount or DEFAULT_DESTROY_FLAGS;
+      {$else}
+      AtomicIncrement(FRefCount, DEFAULT_DESTROY_FLAGS);
+      {$endif}
       Destroy;
       Exit;
     end else
@@ -4288,7 +4505,13 @@ begin
 end;
 
 {$ifdef MONITORSUPPORT}
-procedure TCustomObject.OptimizeMonitor;
+function TCustomObject.InternalMonitorOptimize(const ASpinCount: Integer): TCustomObject;
+begin
+  TMonitor.SetSpinCount(Self, ASpinCount);
+  Result := Self;
+end;
+
+function TCustomObject.MonitorOptimize: TCustomObject;
 const
   OPTIMIZED_SPIN_COUNT = 5;
 var
@@ -4296,8 +4519,9 @@ var
   LMonitor: NativeInt;
   LField: PInteger;
 begin
-  LSize := PInteger(PNativeInt(Self)^ + vmtInstanceSize)^;
-  LMonitor := PNativeInt(PByte(Self) + LSize + (- hfFieldSize + hfMonitorOffset))^;
+  Result := Self;
+  LSize := PInteger(PNativeInt(Result)^ + vmtInstanceSize)^;
+  LMonitor := PNativeInt(PByte(Result) + LSize + (- hfFieldSize + hfMonitorOffset))^;
   {$if CompilerVersion >= 32}
   LMonitor := LMonitor and monMonitorMask;
   {$ifend}
@@ -4311,7 +4535,163 @@ begin
       Exit;
   end;
 
-  TMonitor.SetSpinCount(Self, OPTIMIZED_SPIN_COUNT);
+  Result := Result.InternalMonitorOptimize(OPTIMIZED_SPIN_COUNT);
+end;
+
+function TCustomObject.TryEnter: Boolean;
+begin
+  Result := TMonitor.TryEnter(MonitorOptimize);
+end;
+
+function TCustomObject.Enter(const ATimeout: Cardinal): Boolean;
+begin
+  Result := TMonitor.Enter(MonitorOptimize, ATimeout);
+end;
+
+procedure TCustomObject.Enter;
+begin
+  TMonitor.Enter(MonitorOptimize);
+end;
+
+procedure TCustomObject.Leave;
+begin
+  TMonitor.Exit(MonitorOptimize);
+end;
+
+function TCustomObject.Wait(const ATimeout: Cardinal): Boolean;
+begin
+  Result := TMonitor.Wait(MonitorOptimize, ATimeout);
+end;
+
+procedure TCustomObject.Wait;
+begin
+  TMonitor.Wait(MonitorOptimize, INFINITE);
+end;
+
+{$else .!MONITORSUPPORT}
+
+function TCustomObject.TryEnter: Boolean;
+var
+  LRefCount: Integer;
+begin
+  repeat
+    LRefCount := FRefCount;
+    if (LRefCount and LOCKED_FLAG <> 0) then
+      Break;
+
+    Result := (AtomicCmpExchange(FRefCount, LRefCount or LOCKED_FLAG, LRefCount) = LRefCount);
+    if (Result) then
+      Exit;
+  until (False);
+
+  Result := False;
+end;
+
+function TCustomObject.Enter(const ATimeout: Cardinal): Boolean;
+var
+  Yield: TSyncYield;
+  Timeout, TimeStart, TimeFinish, TimeDelta: Cardinal;
+begin
+  case (ATimeout) of
+    0:
+    begin
+      Result := TryEnter;
+    end;
+    INFINITE:
+    begin
+      Enter;
+      Result := True;
+    end;
+  else
+    Timeout := ATimeout;
+    Yield := TSyncYield.Create;
+    TimeStart := TOSTime.TickCount;
+    repeat
+      Result := TryEnter;
+      if (Result) then
+        Exit;
+
+      TimeFinish := TOSTime.TickCount;
+      TimeDelta := TimeFinish - TimeStart;
+      if (TimeDelta >= Timeout) then
+        Break;
+      Dec(Timeout, TimeDelta);
+      TimeStart := TimeFinish;
+
+      Yield.Execute;
+    until (False);
+
+    Result := False;
+  end;
+end;
+
+procedure TCustomObject.Enter;
+var
+  Yield: TSyncYield;
+begin
+  if (not TryEnter) then
+  begin
+    Yield := TSyncYield.Create;
+    repeat
+      Yield.Execute;
+    until (TryEnter);
+  end;
+end;
+
+procedure TCustomObject.Leave;
+begin
+  AtomicDecrement(FRefCount, LOCKED_FLAG);
+end;
+
+function TCustomObject.Wait(const ATimeout: Cardinal): Boolean;
+var
+  Yield: TSyncYield;
+  Timeout, TimeStart, TimeFinish, TimeDelta: Cardinal;
+begin
+  case (ATimeout) of
+    0:
+    begin
+      Result := (FRefCount and LOCKED_FLAG = 0);
+    end;
+    INFINITE:
+    begin
+      Wait;
+      Result := True;
+    end;
+  else
+    Timeout := ATimeout;
+    Yield := TSyncYield.Create;
+    TimeStart := TOSTime.TickCount;
+    repeat
+      Result := (FRefCount and LOCKED_FLAG = 0);
+      if (Result) then
+        Exit;
+
+      TimeFinish := TOSTime.TickCount;
+      TimeDelta := TimeFinish - TimeStart;
+      if (TimeDelta >= Timeout) then
+        Break;
+      Dec(Timeout, TimeDelta);
+      TimeStart := TimeFinish;
+
+      Yield.Execute;
+    until (False);
+
+    Result := False;
+  end;
+end;
+
+procedure TCustomObject.Wait;
+var
+  Yield: TSyncYield;
+begin
+  if (FRefCount and LOCKED_FLAG <> 0) then
+  begin
+    Yield := TSyncYield.Create;
+    repeat
+      Yield.Execute;
+    until (FRefCount and LOCKED_FLAG = 0);
+  end;
 end;
 {$endif}
 
@@ -5915,10 +6295,8 @@ end;
 class procedure TRAIIHelper<T>.InternalCreate;
 var
   Yield: TSyncYield;
-  Spinlock: PSyncSpinlock;
 begin
-  Spinlock := Pointer(@FSpinlock);
-  if (Spinlock.TryEnter) then
+  if (FSpinlock.TryEnter) then
   begin
     try
       if (not FCreated) then
@@ -5927,7 +6305,7 @@ begin
         FCreated := True;
       end;
     finally
-      Spinlock.Leave;
+      FSpinlock.Leave;
     end;
   end else
   begin
