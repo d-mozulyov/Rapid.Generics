@@ -1,7 +1,7 @@
 unit Rapid.Generics;
 
 {******************************************************************************}
-{ Copyright (c) 2017-2019 Dmitry Mozulyov                                           }
+{ Copyright (c) 2017-2019 Dmitry Mozulyov                                      }
 {                                                                              }
 { Permission is hereby granted, free of charge, to any person obtaining a copy }
 { of this software and associated documentation files (the "Software"), to deal}
@@ -17544,13 +17544,13 @@ end;
 
 function TCustomDictionary<TKey,TValue>.TKeyCollection.DoGetEnumerator: TCollectionEnumerator<TKey>;
 begin
-  Result.Data.Init(Self);
+  Result.Data.Init(Self.FDictionary);
   Pointer(@Result.DoMoveNext) := @TKeyEnumerator.MoveNext;
 end;
 
 function TCustomDictionary<TKey,TValue>.TKeyCollection.GetEnumerator: TKeyEnumerator;
 begin
-  Result.Data.Init(Self);
+  Result.Data.Init(Self.FDictionary);
 end;
 
 function TCustomDictionary<TKey,TValue>.TKeyCollection.ToArray: TArray<TKey>;
@@ -17592,13 +17592,13 @@ end;
 
 function TCustomDictionary<TKey,TValue>.TValueCollection.DoGetEnumerator: TCollectionEnumerator<TValue>;
 begin
-  Result.Data.Init(Self);
+  Result.Data.Init(Self.FDictionary);
   Pointer(@Result.DoMoveNext) := @TValueEnumerator.MoveNext;
 end;
 
 function TCustomDictionary<TKey,TValue>.TValueCollection.GetEnumerator: TValueEnumerator;
 begin
-  Result.Data.Init(Self);
+  Result.Data.Init(Self.FDictionary);
 end;
 
 function TCustomDictionary<TKey,TValue>.TValueCollection.ToArray: TArray<TValue>;
