@@ -1,10 +1,12 @@
 # Rapid.Generics
-Rapid generics/defaults equivalent classes for Delphi (much faster in XE7+ versions)
 
 ##### How to use
 * Include Rapid.Generics.pas unit into your project
 * Replace `Generics.Collections` and `Generics.Defaults` units to `Rapid.Generics` in your `uses` code sections
  
+##### Note
+Do not use generics in the \*.dpr-files for XE8 or XE10 Seattle compilers: _QC#103798_.
+
 ##### TRapidDictionary/TRapidObjectDictionary
 Rapid "inline" `TDictionary`/`TObjectDictionary` equivalents with default hash codes and comparers
 

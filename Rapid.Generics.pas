@@ -499,176 +499,179 @@ type
   Low level RTTI routine: initialization/finalization }
 
   TRAIIHelper = record
-  public type
-    TClearNativeProc = procedure(P, TypeInfo: Pointer);
-    TClearNativeRec = record
-      Offset: NativeInt;
-      DynTypeInfo: PTypeInfo;
-      ClearNativeProc: TClearNativeProc;
-    end;
-    TClearNatives = record
-      Items: TArray<TClearNativeRec>;
-      ItemSingle: TClearNativeRec;
-      Count: NativeInt;
-      procedure Clear; inline;
-      procedure Add(AOffset: NativeInt; ADynTypeInfo: PTypeInfo; AClearNativeProc: TClearNativeProc);
-    end;
-    {$ifdef WEAKINSTREF}
-      TInitNativeRec = record
+  public
+    type
+      TClearNativeProc = procedure(P, TypeInfo: Pointer);
+      TClearNativeRec = record
         Offset: NativeInt;
+        DynTypeInfo: PTypeInfo;
+        ClearNativeProc: TClearNativeProc;
       end;
-      TInitNatives = record
-        Items: TArray<TInitNativeRec>;
-        ItemSingle: TInitNativeRec;
+      TClearNatives = record
+        Items: TArray<TClearNativeRec>;
+        ItemSingle: TClearNativeRec;
         Count: NativeInt;
         procedure Clear; inline;
-        procedure Add(AOffset: NativeInt);
+        procedure Add(AOffset: NativeInt; ADynTypeInfo: PTypeInfo; AClearNativeProc: TClearNativeProc);
       end;
-    {$else}
-      TNativeRec = TClearNativeRec;
-      TNatives = TClearNatives;
-    {$endif}
-    TStaticArrayRec = record
-      Offset: NativeInt;
-      StaticTypeInfo: PTypeInfo;
-      Count: NativeUInt;
-    end;
-    TStaticArrays = record
-      Items: TArray<TStaticArrayRec>;
-      Count: NativeInt;
-      procedure Clear; inline;
-      procedure Add(AOffset: NativeInt; AStaticTypeInfo: PTypeInfo; ACount: NativeUInt);
-    end;
-  public const
-    varDeepData = $BFE8;
-  private type
-    PFieldInfo = ^TFieldInfo;
-    TFieldInfo = packed record
-      TypeInfo: PPTypeInfo;
-      Offset: Cardinal;
-      {$ifdef LARGEINT}
-      _Padding: Integer;
+      {$ifdef WEAKINSTREF}
+        TInitNativeRec = record
+          Offset: NativeInt;
+        end;
+        TInitNatives = record
+          Items: TArray<TInitNativeRec>;
+          ItemSingle: TInitNativeRec;
+          Count: NativeInt;
+          procedure Clear; inline;
+          procedure Add(AOffset: NativeInt);
+        end;
+      {$else}
+        TNativeRec = TClearNativeRec;
+        TNatives = TClearNatives;
       {$endif}
-    end;
-    PFieldTable = ^TFieldTable;
-    TFieldTable = packed record
-      X: Word;
-      Size: Cardinal;
-      Count: Cardinal;
-      Fields: array [0..0] of TFieldInfo;
-    end;
-    TData16 = packed record
-    case Integer of
-      0: (Native: NativeInt);
-      1: (Method: TMethod);
-      2: (VarData: TVarData);
-      3: (Bytes: array[0..15] of Byte);
-      4: (Words: array[0..7] of Word);
-      5: (Integers: array[0..3] of Integer);
-      6: (Int64s: array[0..1] of Int64);
-      7: (Natives: array[0..{$ifdef LARGEINT}1{$else .SMALLINT}3{$endif}] of NativeUInt);
-    end;
-    PData16 = ^TData16;
-    TData16<TOffset> = packed record
-      Offset: TOffset;
-    case Integer of
-      0: (Native: NativeInt);
-      1: (Method: TMethod);
-      2: (VarData: TVarData);
-      3: (Bytes: array[0..15] of Byte);
-      4: (Words: array[0..7] of Word);
-      5: (Integers: array[0..3] of Integer);
-      6: (Int64s: array[0..1] of Int64);
-      7: (Natives: array[0..{$ifdef LARGEINT}1{$else .SMALLINT}3{$endif}] of NativeUInt);
-    end;
-    T1 = Byte;
-    T2 = Word;
-    T3 = array[1..3] of Byte;
-    T4 = Cardinal;
-    T5 = array[1..5] of Byte;
-    T6 = array[1..6] of Byte;
-    T7 = array[1..7] of Byte;
-    T8 = Int64;
-    T9 = array[1..9] of Byte;
-    T10 = array[1..10] of Byte;
-    T11 = array[1..11] of Byte;
-    T12 = array[1..12] of Byte;
-    T13 = array[1..13] of Byte;
-    T14 = array[1..14] of Byte;
-    T15 = array[1..15] of Byte;
-    T16 = array[1..16] of Byte;
-    T17 = array[1..17] of Byte;
-    T18 = array[1..18] of Byte;
-    T19 = array[1..19] of Byte;
-    T20 = array[1..20] of Byte;
-    T21 = array[1..21] of Byte;
-    T22 = array[1..22] of Byte;
-    T23 = array[1..23] of Byte;
-    T24 = array[1..24] of Byte;
-    T25 = array[1..25] of Byte;
-    T26 = array[1..26] of Byte;
-    T27 = array[1..27] of Byte;
-    T28 = array[1..28] of Byte;
-    T29 = array[1..29] of Byte;
-    T30 = array[1..30] of Byte;
-    T31 = array[1..31] of Byte;
-    T32 = array[1..32] of Byte;
-    T33 = array[1..33] of Byte;
-    T34 = array[1..34] of Byte;
-    T35 = array[1..35] of Byte;
-    T36 = array[1..36] of Byte;
-    T37 = array[1..37] of Byte;
-    T38 = array[1..38] of Byte;
-    T39 = array[1..39] of Byte;
-    T40 = array[1..40] of Byte;
-    TTemp40 = record
-    case Integer of
-       1: (V1: T1);
-       2: (V2: T2);
-       3: (V3: T3);
-       4: (V4: T4);
-       5: (V5: T5);
-       6: (V6: T6);
-       7: (V7: T7);
-       8: (V8: T8);
-       9: (V9: T9);
-      10: (V10: T10);
-      11: (V11: T11);
-      12: (V12: T12);
-      13: (V13: T13);
-      14: (V14: T14);
-      15: (V15: T15);
-      16: (V16: T16);
-      17: (V17: T17);
-      18: (V18: T18);
-      19: (V19: T19);
-      20: (V20: T20);
-      21: (V21: T21);
-      22: (V22: T22);
-      23: (V23: T23);
-      24: (V24: T24);
-      25: (V25: T25);
-      26: (V26: T26);
-      27: (V27: T27);
-      28: (V28: T28);
-      29: (V29: T29);
-      30: (V30: T30);
-      31: (V31: T31);
-      32: (V32: T32);
-      33: (V33: T33);
-      34: (V34: T34);
-      35: (V35: T35);
-      36: (V36: T36);
-      37: (V37: T37);
-      38: (V38: T38);
-      39: (V39: T39);
-      40: (V40: T40);
-    end;
-    TNativeIntRec = packed record
-    case Boolean of
-     False: (Int: Integer);
-      True: (Native: NativeInt);
-    end;
+      TStaticArrayRec = record
+        Offset: NativeInt;
+        StaticTypeInfo: PTypeInfo;
+        Count: NativeUInt;
+      end;
+      TStaticArrays = record
+        Items: TArray<TStaticArrayRec>;
+        Count: NativeInt;
+        procedure Clear; inline;
+        procedure Add(AOffset: NativeInt; AStaticTypeInfo: PTypeInfo; ACount: NativeUInt);
+      end;
+  public
+    const
+      varDeepData = $BFE8;
+  private
+    type
+      PFieldInfo = ^TFieldInfo;
+      TFieldInfo = packed record
+        TypeInfo: PPTypeInfo;
+        Offset: Cardinal;
+        {$ifdef LARGEINT}
+        _Padding: Integer;
+        {$endif}
+      end;
+      PFieldTable = ^TFieldTable;
+      TFieldTable = packed record
+        X: Word;
+        Size: Cardinal;
+        Count: Cardinal;
+        Fields: array [0..0] of TFieldInfo;
+      end;
+      TData16 = packed record
+      case Integer of
+        0: (Native: NativeInt);
+        1: (Method: TMethod);
+        2: (VarData: TVarData);
+        3: (Bytes: array[0..15] of Byte);
+        4: (Words: array[0..7] of Word);
+        5: (Integers: array[0..3] of Integer);
+        6: (Int64s: array[0..1] of Int64);
+        7: (Natives: array[0..{$ifdef LARGEINT}1{$else .SMALLINT}3{$endif}] of NativeUInt);
+      end;
+      PData16 = ^TData16;
+      TData16<TOffset> = packed record
+        Offset: TOffset;
+      case Integer of
+        0: (Native: NativeInt);
+        1: (Method: TMethod);
+        2: (VarData: TVarData);
+        3: (Bytes: array[0..15] of Byte);
+        4: (Words: array[0..7] of Word);
+        5: (Integers: array[0..3] of Integer);
+        6: (Int64s: array[0..1] of Int64);
+        7: (Natives: array[0..{$ifdef LARGEINT}1{$else .SMALLINT}3{$endif}] of NativeUInt);
+      end;
+      T1 = Byte;
+      T2 = Word;
+      T3 = array[1..3] of Byte;
+      T4 = Cardinal;
+      T5 = array[1..5] of Byte;
+      T6 = array[1..6] of Byte;
+      T7 = array[1..7] of Byte;
+      T8 = Int64;
+      T9 = array[1..9] of Byte;
+      T10 = array[1..10] of Byte;
+      T11 = array[1..11] of Byte;
+      T12 = array[1..12] of Byte;
+      T13 = array[1..13] of Byte;
+      T14 = array[1..14] of Byte;
+      T15 = array[1..15] of Byte;
+      T16 = array[1..16] of Byte;
+      T17 = array[1..17] of Byte;
+      T18 = array[1..18] of Byte;
+      T19 = array[1..19] of Byte;
+      T20 = array[1..20] of Byte;
+      T21 = array[1..21] of Byte;
+      T22 = array[1..22] of Byte;
+      T23 = array[1..23] of Byte;
+      T24 = array[1..24] of Byte;
+      T25 = array[1..25] of Byte;
+      T26 = array[1..26] of Byte;
+      T27 = array[1..27] of Byte;
+      T28 = array[1..28] of Byte;
+      T29 = array[1..29] of Byte;
+      T30 = array[1..30] of Byte;
+      T31 = array[1..31] of Byte;
+      T32 = array[1..32] of Byte;
+      T33 = array[1..33] of Byte;
+      T34 = array[1..34] of Byte;
+      T35 = array[1..35] of Byte;
+      T36 = array[1..36] of Byte;
+      T37 = array[1..37] of Byte;
+      T38 = array[1..38] of Byte;
+      T39 = array[1..39] of Byte;
+      T40 = array[1..40] of Byte;
+      TTemp40 = record
+      case Integer of
+         1: (V1: T1);
+         2: (V2: T2);
+         3: (V3: T3);
+         4: (V4: T4);
+         5: (V5: T5);
+         6: (V6: T6);
+         7: (V7: T7);
+         8: (V8: T8);
+         9: (V9: T9);
+        10: (V10: T10);
+        11: (V11: T11);
+        12: (V12: T12);
+        13: (V13: T13);
+        14: (V14: T14);
+        15: (V15: T15);
+        16: (V16: T16);
+        17: (V17: T17);
+        18: (V18: T18);
+        19: (V19: T19);
+        20: (V20: T20);
+        21: (V21: T21);
+        22: (V22: T22);
+        23: (V23: T23);
+        24: (V24: T24);
+        25: (V25: T25);
+        26: (V26: T26);
+        27: (V27: T27);
+        28: (V28: T28);
+        29: (V29: T29);
+        30: (V30: T30);
+        31: (V31: T31);
+        32: (V32: T32);
+        33: (V33: T33);
+        34: (V34: T34);
+        35: (V35: T35);
+        36: (V36: T36);
+        37: (V37: T37);
+        38: (V38: T38);
+        39: (V39: T39);
+        40: (V40: T40);
+      end;
+      TNativeIntRec = packed record
+      case Boolean of
+       False: (Int: Integer);
+        True: (Native: NativeInt);
+      end;
   private
     FTypeInfo: PTypeInfo;
     FSize: NativeInt;
@@ -745,12 +748,13 @@ type
   PRAIIHelper = ^TRAIIHelper;
 
   TRAIIHelper<T> = record
-  public type
-    P = ^T;
-    TArrayT = array[0..0] of T;
-    PArrayT = ^TArrayT;
-    TData = TRAIIHelper.TData16;
-    PData = ^TData;
+  public
+    type
+      P = ^T;
+      TArrayT = array[0..0] of T;
+      PArrayT = ^TArrayT;
+      TData = TRAIIHelper.TData16;
+      PData = ^TData;
   private
     class var
       FOptions: TRAIIHelper;
@@ -777,19 +781,20 @@ type
   end;
 
   TRAIIHelper<T1,T2,T3,T4> = record
-  public type
-    T = TRecord<T1,T2,T3,T4>;
-    P = ^T;
-    TArrayT = array[0..0] of T;
-    PArrayT = ^TArrayT;
-    TData1 = TRAIIHelper.TData16;
-    TData2 = TRAIIHelper.TData16<T1>;
-    TData3 = TRAIIHelper.TData16<TRecord<T1,T2>>;
-    TData4 = TRAIIHelper.TData16<TRecord<T1,T2,T3>>;
-    PData1 = ^TData1;
-    PData2 = ^TData2;
-    PData3 = ^TData3;
-    PData4 = ^TData4;
+  public
+    type
+      T = TRecord<T1,T2,T3,T4>;
+      P = ^T;
+      TArrayT = array[0..0] of T;
+      PArrayT = ^TArrayT;
+      TData1 = TRAIIHelper.TData16;
+      TData2 = TRAIIHelper.TData16<T1>;
+      TData3 = TRAIIHelper.TData16<TRecord<T1,T2>>;
+      TData4 = TRAIIHelper.TData16<TRecord<T1,T2,T3>>;
+      PData1 = ^TData1;
+      PData2 = ^TData2;
+      PData3 = ^TData3;
+      PData4 = ^TData4;
   private
     class function GetManaged: Boolean; static; inline;
     class function GetWeak: Boolean; static; inline;
@@ -817,42 +822,45 @@ type
   Default functions/interfaces }
 
   InterfaceDefaults = record
-  public type
-    TMethodPtr = procedure of object;
-    TTriple = packed record
-    case Integer of
-      0: (Low: Word; High: Byte);
-      1: (Bytes: array[0..2] of Byte);
-    end;
-    IComparerInst = packed record
-      Vtable: Pointer;
-      Size: NativeInt;
-      QueryInterface,
-      AddRef,
-      Release,
-      Compare: Pointer;
-    end;
-    IEqualityComparerInst = packed record
-      Vtable: Pointer;
-      Size: NativeInt;
-      QueryInterface,
-      AddRef,
-      Release,
-      Equals,
-      GetHashCode: Pointer;
-    end;
-    TDefaultComparer<T> = record
-    public class var
-      Instance: IComparerInst;
-    private
-      class constructor ClassCreate;
-    end;
-    TDefaultEqualityComparer<T> = record
-    public class var
-      Instance: IEqualityComparerInst;
-    private
-      class constructor ClassCreate;
-    end;
+  public
+    type
+      TMethodPtr = procedure of object;
+      TTriple = packed record
+      case Integer of
+        0: (Low: Word; High: Byte);
+        1: (Bytes: array[0..2] of Byte);
+      end;
+      IComparerInst = packed record
+        Vtable: Pointer;
+        Size: NativeInt;
+        QueryInterface,
+        AddRef,
+        Release,
+        Compare: Pointer;
+      end;
+      IEqualityComparerInst = packed record
+        Vtable: Pointer;
+        Size: NativeInt;
+        QueryInterface,
+        AddRef,
+        Release,
+        Equals,
+        GetHashCode: Pointer;
+      end;
+      TDefaultComparer<T> = record
+      public
+        class var
+          Instance: IComparerInst;
+      private
+        class constructor ClassCreate;
+      end;
+      TDefaultEqualityComparer<T> = record
+      public
+        class var
+          Instance: IEqualityComparerInst;
+      private
+        class constructor ClassCreate;
+      end;
   private
     class function Compare_Var_Difficult(Equal: Boolean; Left, Right: PVariant): Integer; static;
     class function GetHashCode_Var_Difficult(Value: PVariant): Integer; static;
@@ -1099,169 +1107,170 @@ type
 { TArray class }
 
   TArray = class
-  protected const
-    HIGH_NATIVE = {$ifdef LARGEINT}63{$else}31{$endif};
-    HIGH_NATIVE_BIT = NativeInt(1) shl HIGH_NATIVE;
-    BUFFER_SIZE = 1024;
-    RADIX_BUFFER_SIZE = 2048;
-    INSERTION_SORT_LIMIT = 45;
-  protected type
-    TItemList<T> = array[0..15] of T;
-    TSortStackItem<T> = record
-      First: ^T;
-      Last: ^T;
-    end;
-    TSortStack<T> = array[0..63] of TSortStackItem<T>;
+  protected
+    const
+      HIGH_NATIVE = {$ifdef LARGEINT}63{$else}31{$endif};
+      HIGH_NATIVE_BIT = NativeInt(1) shl HIGH_NATIVE;
+      BUFFER_SIZE = 1024;
+      RADIX_BUFFER_SIZE = 2048;
+      INSERTION_SORT_LIMIT = 45;
+  protected
+    type
+      TItemList<T> = array[0..15] of T;
+      TSortStackItem<T> = record
+        First: ^T;
+        Last: ^T;
+      end;
+      TSortStack<T> = array[0..63] of TSortStackItem<T>;
 
-    HugeByteArray = array[0..High(Integer) div SizeOf(Byte) - 1] of Byte;
-    HugeWordArray = array[0..High(Integer) div SizeOf(Word) - 1] of Word;
-    HugeCardinalArray = array[0..High(Integer) div SizeOf(Cardinal) - 1] of Cardinal;
-    HugeUInt64Array = array[0..High(Integer) div SizeOf(UInt64) - 1] of UInt64;
-    HugeNativeUIntArray = array[0..High(Integer) div SizeOf(NativeUInt) - 1] of NativeUInt;
+      HugeByteArray = array[0..High(Integer) div SizeOf(Byte) - 1] of Byte;
+      HugeWordArray = array[0..High(Integer) div SizeOf(Word) - 1] of Word;
+      HugeCardinalArray = array[0..High(Integer) div SizeOf(Cardinal) - 1] of Cardinal;
+      HugeUInt64Array = array[0..High(Integer) div SizeOf(UInt64) - 1] of UInt64;
+      HugeNativeUIntArray = array[0..High(Integer) div SizeOf(NativeUInt) - 1] of NativeUInt;
 
-    HugeShortIntArray = array[0..High(Integer) div SizeOf(ShortInt) - 1] of ShortInt;
-    HugeSmallIntArray = array[0..High(Integer) div SizeOf(SmallInt) - 1] of SmallInt;
-    HugeIntegerArray = array[0..High(Integer) div SizeOf(Integer) - 1] of Integer;
-    HugeInt64Array = array[0..High(Integer) div SizeOf(Int64) - 1] of Int64;
-    HugeNativeIntArray = array[0..High(Integer) div SizeOf(NativeInt) - 1] of NativeInt;
+      HugeShortIntArray = array[0..High(Integer) div SizeOf(ShortInt) - 1] of ShortInt;
+      HugeSmallIntArray = array[0..High(Integer) div SizeOf(SmallInt) - 1] of SmallInt;
+      HugeIntegerArray = array[0..High(Integer) div SizeOf(Integer) - 1] of Integer;
+      HugeInt64Array = array[0..High(Integer) div SizeOf(Int64) - 1] of Int64;
+      HugeNativeIntArray = array[0..High(Integer) div SizeOf(NativeInt) - 1] of NativeInt;
 
-    HugeNativeArray = HugeNativeUIntArray;
-    HugeTPointArray = array[0..High(Integer) div SizeOf(TPoint) - 1] of TPoint;
-    HugeSingleArray = array[0..High(Integer) div SizeOf(Single) - 1] of Single;
-    HugeDoubleArray = array[0..High(Integer) div SizeOf(Double) - 1] of Double;
-    HugeExtendedArray = array[0..High(Integer) div SizeOf(Extended) - 1] of Extended;
+      HugeNativeArray = HugeNativeUIntArray;
+      HugeTPointArray = array[0..High(Integer) div SizeOf(TPoint) - 1] of TPoint;
+      HugeSingleArray = array[0..High(Integer) div SizeOf(Single) - 1] of Single;
+      HugeDoubleArray = array[0..High(Integer) div SizeOf(Double) - 1] of Double;
+      HugeExtendedArray = array[0..High(Integer) div SizeOf(Extended) - 1] of Extended;
 
-    TLMemory = packed record
-    case Integer of
-      0: (LBytes: HugeByteArray);
-      1: (LWords: HugeWordArray);
-      2: (LCardinals: HugeCardinalArray);
-      3: (LNatives: HugeNativeArray);
-      4: (L1: array[1..1] of Byte;
-          case Integer of
-            0: (LWords1: HugeWordArray);
-            1: (LCardinals1: HugeCardinalArray);
-            2: (LNatives1: HugeNativeArray);
-          );
-      5: (L2: array[1..2] of Byte;
-          case Integer of
-            0: (LCardinals2: HugeCardinalArray);
-            1: (LNatives2: HugeNativeArray);
-          );
-      6: (L3: array[1..3] of Byte;
-          case Integer of
-            0: (LCardinals3: HugeCardinalArray);
-            1: (LNatives3: HugeNativeArray);
-          );
-    {$ifdef LARGEINT}
-      7: (L4: array[1..4] of Byte; LNatives4: HugeNativeArray);
-      8: (L5: array[1..5] of Byte; LNatives5: HugeNativeArray);
-      9: (L6: array[1..6] of Byte; LNatives6: HugeNativeArray);
-     10: (L7: array[1..7] of Byte; LNatives7: HugeNativeArray);
-    {$endif}
-    end;
-    PLMemory = ^TLMemory;
+      TLMemory = packed record
+      case Integer of
+        0: (LBytes: HugeByteArray);
+        1: (LWords: HugeWordArray);
+        2: (LCardinals: HugeCardinalArray);
+        3: (LNatives: HugeNativeArray);
+        4: (L1: array[1..1] of Byte;
+            case Integer of
+              0: (LWords1: HugeWordArray);
+              1: (LCardinals1: HugeCardinalArray);
+              2: (LNatives1: HugeNativeArray);
+            );
+        5: (L2: array[1..2] of Byte;
+            case Integer of
+              0: (LCardinals2: HugeCardinalArray);
+              1: (LNatives2: HugeNativeArray);
+            );
+        6: (L3: array[1..3] of Byte;
+            case Integer of
+              0: (LCardinals3: HugeCardinalArray);
+              1: (LNatives3: HugeNativeArray);
+            );
+      {$ifdef LARGEINT}
+        7: (L4: array[1..4] of Byte; LNatives4: HugeNativeArray);
+        8: (L5: array[1..5] of Byte; LNatives5: HugeNativeArray);
+        9: (L6: array[1..6] of Byte; LNatives6: HugeNativeArray);
+       10: (L7: array[1..7] of Byte; LNatives7: HugeNativeArray);
+      {$endif}
+      end;
+      PLMemory = ^TLMemory;
 
-    TRMemory = packed record
-    case Integer of
-      0: (RBytes: HugeByteArray);
-      1: (RWords: HugeWordArray);
-      2: (RCardinals: HugeCardinalArray);
-      3: (RNatives: HugeNativeArray);
-      4: (R1: array[1..1] of Byte;
-          case Integer of
-            0: (RWords1: HugeWordArray);
-            1: (RCardinals1: HugeCardinalArray);
-            2: (RNatives1: HugeNativeArray);
-          );
-      5: (R2: array[1..2] of Byte;
-          case Integer of
-            0: (RCardinals2: HugeCardinalArray);
-            1: (RNatives2: HugeNativeArray);
-          );
-      6: (R3: array[1..3] of Byte;
-          case Integer of
-            0: (RCardinals3: HugeCardinalArray);
-            1: (RNatives3: HugeNativeArray);
-          );
-    {$ifdef LARGEINT}
-      7: (R4: array[1..4] of Byte; RNatives4: HugeNativeArray);
-      8: (R5: array[1..5] of Byte; RNatives5: HugeNativeArray);
-      9: (R6: array[1..6] of Byte; RNatives6: HugeNativeArray);
-     10: (R7: array[1..7] of Byte; RNatives7: HugeNativeArray);
-    {$endif}
-    end;
-    PRMemory = ^TRMemory;
+      TRMemory = packed record
+      case Integer of
+        0: (RBytes: HugeByteArray);
+        1: (RWords: HugeWordArray);
+        2: (RCardinals: HugeCardinalArray);
+        3: (RNatives: HugeNativeArray);
+        4: (R1: array[1..1] of Byte;
+            case Integer of
+              0: (RWords1: HugeWordArray);
+              1: (RCardinals1: HugeCardinalArray);
+              2: (RNatives1: HugeNativeArray);
+            );
+        5: (R2: array[1..2] of Byte;
+            case Integer of
+              0: (RCardinals2: HugeCardinalArray);
+              1: (RNatives2: HugeNativeArray);
+            );
+        6: (R3: array[1..3] of Byte;
+            case Integer of
+              0: (RCardinals3: HugeCardinalArray);
+              1: (RNatives3: HugeNativeArray);
+            );
+      {$ifdef LARGEINT}
+        7: (R4: array[1..4] of Byte; RNatives4: HugeNativeArray);
+        8: (R5: array[1..5] of Byte; RNatives5: HugeNativeArray);
+        9: (R6: array[1..6] of Byte; RNatives6: HugeNativeArray);
+       10: (R7: array[1..7] of Byte; RNatives7: HugeNativeArray);
+      {$endif}
+      end;
+      PRMemory = ^TRMemory;
 
-    TSortHelper<T> = record
-      Pivot: T;
-      Temp: T;
-      Inst: Pointer;
-      Compare: function(Inst: Pointer; const Left, Right: T): Integer;
+      TSortHelper<T> = record
+        Pivot: T;
+        Temp: T;
+        Inst: Pointer;
+        Compare: function(Inst: Pointer; const Left, Right: T): Integer;
 
-      procedure Init(const Comparer: IComparer<T>); overload;
-      procedure Init(const Comparison: TComparison<T>); overload;
-      procedure Init; overload;
-      procedure FillZero;
-    end;
+        procedure Init(const Comparer: IComparer<T>); overload;
+        procedure Init(const Comparison: TComparison<T>); overload;
+        procedure Init; overload;
+        procedure FillZero;
+      end;
 
-    PS1 = ^ShortInt;
-    PS2 = ^SmallInt;
-    PS4 = ^Integer;
-    PS8 = ^Int64;
+      PS1 = ^ShortInt;
+      PS2 = ^SmallInt;
+      PS4 = ^Integer;
+      PS8 = ^Int64;
 
-    PU1 = ^Byte;
-    PU2 = ^Word;
-    PU4 = ^Cardinal;
-    PU8 = ^UInt64;
+      PU1 = ^Byte;
+      PU2 = ^Word;
+      PU4 = ^Cardinal;
+      PU8 = ^UInt64;
 
-    PF4 = ^Single;
-    PF8 = ^Double;
-    PFE = ^Extended;
+      PF4 = ^Single;
+      PF8 = ^Double;
+      PFE = ^Extended;
 
-    TFloat = packed record
-    case Integer of
-      0: (VSingle: Single);
-      1: (VDouble: Double);
-      2: (VExtended: Extended);
-      3: (SSingle: Integer);
-      4: (B1: array[1..SizeOf(Double) - SizeOf(Integer)] of Byte; SDouble: Integer);
-      5: (B2: array[1..SizeOf(Extended) - SizeOf(Integer)] of Byte; SExtended: Integer);
-    end;
+      TFloat = packed record
+      case Integer of
+        0: (VSingle: Single);
+        1: (VDouble: Double);
+        2: (VExtended: Extended);
+        3: (SSingle: Integer);
+        4: (B1: array[1..SizeOf(Double) - SizeOf(Integer)] of Byte; SDouble: Integer);
+        5: (B2: array[1..SizeOf(Extended) - SizeOf(Integer)] of Byte; SExtended: Integer);
+      end;
 
-    TSortPivot = packed record
-    case Integer of
-      0: (Ptr: Pointer);
-      1: (Data: array[0..BUFFER_SIZE - 1] of Byte);
-    end;
+      TSortPivot = packed record
+      case Integer of
+        0: (Ptr: Pointer);
+        1: (Data: array[0..BUFFER_SIZE - 1] of Byte);
+      end;
 
-    TSearchHelper = record
-      Count: NativeInt;
-      Comparer: Pointer;
-    end;
+      TSearchHelper = record
+        Count: NativeInt;
+        Comparer: Pointer;
+      end;
 
-    TRadixes = array[Byte] of Word;
-    PRadixes = ^TRadixes;
-    TInternalRadixStored<T> = record
-      Radixes: TRadixes;
-      Data: array[0..RADIX_BUFFER_SIZE - 1] of T;
-      Index: NativeInt;
-      Ptr: array[0..1] of Pointer;
-      Mask: NativeInt;
-      SingleRadix: Word;
-    end;
+      TRadixes = array[Byte] of Word;
+      PRadixes = ^TRadixes;
+      TInternalRadixStored<T> = record
+        Radixes: TRadixes;
+        Data: array[0..RADIX_BUFFER_SIZE - 1] of T;
+        Index: NativeInt;
+        Ptr: array[0..1] of Pointer;
+        Mask: NativeInt;
+        SingleRadix: Word;
+      end;
 
-    TInternalSearchStored = record
-      X: NativeUInt;
-      ItemPtr: Pointer;
-    end;
+      TInternalSearchStored = record
+        X: NativeUInt;
+        ItemPtr: Pointer;
+      end;
 
-    TInternalSearchStored<T> = record
-      Inst: Pointer;
-      Compare: function(const Inst: Pointer; const Left, Right: T): Integer;
-      Count: NativeInt;
-    end;
-
+      TInternalSearchStored<T> = record
+        Inst: Pointer;
+        Compare: function(const Inst: Pointer; const Left, Right: T): Integer;
+        Count: NativeInt;
+      end;
   protected
     {$ifdef WEAKREF}
     class procedure WeakExchange<T>(const Left, Right: Pointer); static;
@@ -1425,76 +1434,78 @@ type
   Basic class for TDictionary<TKey,TValue>, TRapidDictionary<TKey,TValue> }
 
   TCustomDictionary<TKey,TValue> = class(TCollection<TPair<TKey,TValue>>)
-  public type
-    PItem = ^TItem;
-    TItem = packed record
-    private
-      FKey: TKey;
-      FValue: TValue;
-      FNext: PItem;
-      FHashCode: Integer;
-    public
-      property Key: TKey read FKey;
-      property Value: TValue read FValue write FValue;
-      property HashCode: Integer read FHashCode;
-    end;
-    TItemList = array[0..0] of TItem;
-    PItemList = ^TItemList;
+  public
+    type
+      PItem = ^TItem;
+      TItem = packed record
+      private
+        FKey: TKey;
+        FValue: TValue;
+        FNext: PItem;
+        FHashCode: Integer;
+      public
+        property Key: TKey read FKey;
+        property Value: TValue read FValue write FValue;
+        property HashCode: Integer read FHashCode;
+      end;
+      TItemList = array[0..0] of TItem;
+      PItemList = ^TItemList;
 
-    TPairEnumerator = record
-      Data: TCollectionEnumeratorData<TPair<TKey,TValue>>;
-      property Current: TPair<TKey,TValue> read Data.Current;
-      function MoveNext: Boolean; inline;
-    end;
+      TPairEnumerator = record
+        Data: TCollectionEnumeratorData<TPair<TKey,TValue>>;
+        property Current: TPair<TKey,TValue> read Data.Current;
+        function MoveNext: Boolean; inline;
+      end;
 
-    TKeyEnumerator = record
-      Data: TCollectionEnumeratorData<TKey>;
-      property Current: TKey read Data.Current;
-      function MoveNext: Boolean; inline;
-    end;
+      TKeyEnumerator = record
+        Data: TCollectionEnumeratorData<TKey>;
+        property Current: TKey read Data.Current;
+        function MoveNext: Boolean; inline;
+      end;
 
-    TValueEnumerator = record
-      Data: TCollectionEnumeratorData<TValue>;
-      property Current: TValue read Data.Current;
-      function MoveNext: Boolean; inline;
-    end;
+      TValueEnumerator = record
+        Data: TCollectionEnumeratorData<TValue>;
+        property Current: TValue read Data.Current;
+        function MoveNext: Boolean; inline;
+      end;
 
-    TKeyCollection = class(TCollection<TKey>)
-    protected
-      {$ifdef AUTOREFCOUNT}[Unsafe]{$endif} FDictionary: TCustomDictionary<TKey,TValue>;
-      function DoGetCount: Integer; override;
-      function GetCount: Integer; inline;
-      function DoGetEnumerator: TCollectionEnumerator<TKey>; override;
-    public
-      constructor Create(const ADictionary: TCustomDictionary<TKey,TValue>);
-      function GetEnumerator: TKeyEnumerator;
-      function ToArray: TArray<TKey>; override; final;
-      property Count: Integer read GetCount;
-    end;
+      TKeyCollection = class(TCollection<TKey>)
+      protected
+        {$ifdef AUTOREFCOUNT}[Unsafe]{$endif} FDictionary: TCustomDictionary<TKey,TValue>;
+        function DoGetCount: Integer; override;
+        function GetCount: Integer; inline;
+        function DoGetEnumerator: TCollectionEnumerator<TKey>; override;
+      public
+        constructor Create(const ADictionary: TCustomDictionary<TKey,TValue>);
+        function GetEnumerator: TKeyEnumerator;
+        function ToArray: TArray<TKey>; override; final;
+        property Count: Integer read GetCount;
+      end;
 
-    TValueCollection = class(TCollection<TValue>)
-    protected
-      {$ifdef AUTOREFCOUNT}[Unsafe]{$endif} FDictionary: TCustomDictionary<TKey,TValue>;
-      function DoGetCount: Integer; override;
-      function GetCount: Integer; inline;
-      function DoGetEnumerator: TCollectionEnumerator<TValue>; override;
-    public
-      constructor Create(const ADictionary: TCustomDictionary<TKey,TValue>);
-      function GetEnumerator: TValueEnumerator;
-      function ToArray: TArray<TValue>; override; final;
-      property Count: Integer read GetCount;
-    end;
-  private type
-    PKey = ^TKey;
-    PValue = ^TValue;
-    THashList = array[0..0] of PItem;
-    PHashList = ^THashList;
-    TData16 = TRAIIHelper.TData16;
-    PData16 = ^TData16;
-    TKeyRec = TRAIIHelper.TData16;
-    PKeyRec = ^TKeyRec;
-    TValueRec = TRAIIHelper.TData16<TKey>;
-    PValueRec = ^TValueRec;
+      TValueCollection = class(TCollection<TValue>)
+      protected
+        {$ifdef AUTOREFCOUNT}[Unsafe]{$endif} FDictionary: TCustomDictionary<TKey,TValue>;
+        function DoGetCount: Integer; override;
+        function GetCount: Integer; inline;
+        function DoGetEnumerator: TCollectionEnumerator<TValue>; override;
+      public
+        constructor Create(const ADictionary: TCustomDictionary<TKey,TValue>);
+        function GetEnumerator: TValueEnumerator;
+        function ToArray: TArray<TValue>; override; final;
+        property Count: Integer read GetCount;
+      end;
+  private
+    type
+      PKey = ^TKey;
+      PValue = ^TValue;
+      THashList = array[0..0] of PItem;
+      PHashList = ^THashList;
+      TData16 = TRAIIHelper.TData16;
+      PData16 = ^TData16;
+      TKeyRec = TRAIIHelper.TData16;
+      PKeyRec = ^TKeyRec;
+      TValueRec = TRAIIHelper.TData16<TKey>;
+      PValueRec = ^TValueRec;
   protected
     FItems: PItemList;
     FCapacity: NativeInt;
@@ -1545,17 +1556,18 @@ type
     procedure SetNotifyMethods; virtual;
 
     property List: PItemList read FItems;
-  protected const
-    FOUND_NONE = 0;
-    FOUND_EXCEPTION = 1;
-    FOUND_DELETE = 2;
-    FOUND_REPLACE = 3;
-    FOUND_MASK = 3;
+  protected
+    const
+      FOUND_NONE = 0;
+      FOUND_EXCEPTION = 1;
+      FOUND_DELETE = 2;
+      FOUND_REPLACE = 3;
+      FOUND_MASK = 3;
 
-    EMPTY_NONE = 0 shl 2;
-    EMPTY_EXCEPTION = 1 shl 2;
-    EMPTY_NEW = 2 shl 2;
-    EMPTY_MASK = 3 shl 2;
+      EMPTY_NONE = 0 shl 2;
+      EMPTY_EXCEPTION = 1 shl 2;
+      EMPTY_NEW = 2 shl 2;
+      EMPTY_MASK = 3 shl 2;
   protected
     FInternalFindValue: ^TValue;
     FDefaultValue: TValue;
@@ -1583,11 +1595,12 @@ type
     property List: PItemList read FItems; }
 
   TDictionary<TKey,TValue> = class(TCustomDictionary<TKey,TValue>)
-  private type
-    TInternalFindStored = record
-      HashCode: Integer;
-      Parent: Pointer;
-    end;
+  private
+    type
+      TInternalFindStored = record
+        HashCode: Integer;
+        Parent: Pointer;
+      end;
   protected
     FComparer: IEqualityComparer<TKey>;
     FComparerEquals: function(const Left, Right: TKey): Boolean of object;
@@ -1625,31 +1638,32 @@ type
   Rapid "inline" TDictionary equivalent with default hash code and comparer }
 
   TRapidDictionary<TKey,TValue> = class(TCustomDictionary<TKey,TValue>)
-  private type
-    TInternalFindStored = record
-      HashCode: Integer;
-      Parent: Pointer;
-      Self: TRapidDictionary<TKey,TValue>;
-      case Integer of
-        0: (SingleRec: packed record
-              Exponent: Integer;
-              case Integer of
-                0: (Mantissa: Single);
-                1: (HighInt: Integer);
-            end);
-        1: (DoubleRec: packed record
-              Exponent: Integer;
-              case Integer of
-                0: (Mantissa: Double);
-                1: (LowInt: Integer; HighInt: Integer);
-            end);
-        2: (ExtendedRec: packed record
-              Exponent: Integer;
-              case Integer of
-                0: (Mantissa: Extended);
-                1: (LowInt: Integer; Middle: Word; HighInt: Integer);
-            end);
-    end;
+  private
+    type
+      TInternalFindStored = record
+        HashCode: Integer;
+        Parent: Pointer;
+        Self: TRapidDictionary<TKey,TValue>;
+        case Integer of
+          0: (SingleRec: packed record
+                Exponent: Integer;
+                case Integer of
+                  0: (Mantissa: Single);
+                  1: (HighInt: Integer);
+              end);
+          1: (DoubleRec: packed record
+                Exponent: Integer;
+                case Integer of
+                  0: (Mantissa: Double);
+                  1: (LowInt: Integer; HighInt: Integer);
+              end);
+          2: (ExtendedRec: packed record
+                Exponent: Integer;
+                case Integer of
+                  0: (Mantissa: Extended);
+                  1: (LowInt: Integer; Middle: Word; HighInt: Integer);
+              end);
+      end;
   protected
     function InternalFindItem(const Key: TKey; const FindMode: Integer): TCustomDictionary<TKey,TValue>.Pitem;
     function GetItem(const Key: TKey): TValue; inline;
@@ -1680,17 +1694,18 @@ type
   Basic class for TList<T>, TQueue<T>, TStack<T> }
 
   TCustomList<T> = class(TCollection<T>)
-  public type
-    TItem = T;
-    PItem = ^TItem;
-    TItemList = array[0..0] of TItem;
-    PItemList = ^TItemList;
+  public
+    type
+      TItem = T;
+      PItem = ^TItem;
+      TItemList = array[0..0] of TItem;
+      PItemList = ^TItemList;
 
-    TEnumerator = record
-      Data: TCollectionEnumeratorData<T>;
-      property Current: T read Data.Current;
-      function MoveNext: Boolean;
-    end;
+      TEnumerator = record
+        Data: TCollectionEnumeratorData<T>;
+        property Current: T read Data.Current;
+        function MoveNext: Boolean;
+      end;
   protected
     FItems: PItemList;
     FCapacity: TRAIIHelper.TNativeIntRec;
@@ -1732,30 +1747,32 @@ type
   System.Generics.Collections equivalent }
 
   TList<T> = class(TCustomList<T>)
-  private type
-    TData16 = TRAIIHelper.TData16;
-    PData16 = ^TData16;
-    TCompare = function(Inst: Pointer; const Left, Right: T): Integer;
-    TEquals = function(Inst: Pointer; const Left, Right: T): Boolean;
-    TInternalStored = packed record
-      Self: Pointer;
-      InternalNotify: TMethod;
-      Count: NativeInt;
-      Item: TCustomList<T>.PItem;
-      ACount: Integer;
-    end;
-    TComparerInst = packed record
-      Vtable: Pointer;
-      Method: TMethod;
-      QueryInterface,
-      AddRef,
-      Release,
-      Call: Pointer;
-    end;
-  public type
-    TDirection = System.Types.TDirection;
-    TEmptyFunc = reference to function (const L, R: T): Boolean;
-    TListCompareFunc = reference to function (const L, R: T): Integer;
+  private
+    type
+      TData16 = TRAIIHelper.TData16;
+      PData16 = ^TData16;
+      TCompare = function(Inst: Pointer; const Left, Right: T): Integer;
+      TEquals = function(Inst: Pointer; const Left, Right: T): Boolean;
+      TInternalStored = packed record
+        Self: Pointer;
+        InternalNotify: TMethod;
+        Count: NativeInt;
+        Item: TCustomList<T>.PItem;
+        ACount: Integer;
+      end;
+      TComparerInst = packed record
+        Vtable: Pointer;
+        Method: TMethod;
+        QueryInterface,
+        AddRef,
+        Release,
+        Call: Pointer;
+      end;
+  public
+    type
+      TDirection = System.Types.TDirection;
+      TEmptyFunc = reference to function (const L, R: T): Boolean;
+      TListCompareFunc = reference to function (const L, R: T): Integer;
   protected
     FComparer: IComparer<T>;
 
@@ -1991,11 +2008,13 @@ type
   TDictionaryOwnerships = set of (doOwnsKeys, doOwnsValues);
 
   TObjectDictionary<TKey,TValue> = class(TDictionary<TKey,TValue>)
-  public type
-    TItem = TCustomDictionary<TKey,TValue>.TItem;
-  private type
-    TOnKeyNotify = procedure(Data, Sender: TObject; const Key: TObject; Action: TCollectionNotification);
-    TOnValueNotify = procedure(Data, Sender: TObject; const Value: TObject; Action: TCollectionNotification);
+  public
+    type
+      TItem = TCustomDictionary<TKey,TValue>.TItem;
+  private
+    type
+      TOnKeyNotify = procedure(Data, Sender: TObject; const Key: TObject; Action: TCollectionNotification);
+      TOnValueNotify = procedure(Data, Sender: TObject; const Value: TObject; Action: TCollectionNotification);
   protected
     FOwnerships: TDictionaryOwnerships;
     procedure DisposeKeyEvent(Sender: TObject; const Key: TObject; Action: TCollectionNotification);
@@ -2018,11 +2037,13 @@ type
   end;
 
   TRapidObjectDictionary<TKey,TValue> = class(TRapidDictionary<TKey,TValue>)
-  public type
-    TItem = TCustomDictionary<TKey,TValue>.TItem;
-  private type
-    TOnKeyNotify = procedure(Data, Sender: TObject; const Key: TObject; Action: TCollectionNotification);
-    TOnValueNotify = procedure(Data, Sender: TObject; const Value: TObject; Action: TCollectionNotification);
+  public
+    type
+      TItem = TCustomDictionary<TKey,TValue>.TItem;
+  private
+    type
+      TOnKeyNotify = procedure(Data, Sender: TObject; const Key: TObject; Action: TCollectionNotification);
+      TOnValueNotify = procedure(Data, Sender: TObject; const Value: TObject; Action: TCollectionNotification);
   protected
     FOwnerships: TDictionaryOwnerships;
     procedure DisposeKeyEvent(Sender: TObject; const Key: TObject; Action: TCollectionNotification);
