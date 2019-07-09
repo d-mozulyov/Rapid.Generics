@@ -71,7 +71,7 @@ interface
   uses {$ifdef MSWINDOWS}
          Winapi.Windows,
        {$else .POSIX}
-         Posix.Time, Posix.Sched, System.TimeSpan, System.DateUtils,
+         Posix.SysTypes, Posix.Time, Posix.Sched,
        {$endif}
        {$ifdef USE_LIBICU}
          System.Internal.ICU,
@@ -157,6 +157,9 @@ type
     class property LOCAL_DELTA: Int64 read FLOCAL_DELTA;
   private
     class procedure Initialize; static;
+    {$if CompilerVersion >= 31}
+    class constructor ClassConstructor;
+    {$ifend}
     class function GetNow: Int64; static;
     class function GetUTCNow: Int64; static;
     class function GetTickCount: Cardinal; static; {$ifdef MSWINDOWS}inline;{$endif}
@@ -427,6 +430,9 @@ type
       FInterfaceTable: IInterfaceTable;
 
     class procedure CreateIntfTables; static;
+    {$if CompilerVersion >= 31}
+    class constructor ClassConstructor;
+    {$ifend}
     class function IntfQueryInterface(const Self: PByte; const IID: TGUID; out Obj): HResult; stdcall; static;
     class function IntfAddRef(const Self: PByte): Integer; stdcall; static;
     class function IntfRelease(const Self: PByte): Integer; stdcall; static;
@@ -481,6 +487,9 @@ type
       FCustomObjectTable: TCustomObject.ICustomObjectTable;
 
     class procedure CreateIntfTables; static;
+    {$if CompilerVersion >= 31}
+    class constructor ClassConstructor;
+    {$ifend}
     class function IntfAddRef(const Self: PByte): Integer; stdcall; static;
     class function IntfRelease(const Self: PByte): Integer; stdcall; static;
     class function CustomObjectAddRef(const Self: PByte): Integer; stdcall; static;
@@ -2112,9 +2121,16 @@ end;
 {$else .POSIX}
 var
   i: Integer;
+  UTC_Time: Posix.SysTypes.time_t;
+  LocalTime: Posix.Time.Ptm;
   Delta: Int64;
 begin
-  FLOCAL_DELTA := TTimeZone.Local.UtcOffset.Ticks;
+  Posix.Time.time(@UTC_Time);
+  LocalTime := Posix.Time.localtime(UTC_Time);
+  if (Assigned(LocalTime)) then
+  begin
+    FLOCAL_DELTA := LocalTime.tm_gmtoff * SECOND;
+  end;
 
   FCLOCK_REALTIME_DELTA := InternalClockGetTime(CLOCK_REALTIME_COARSE) - InternalClockGetTime(CLOCK_MONOTONIC_COARSE);
   for i := 1 to 10 do
@@ -2127,6 +2143,13 @@ begin
   FCLOCK_REALTIME_LOCAL_DELTA := FCLOCK_REALTIME_DELTA + FLOCAL_DELTA;
 end;
 {$endif}
+
+{$if CompilerVersion >= 31}
+class constructor TOSTime.ClassConstructor;
+begin
+  Initialize;
+end;
+{$ifend}
 
 class function TOSTime.GetTickCount: Cardinal;
 {$ifdef MSWINDOWS}
@@ -4319,6 +4342,13 @@ begin
   TCustomObject.FInterfaceTable[2] := @TCustomObject.IntfRelease;
 end;
 
+{$if CompilerVersion >= 31}
+class constructor TCustomObject.ClassConstructor;
+begin
+  CreateIntfTables;
+end;
+{$ifend}
+
 class function TCustomObject.IntfQueryInterface(const Self: PByte;
   const IID: TGUID; out Obj): HResult; stdcall;
 begin
@@ -4441,6 +4471,13 @@ begin
   TLiteCustomObject.FCustomObjectTable[1] := @TLiteCustomObject.CustomObjectAddRef;
   TLiteCustomObject.FCustomObjectTable[2] := @TLiteCustomObject.CustomObjectRelease;
 end;
+
+{$if CompilerVersion >= 31}
+class constructor TLiteCustomObject.ClassConstructor;
+begin
+  CreateIntfTables;
+end;
+{$ifend}
 
 class function TLiteCustomObject.IntfAddRef(const Self: PByte): Integer; stdcall;
 begin
@@ -14688,7 +14725,7 @@ begin
   {$ifdef WEAKREF}
   if (TRAIIHelper<T>.Weak) then
   begin
-    TArray.Sort<T>(Values, Count, IComparer<T>(InterfaceDefaults.TDefaultComparer<T>.Create));
+    TArray.Sort<T>(Values, Count, IComparer<T>(Pointer(@InterfaceDefaults.TDefaultComparer<T>.Instance)));
   end else
   {$endif}
   case GetTypeKind(T) of
@@ -14923,7 +14960,7 @@ begin
   {$ifdef WEAKREF}
   if (TRAIIHelper<T>.Weak) then
   begin
-    TArray.SortDescending<T>(Values, Count, IComparer<T>(InterfaceDefaults.TDefaultComparer<T>.Create));
+    TArray.SortDescending<T>(Values, Count, IComparer<T>(Pointer(@InterfaceDefaults.TDefaultComparer<T>.Instance)));
   end else
   {$endif}
   case GetTypeKind(T) of
@@ -24153,9 +24190,11 @@ begin
 end;
 
 initialization
-  TOSTime.Initialize;
-  TCustomObject.CreateIntfTables;
-  TLiteCustomObject.CreateIntfTables;
+  {$if CompilerVersion < 31}
+    TOSTime.Initialize;
+    TCustomObject.CreateIntfTables;
+    TLiteCustomObject.CreateIntfTables;
+  {$ifend}
 end.
 
 
