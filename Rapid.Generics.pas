@@ -41,6 +41,21 @@ unit Rapid.Generics;
   {$WARN SYMBOL_DEPRECATED OFF}
   {$WEAKLINKRTTI ON}
   {$RTTI EXPLICIT METHODS([]) PROPERTIES([]) FIELDS([])}
+  {$if (not Defined(NEXTGEN)) or ((CompilerVersion >= 31) and Defined(LINUX))}
+    {$define ANSISTRSUPPORT}
+  {$ifend}
+  {$ifNdef NEXTGEN}
+    {$define SHORTSTRSUPPORT}
+  {$endif}
+  {$if Defined(MSWINDOWS) or (Defined(MACOS) and not Defined(IOS))}
+    {$define WIDESTRSUPPORT}
+  {$ifend}
+  {$if Defined(MSWINDOWS) or (Defined(WIDESTRSUPPORT) and (CompilerVersion <= 21))}
+    {$define WIDESTRLENSHIFT}
+  {$ifend}
+  {$if Defined(ANSISTRSUPPORT) and (CompilerVersion >= 20)}
+    {$define INTERNALCODEPAGE}
+  {$ifend}
 {$endif}
 {$POINTERMATH ON}
 {$U-}{$V+}{$B-}{$X+}{$T+}{$P+}{$H+}{$J-}{$Z1}{$A4}
@@ -4965,7 +4980,7 @@ begin
       FSize := SizeOf(Int64);
       Exit;
     end;
-    {$ifNdef NEXTGEN}
+    {$ifdef SHORTSTRSUPPORT}
     tkString:
     begin
       FSize := TypeData.MaxLength + 1;
@@ -6975,10 +6990,14 @@ begin
     begin
       Instance.Compare := @InterfaceDefaults.Compare_LStr;
     end;
+    {$ifdef MSWINDOWS}
     tkWString:
     begin
       Instance.Compare := @InterfaceDefaults.Compare_WStr;
     end;
+    {$else}
+    tkWString,
+    {$endif}
     tkUString:
     begin
       Instance.Compare := @InterfaceDefaults.Compare_UStr;
@@ -7078,11 +7097,15 @@ begin
       Instance.Equals := @InterfaceDefaults.Equals_LStr;
       Instance.GetHashCode := @InterfaceDefaults.GetHashCode_LStr;
     end;
+    {$ifdef MSWINDOWS}
     tkWString:
     begin
       Instance.Equals := @InterfaceDefaults.Equals_WStr;
       Instance.GetHashCode := @InterfaceDefaults.GetHashCode_WStr;
     end;
+    {$else}
+    tkWString,
+    {$endif}
     tkUString:
     begin
       Instance.Equals := @InterfaceDefaults.Equals_UStr;
@@ -12860,7 +12883,11 @@ proc_loop_current:
           if (Pivot.Ptr = Buffer) then Continue;
           case GetTypeKind(T) of
             tkLString: if (InterfaceDefaults.Compare_LStr(nil, Pivot.Ptr, Buffer) <= 0) then Continue;
+            {$ifdef MSWINDOWS}
             tkWString: if (InterfaceDefaults.Compare_WStr(nil, Pivot.Ptr, Buffer) <= 0) then Continue;
+            {$else}
+            tkWString,
+            {$endif}
             tkUString: if (InterfaceDefaults.Compare_UStr(nil, Pivot.Ptr, Buffer) <= 0) then Continue;
            tkDynArray: if (InterfaceDefaults.Compare_Dyn(InterfaceDefaults.TDefaultComparer<T>.Instance, Pivot.Ptr, Buffer) <= 0) then Continue;
           end;
@@ -12938,7 +12965,11 @@ proc_loop_current:
           if (Buffer = Pivot.Ptr) then Continue;
           case GetTypeKind(T) of
             tkLString: if (InterfaceDefaults.Compare_LStr(nil, Buffer, Pivot.Ptr) <= 0) then Continue;
+            {$ifdef MSWINDOWS}
             tkWString: if (InterfaceDefaults.Compare_WStr(nil, Buffer, Pivot.Ptr) <= 0) then Continue;
+            {$else}
+            tkWString,
+            {$endif}
             tkUString: if (InterfaceDefaults.Compare_UStr(nil, Buffer, Pivot.Ptr) <= 0) then Continue;
            tkDynArray: if (InterfaceDefaults.Compare_Dyn(InterfaceDefaults.TDefaultComparer<T>.Instance, Buffer, Pivot.Ptr) <= 0) then Continue;
           end;
@@ -12985,7 +13016,11 @@ proc_loop_current:
             if (Buffer = Pivot.Ptr) then Break;
             case GetTypeKind(T) of
               tkLString: if (InterfaceDefaults.Compare_LStr(nil, Buffer, Pivot.Ptr) <= 0) then Break;
+              {$ifdef MSWINDOWS}
               tkWString: if (InterfaceDefaults.Compare_WStr(nil, Buffer, Pivot.Ptr) <= 0) then Break;
+              {$else}
+              tkWString,
+              {$endif}
               tkUString: if (InterfaceDefaults.Compare_UStr(nil, Buffer, Pivot.Ptr) <= 0) then Break;
              tkDynArray: if (InterfaceDefaults.Compare_Dyn(InterfaceDefaults.TDefaultComparer<T>.Instance, Buffer, Pivot.Ptr) <= 0) then Break;
             end;
@@ -13064,7 +13099,11 @@ proc_loop_current:
             if (Pivot.Ptr = Buffer) then Break;
             case GetTypeKind(T) of
               tkLString: if (InterfaceDefaults.Compare_LStr(nil, Pivot.Ptr, Buffer) <= 0) then Break;
+              {$ifdef MSWINDOWS}
               tkWString: if (InterfaceDefaults.Compare_WStr(nil, Pivot.Ptr, Buffer) <= 0) then Break;
+              {$else}
+              tkWString,
+              {$endif}
               tkUString: if (InterfaceDefaults.Compare_UStr(nil, Pivot.Ptr, Buffer) <= 0) then Break;
              tkDynArray: if (InterfaceDefaults.Compare_Dyn(InterfaceDefaults.TDefaultComparer<T>.Instance, Pivot.Ptr, Buffer) <= 0) then Break;
             end;
@@ -13110,7 +13149,11 @@ proc_loop_current:
             if (Buffer = Pivot.Ptr) then Break;
             case GetTypeKind(T) of
               tkLString: if (InterfaceDefaults.Compare_LStr(nil, Buffer, Pivot.Ptr) <= 0) then Break;
+              {$ifdef MSWINDOWS}
               tkWString: if (InterfaceDefaults.Compare_WStr(nil, Buffer, Pivot.Ptr) <= 0) then Break;
+              {$else}
+              tkWString,
+              {$endif}
               tkUString: if (InterfaceDefaults.Compare_UStr(nil, Buffer, Pivot.Ptr) <= 0) then Break;
              tkDynArray: if (InterfaceDefaults.Compare_Dyn(InterfaceDefaults.TDefaultComparer<T>.Instance, Buffer, Pivot.Ptr) <= 0) then Break;
             end;
@@ -13384,7 +13427,11 @@ proc_loop_current:
           if (Pivot.Ptr = Buffer) then Continue;
           case GetTypeKind(T) of
             tkLString: if (InterfaceDefaults.Compare_LStr(nil, Pivot.Ptr, Buffer) >= 0) then Continue;
+            {$ifdef MSWINDOWS}
             tkWString: if (InterfaceDefaults.Compare_WStr(nil, Pivot.Ptr, Buffer) >= 0) then Continue;
+            {$else}
+            tkWString,
+            {$endif}
             tkUString: if (InterfaceDefaults.Compare_UStr(nil, Pivot.Ptr, Buffer) >= 0) then Continue;
            tkDynArray: if (InterfaceDefaults.Compare_Dyn(InterfaceDefaults.TDefaultComparer<T>.Instance, Pivot.Ptr, Buffer) >= 0) then Continue;
           end;
@@ -13462,7 +13509,11 @@ proc_loop_current:
           if (Buffer = Pivot.Ptr) then Continue;
           case GetTypeKind(T) of
             tkLString: if (InterfaceDefaults.Compare_LStr(nil, Buffer, Pivot.Ptr) >= 0) then Continue;
+            {$ifdef MSWINDOWS}
             tkWString: if (InterfaceDefaults.Compare_WStr(nil, Buffer, Pivot.Ptr) >= 0) then Continue;
+            {$else}
+            tkWString,
+            {$endif}
             tkUString: if (InterfaceDefaults.Compare_UStr(nil, Buffer, Pivot.Ptr) >= 0) then Continue;
            tkDynArray: if (InterfaceDefaults.Compare_Dyn(InterfaceDefaults.TDefaultComparer<T>.Instance, Buffer, Pivot.Ptr) >= 0) then Continue;
           end;
@@ -13509,7 +13560,11 @@ proc_loop_current:
             if (Buffer = Pivot.Ptr) then Break;
             case GetTypeKind(T) of
               tkLString: if (InterfaceDefaults.Compare_LStr(nil, Buffer, Pivot.Ptr) >= 0) then Break;
+              {$ifdef MSWINDOWS}
               tkWString: if (InterfaceDefaults.Compare_WStr(nil, Buffer, Pivot.Ptr) >= 0) then Break;
+              {$else}
+              tkWString,
+              {$endif}
               tkUString: if (InterfaceDefaults.Compare_UStr(nil, Buffer, Pivot.Ptr) >= 0) then Break;
              tkDynArray: if (InterfaceDefaults.Compare_Dyn(InterfaceDefaults.TDefaultComparer<T>.Instance, Buffer, Pivot.Ptr) >= 0) then Break;
             end;
@@ -13588,7 +13643,11 @@ proc_loop_current:
             if (Pivot.Ptr = Buffer) then Break;
             case GetTypeKind(T) of
               tkLString: if (InterfaceDefaults.Compare_LStr(nil, Pivot.Ptr, Buffer) >= 0) then Break;
+              {$ifdef MSWINDOWS}
               tkWString: if (InterfaceDefaults.Compare_WStr(nil, Pivot.Ptr, Buffer) >= 0) then Break;
+              {$else}
+              tkWString,
+              {$endif}
               tkUString: if (InterfaceDefaults.Compare_UStr(nil, Pivot.Ptr, Buffer) >= 0) then Break;
              tkDynArray: if (InterfaceDefaults.Compare_Dyn(InterfaceDefaults.TDefaultComparer<T>.Instance, Pivot.Ptr, Buffer) >= 0) then Break;
             end;
@@ -13634,7 +13693,11 @@ proc_loop_current:
             if (Buffer = Pivot.Ptr) then Break;
             case GetTypeKind(T) of
               tkLString: if (InterfaceDefaults.Compare_LStr(nil, Buffer, Pivot.Ptr) >= 0) then Break;
+              {$ifdef MSWINDOWS}
               tkWString: if (InterfaceDefaults.Compare_WStr(nil, Buffer, Pivot.Ptr) >= 0) then Break;
+              {$else}
+              tkWString,
+              {$endif}
               tkUString: if (InterfaceDefaults.Compare_UStr(nil, Buffer, Pivot.Ptr) >= 0) then Break;
              tkDynArray: if (InterfaceDefaults.Compare_Dyn(InterfaceDefaults.TDefaultComparer<T>.Instance, Buffer, Pivot.Ptr) >= 0) then Break;
             end;
@@ -14798,10 +14861,10 @@ begin
     end;
     tkLString:
     begin
-      {$ifdef NEXTGEN}
-        SortBinaries<T>(@Values, Count, T(nil^));
-      {$else}
+      {$ifdef ANSISTRSUPPORT}
         SortBinaries<AnsiString>(@Values, Count, AnsiString(nil^));
+      {$else}
+        SortBinaries<T>(@Values, Count, T(nil^));
       {$endif}
     end;
     {$ifdef MSWINDOWS}
@@ -15033,10 +15096,10 @@ begin
     end;
     tkLString:
     begin
-      {$ifdef NEXTGEN}
-        SortDescendingBinaries<T>(@Values, Count, T(nil^));
-      {$else}
+      {$ifdef ANSISTRSUPPORT}
         SortDescendingBinaries<AnsiString>(@Values, Count, AnsiString(nil^));
+      {$else}
+        SortDescendingBinaries<T>(@Values, Count, T(nil^));
       {$endif}
     end;
     {$ifdef MSWINDOWS}
@@ -15783,7 +15846,11 @@ begin
           begin
             case GetTypeKind(T) of
               tkLString: Cmp := InterfaceDefaults.Compare_LStr(nil, BufferMiddle, Stored.ItemPtr);
+              {$ifdef MSWINDOWS}
               tkWString: Cmp := InterfaceDefaults.Compare_WStr(nil, BufferMiddle, Stored.ItemPtr);
+              {$else}
+              tkWString,
+              {$endif}
               tkUString: Cmp := InterfaceDefaults.Compare_UStr(nil, BufferMiddle, Stored.ItemPtr);
              tkDynArray: Cmp := InterfaceDefaults.Compare_Dyn(InterfaceDefaults.TDefaultComparer<T>.Instance, BufferMiddle, Stored.ItemPtr);
             end;
@@ -15831,7 +15898,11 @@ begin
         begin
           case GetTypeKind(T) of
             tkLString: Cmp := InterfaceDefaults.Compare_LStr(nil, BufferLeft, Stored.ItemPtr);
+            {$ifdef MSWINDOWS}
             tkWString: Cmp := InterfaceDefaults.Compare_WStr(nil, BufferLeft, Stored.ItemPtr);
+            {$else}
+            tkWString,
+            {$endif}
             tkUString: Cmp := InterfaceDefaults.Compare_UStr(nil, BufferLeft, Stored.ItemPtr);
            tkDynArray: Cmp := InterfaceDefaults.Compare_Dyn(InterfaceDefaults.TDefaultComparer<T>.Instance, BufferLeft, Stored.ItemPtr);
           end;
@@ -15958,7 +16029,11 @@ begin
           begin
             case GetTypeKind(T) of
               tkLString: Cmp := InterfaceDefaults.Compare_LStr(nil, BufferMiddle, Stored.ItemPtr);
+              {$ifdef MSWINDOWS}
               tkWString: Cmp := InterfaceDefaults.Compare_WStr(nil, BufferMiddle, Stored.ItemPtr);
+              {$else}
+              tkWString,
+              {$endif}
               tkUString: Cmp := InterfaceDefaults.Compare_UStr(nil, BufferMiddle, Stored.ItemPtr);
              tkDynArray: Cmp := InterfaceDefaults.Compare_Dyn(InterfaceDefaults.TDefaultComparer<T>.Instance, BufferMiddle, Stored.ItemPtr);
             end;
@@ -16006,7 +16081,11 @@ begin
         begin
           case GetTypeKind(T) of
             tkLString: Cmp := InterfaceDefaults.Compare_LStr(nil, BufferLeft, Stored.ItemPtr);
+            {$ifdef MSWINDOWS}
             tkWString: Cmp := InterfaceDefaults.Compare_WStr(nil, BufferLeft, Stored.ItemPtr);
+            {$else}
+            tkWString,
+            {$endif}
             tkUString: Cmp := InterfaceDefaults.Compare_UStr(nil, BufferLeft, Stored.ItemPtr);
            tkDynArray: Cmp := InterfaceDefaults.Compare_Dyn(InterfaceDefaults.TDefaultComparer<T>.Instance, BufferLeft, Stored.ItemPtr);
           end;
@@ -16218,10 +16297,10 @@ begin
     end;
     tkLString:
     begin
-      {$ifdef NEXTGEN}
-        I := SearchBinaries<T>(TRAIIHelper<T>.P(Values) + Index, Count, Item);
-      {$else}
+      {$ifdef ANSISTRSUPPORT}
         I := SearchBinaries<AnsiString>(TRAIIHelper<T>.P(Values) + Index, Count, AnsiString(Pointer(@Item)^));
+      {$else}
+        I := SearchBinaries<T>(TRAIIHelper<T>.P(Values) + Index, Count, Item);
       {$endif}
     end;
     {$ifdef MSWINDOWS}
@@ -16458,10 +16537,10 @@ begin
     end;
     tkLString:
     begin
-      {$ifdef NEXTGEN}
-        I := SearchDescendingBinaries<T>(TRAIIHelper<T>.P(Values) + Index, Count, Item);
-      {$else}
+      {$ifdef ANSISTRSUPPORT}
         I := SearchDescendingBinaries<AnsiString>(TRAIIHelper<T>.P(Values) + Index, Count, AnsiString(Pointer(@Item)^));
+      {$else}
+        I := SearchDescendingBinaries<T>(TRAIIHelper<T>.P(Values) + Index, Count, Item);
       {$endif}
     end;
     {$ifdef MSWINDOWS}
@@ -18376,15 +18455,19 @@ begin
             Count := PInteger(Left)^;
             Inc(Left, SizeOf(Integer));
           end;
+          {$ifdef MSWINDOWS}
           tkWString:
           begin
             Dec(Left, SizeOf(Integer));
             Count := PInteger(Left)^;
             Inc(Left, SizeOf(Integer));
-            {$ifdef MSWINDOWS}if (Count = 0) then goto hash_calculated;{$endif}
-            Count := Count {$ifNdef MSWINDOWS}* 2{$endif} + 2;
+            if (Count = 0) then goto hash_calculated;
+            Count := Count + 2;
             Count := Count and -4;
           end;
+          {$else}
+          tkWString,
+          {$endif}
           tkUString:
           begin
             Dec(Left, SizeOf(Integer));
