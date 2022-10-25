@@ -6053,7 +6053,7 @@ begin
             tkWString,
             {$endif}
             tkLString, tkUString: TRAIIHelper.ULStrClear(@TData(Item^).Native);
-            tkInterface: IInterface(Pointer(@TData(Item^).Native))._Release;
+            tkInterface: IInterface(TData(Item^).Native)._Release;
             tkDynArray: TRAIIHelper.DynArrayClear(@TData(Item^).Native, TypeInfo(T));
           end;
         end;
@@ -6104,7 +6104,7 @@ begin
             tkWString,
             {$endif}
             tkLString, tkUString: TRAIIHelper.ULStrClear(@TData(Item^).Native);
-            tkInterface: IInterface(Pointer(@TData(Item^).Native))._Release;
+            tkInterface: IInterface(TData(Item^).Native)._Release;
             tkDynArray: TRAIIHelper.DynArrayClear(@TData(Item^).Native, TypeInfo(T));
           end;
         end;
@@ -6464,7 +6464,7 @@ begin
               tkWString,
               {$endif}
               tkLString, tkUString: TRAIIHelper.ULStrClear(LData);
-              tkInterface: IInterface(Pointer(LData))._Release;
+              tkInterface: IInterface(PPointer(LData)^)._Release;
               tkDynArray: TRAIIHelper.DynArrayClear(LData, TypeInfo(T1));
               {$ifdef WEAKINSTREF}
               tkMethod: TRAIIHelper.WeakMethodClear(LData);
@@ -6510,7 +6510,7 @@ begin
               tkWString,
               {$endif}
               tkLString, tkUString: TRAIIHelper.ULStrClear(LData);
-              tkInterface: IInterface(Pointer(LData))._Release;
+              tkInterface: IInterface(PPointer(LData)^)._Release;
               tkDynArray: TRAIIHelper.DynArrayClear(LData, TypeInfo(T2));
               {$ifdef WEAKINSTREF}
               tkMethod: TRAIIHelper.WeakMethodClear(LData);
@@ -6556,7 +6556,7 @@ begin
               tkWString,
               {$endif}
               tkLString, tkUString: TRAIIHelper.ULStrClear(LData);
-              tkInterface: IInterface(Pointer(LData))._Release;
+              tkInterface: IInterface(PPointer(LData)^)._Release;
               tkDynArray: TRAIIHelper.DynArrayClear(LData, TypeInfo(T3));
               {$ifdef WEAKINSTREF}
               tkMethod: TRAIIHelper.WeakMethodClear(LData);
@@ -6602,7 +6602,7 @@ begin
               tkWString,
               {$endif}
               tkLString, tkUString: TRAIIHelper.ULStrClear(LData);
-              tkInterface: IInterface(Pointer(LData))._Release;
+              tkInterface: IInterface(PPointer(LData)^)._Release;
               tkDynArray: TRAIIHelper.DynArrayClear(LData, TypeInfo(T4));
               {$ifdef WEAKINSTREF}
               tkMethod: TRAIIHelper.WeakMethodClear(LData);
@@ -6666,7 +6666,7 @@ begin
               tkWString,
               {$endif}
               tkLString, tkUString: TRAIIHelper.ULStrClear(LData);
-              tkInterface: IInterface(Pointer(LData))._Release;
+              tkInterface: IInterface(PPointer(LData)^)._Release;
               tkDynArray: TRAIIHelper.DynArrayClear(LData, TypeInfo(T1));
               {$ifdef WEAKINSTREF}
               tkMethod: TRAIIHelper.WeakMethodClear(LData);
@@ -6712,7 +6712,7 @@ begin
               tkWString,
               {$endif}
               tkLString, tkUString: TRAIIHelper.ULStrClear(LData);
-              tkInterface: IInterface(Pointer(LData))._Release;
+              tkInterface: IInterface(PPointer(LData)^)._Release;
               tkDynArray: TRAIIHelper.DynArrayClear(LData, TypeInfo(T2));
               {$ifdef WEAKINSTREF}
               tkMethod: TRAIIHelper.WeakMethodClear(LData);
@@ -6758,7 +6758,7 @@ begin
               tkWString,
               {$endif}
               tkLString, tkUString: TRAIIHelper.ULStrClear(LData);
-              tkInterface: IInterface(Pointer(LData))._Release;
+              tkInterface: IInterface(PPointer(LData)^)._Release;
               tkDynArray: TRAIIHelper.DynArrayClear(LData, TypeInfo(T3));
               {$ifdef WEAKINSTREF}
               tkMethod: TRAIIHelper.WeakMethodClear(LData);
@@ -6804,7 +6804,7 @@ begin
               tkWString,
               {$endif}
               tkLString, tkUString: TRAIIHelper.ULStrClear(LData);
-              tkInterface: IInterface(Pointer(LData))._Release;
+              tkInterface: IInterface(PPointer(LData)^)._Release;
               tkDynArray: TRAIIHelper.DynArrayClear(LData, TypeInfo(T4));
               {$ifdef WEAKINSTREF}
               tkMethod: TRAIIHelper.WeakMethodClear(LData);
