@@ -20711,7 +20711,7 @@ end;
 
 function TList<T>.InternalIndexOf(const Value: T): NativeInt;
 label
-  cmp0, cmp1, cmp2, cmp3, cmp4, cmp5{$ifdef SMALLINT}, cmp6, cmp7, cmp8, cmp9, cmp10{$endif};
+  next_item, cmp0, cmp1, cmp2, cmp3, cmp4, cmp5{$ifdef SMALLINT}, cmp6, cmp7, cmp8, cmp9, cmp10{$endif};
 var
   R: NativeInt;
   Item, TopItem: PItem;
@@ -20728,6 +20728,7 @@ begin
     TopItem := Item + FCount.Native;
 
     repeat
+    next_item:
       if (Item = TopItem) then Break;
       Inc(Item);
 
@@ -20976,7 +20977,7 @@ begin
           0: goto cmp0;
         else
           repeat
-            if (PNativeUInt(Left)^ <> PNativeUInt(Right)^) then Continue;
+            if (PNativeUInt(Left)^ <> PNativeUInt(Right)^) then goto next_item;
             Dec(Count);
             Inc(Left, SizeOf(NativeUInt));
             Inc(Right, SizeOf(NativeUInt));
@@ -21070,7 +21071,7 @@ end;
 
 function TList<T>.InternalIndexOfRev(const Value: T): NativeInt;
 label
-  cmp0, cmp1, cmp2, cmp3, cmp4, cmp5{$ifdef SMALLINT}, cmp6, cmp7, cmp8, cmp9, cmp10{$endif};
+  next_item, cmp0, cmp1, cmp2, cmp3, cmp4, cmp5{$ifdef SMALLINT}, cmp6, cmp7, cmp8, cmp9, cmp10{$endif};
 var
   R: NativeInt;
   Item, LowItem: PItem;
@@ -21086,6 +21087,7 @@ begin
     Item := LowItem + FCount.Native;
 
     repeat
+    next_item:
       if (Item = LowItem) then Break;
       Dec(Item);
 
@@ -21334,7 +21336,7 @@ begin
           0: goto cmp0;
         else
           repeat
-            if (PNativeUInt(Left)^ <> PNativeUInt(Right)^) then Continue;
+            if (PNativeUInt(Left)^ <> PNativeUInt(Right)^) then goto next_item;
             Dec(Count);
             Inc(Left, SizeOf(NativeUInt));
             Inc(Right, SizeOf(NativeUInt));
