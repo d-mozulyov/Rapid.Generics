@@ -16209,7 +16209,7 @@ begin
     if (Count = 0) then
     begin
       FoundIndex := Index;
-      Result := True;
+      Result := False;
       Exit;
     end else
     begin
@@ -16346,7 +16346,7 @@ begin
     if (Count = 0) then
     begin
       FoundIndex := Index;
-      Result := True;
+      Result := False;
       Exit;
     end else
     begin
@@ -16449,7 +16449,7 @@ begin
     if (Count = 0) then
     begin
       FoundIndex := Index;
-      Result := True;
+      Result := False;
       Exit;
     end else
     begin
@@ -16586,7 +16586,7 @@ begin
     if (Count = 0) then
     begin
       FoundIndex := Index;
-      Result := True;
+      Result := False;
       Exit;
     end else
     begin
