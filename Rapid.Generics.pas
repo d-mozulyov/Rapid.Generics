@@ -1646,7 +1646,7 @@ type
     procedure Add(const Key: TKey; const Value: TValue);
     procedure Remove(const Key: TKey);
     function ExtractPair(const Key: TKey): TPair<TKey,TValue>;
-    function TryGetValue(const Key: TKey; out Value: TValue): Boolean;
+    function TryGetValue(const Key: TKey; {$IF RTLVersion < 35}out{$ELSE}var{$IFEND} Value: TValue): Boolean;
     procedure AddOrSetValue(const Key: TKey; const Value: TValue);
     function ContainsKey(const Key: TKey): Boolean;
 
@@ -1702,7 +1702,7 @@ type
     procedure Add(const Key: TKey; const Value: TValue); inline;
     procedure Remove(const Key: TKey); inline;
     function ExtractPair(const Key: TKey): TPair<TKey,TValue>;
-    function TryGetValue(const Key: TKey; out Value: TValue): Boolean;
+    function TryGetValue(const Key: TKey; {$IF RTLVersion < 35}out{$ELSE}var{$IFEND} Value: TValue): Boolean;
     procedure AddOrSetValue(const Key: TKey; const Value: TValue); inline;
     function ContainsKey(const Key: TKey): Boolean; inline;
 
@@ -11419,7 +11419,7 @@ proc_loop_current:
   J := StackItem^.Last;
 
   // insertion/radix sort
-  Size := NativeInt(J) - NativeInt(I) + SizeOf(T);
+  (*Size := NativeInt(J) - NativeInt(I) + SizeOf(T);
   if (Size <= RADIX_BUFFER_SIZE * SizeOf(T)) and
     (
     (Size <= INSERTION_SORT_LIMIT * SizeOf(T)) or
@@ -11561,7 +11561,7 @@ proc_loop_current:
       if (StackItem <> Pointer(@Stack[0])) then goto proc_loop;
       Exit;
     end;
-  end;
+  end;*)
 
   // pivot
   case SizeOf(T) of
@@ -11684,7 +11684,7 @@ proc_loop_current:
   J := StackItem^.Last;
 
   // insertion/radix sort
-  Size := NativeInt(J) - NativeInt(I) + SizeOf(T);
+  (*Size := NativeInt(J) - NativeInt(I) + SizeOf(T);
   if (Size <= RADIX_BUFFER_SIZE * SizeOf(T)) and
     (
     (Size <= INSERTION_SORT_LIMIT * SizeOf(T)) or
@@ -11826,7 +11826,7 @@ proc_loop_current:
       if (StackItem <> Pointer(@Stack[0])) then goto proc_loop;
       Exit;
     end;
-  end;
+  end;*)
 
   // pivot
   case SizeOf(T) of
@@ -11949,7 +11949,7 @@ proc_loop_current:
   J := StackItem^.Last;
 
   // insertion/radix sort
-  Size := NativeInt(J) - NativeInt(I) + SizeOf(T);
+  (*Size := NativeInt(J) - NativeInt(I) + SizeOf(T);
   if (Size <= RADIX_BUFFER_SIZE * SizeOf(T)) and
     (
     (Size <= INSERTION_SORT_LIMIT * SizeOf(T)) or
@@ -12091,7 +12091,7 @@ proc_loop_current:
       if (StackItem <> Pointer(@Stack[0])) then goto proc_loop;
       Exit;
     end;
-  end;
+  end;*)
 
   // pivot
   case SizeOf(T) of
@@ -12214,7 +12214,7 @@ proc_loop_current:
   J := StackItem^.Last;
 
   // insertion/radix sort
-  Size := NativeInt(J) - NativeInt(I) + SizeOf(T);
+  (*Size := NativeInt(J) - NativeInt(I) + SizeOf(T);
   if (Size <= RADIX_BUFFER_SIZE * SizeOf(T)) and
     (
     (Size <= INSERTION_SORT_LIMIT * SizeOf(T)) or
@@ -12356,7 +12356,7 @@ proc_loop_current:
       if (StackItem <> Pointer(@Stack[0])) then goto proc_loop;
       Exit;
     end;
-  end;
+  end;*)
 
   // pivot
   case SizeOf(T) of
@@ -12474,7 +12474,7 @@ proc_loop_current:
   J := StackItem^.Last;
 
   // insertion/radix sort
-  Size := NativeInt(J) - NativeInt(I) + SizeOf(T);
+  (*Size := NativeInt(J) - NativeInt(I) + SizeOf(T);
   if (Size <= RADIX_BUFFER_SIZE * SizeOf(T)) and
     (
     (Size <= INSERTION_SORT_LIMIT * SizeOf(T)) or
@@ -12559,7 +12559,7 @@ proc_loop_current:
       if (StackItem <> Pointer(@Stack[0])) then goto proc_loop;
       Exit;
     end;
-  end;
+  end;*)
 
   // pivot
   case SizeOf(T) of
@@ -12663,7 +12663,7 @@ proc_loop_current:
   J := StackItem^.Last;
 
   // insertion/radix sort
-  Size := NativeInt(J) - NativeInt(I) + SizeOf(T);
+  (*Size := NativeInt(J) - NativeInt(I) + SizeOf(T);
   if (Size <= RADIX_BUFFER_SIZE * SizeOf(T)) and
     (
     (Size <= INSERTION_SORT_LIMIT * SizeOf(T)) or
@@ -12748,7 +12748,7 @@ proc_loop_current:
       if (StackItem <> Pointer(@Stack[0])) then goto proc_loop;
       Exit;
     end;
-  end;
+  end;*)
 
   // pivot
   case SizeOf(T) of
@@ -18249,7 +18249,7 @@ begin
   until (False);
 end;
 
-function TDictionary<TKey,TValue>.TryGetValue(const Key: TKey; out Value: TValue): Boolean;
+function TDictionary<TKey,TValue>.TryGetValue(const Key: TKey; {$IF RTLVersion < 35}out{$ELSE}var{$IFEND} Value: TValue): Boolean;
 var
   Item: PItem;
 begin
@@ -19033,7 +19033,7 @@ begin
   until (False);
 end;
 
-function TRapidDictionary<TKey,TValue>.TryGetValue(const Key: TKey; out Value: TValue): Boolean;
+function TRapidDictionary<TKey,TValue>.TryGetValue(const Key: TKey; {$IF RTLVersion < 35}out{$ELSE}var{$IFEND} Value: TValue): Boolean;
 var
   Item: PItem;
 begin
