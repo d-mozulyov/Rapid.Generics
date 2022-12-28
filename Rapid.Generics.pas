@@ -876,14 +876,20 @@ type
         class var
           Instance: IComparerInst;
       private
+        class procedure InternalInit; static;
         class constructor ClassCreate;
+      public
+        class procedure Init; inline; static;
       end;
       TDefaultEqualityComparer<T> = record
       public
         class var
           Instance: IEqualityComparerInst;
       private
+        class procedure InternalInit; static;
         class constructor ClassCreate;
+      public
+        class procedure Init; inline; static;
       end;
   private
     class function Compare_Var_Difficult(Equal: Boolean; Left, Right: PVariant): Integer; static;
@@ -6935,7 +6941,7 @@ end;
 
 { InterfaceDefaults }
 
-class constructor InterfaceDefaults.TDefaultComparer<T>.ClassCreate;
+class procedure InterfaceDefaults.TDefaultComparer<T>.InternalInit;
 var
   TypeData: PTypeData;
 begin
@@ -7033,7 +7039,18 @@ begin
   end;
 end;
 
-class constructor InterfaceDefaults.TDefaultEqualityComparer<T>.ClassCreate;
+class constructor InterfaceDefaults.TDefaultComparer<T>.ClassCreate;
+begin
+  InternalInit;
+end;
+
+class procedure InterfaceDefaults.TDefaultComparer<T>.Init;
+begin
+  if (not Assigned(Instance.Vtable)) then
+    InternalInit;
+end;
+
+class procedure InterfaceDefaults.TDefaultEqualityComparer<T>.InternalInit;
 var
   TypeData: PTypeData;
 begin
@@ -7162,6 +7179,17 @@ begin
       Instance.GetHashCode := @InterfaceDefaults.GetHashCode_Bin;
     end;
   end;
+end;
+
+class constructor InterfaceDefaults.TDefaultEqualityComparer<T>.ClassCreate;
+begin
+  InternalInit;
+end;
+
+class procedure InterfaceDefaults.TDefaultEqualityComparer<T>.Init;
+begin
+  if (not Assigned(Instance.Vtable)) then
+    InternalInit;
 end;
 
 class function InterfaceDefaults.NopQueryInterface(Inst: Pointer; const IID: TGUID; out Obj): HResult; stdcall;
