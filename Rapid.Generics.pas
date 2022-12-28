@@ -1637,8 +1637,11 @@ type
     constructor Create(ACapacity: Integer = 0); overload;
     constructor Create(const AComparer: IEqualityComparer<TKey>); overload;
     constructor Create(ACapacity: Integer; const AComparer: IEqualityComparer<TKey>); overload;
-    constructor Create(const Collection: TEnumerable<TPair<TKey,TValue>>); overload;
-    constructor Create(const Collection: TEnumerable<TPair<TKey,TValue>>; const AComparer: IEqualityComparer<TKey>); overload;
+    constructor Create(const Collection: IEnumerable<TPair<TKey,TValue>>); overload;
+    constructor Create(const Collection: IEnumerable<TPair<TKey,TValue>>; const AComparer: IEqualityComparer<TKey>); overload;
+    constructor Create(const Collection: ICollection<TPair<TKey,TValue>>); overload;
+    constructor Create(const Collection: ICollection<TPair<TKey,TValue>>; const AComparer: IEqualityComparer<TKey>); overload;
+
     destructor Destroy; override;
 
     function Find(const Key: TKey): Pointer{PItem};
@@ -1694,7 +1697,8 @@ type
     procedure SetItem(const Key: TKey; const Value: TValue); inline;
   public
     constructor Create(ACapacity: Integer = 0); overload;
-    constructor Create(const Collection: TEnumerable<TPair<TKey,TValue>>); overload;
+    constructor Create(const Collection: IEnumerable<TPair<TKey,TValue>>); overload;
+    constructor Create(const Collection: ICollection<TPair<TKey,TValue>>); overload;
     destructor Destroy; override;
 
     function Find(const Key: TKey): Pointer{PItem}; inline;
@@ -1826,7 +1830,8 @@ type
   public
     constructor Create; overload;
     constructor Create(const AComparer: IComparer<T>); overload;
-    constructor Create(const Collection: TEnumerable<T>); overload;
+    constructor Create(const Collection: IEnumerable<T>); overload;
+    constructor Create(const Collection: ICollection<T>); overload;
 
     class procedure Error(const Msg: string; Data: NativeInt); overload; virtual;
     {$ifNdef NEXTGEN}
@@ -1839,12 +1844,12 @@ type
     function Add(const Value: T): Integer; inline;
     procedure AddRange(const Values: array of T); overload;
     procedure AddRange(const Collection: IEnumerable<T>); overload;
-    procedure AddRange(const Collection: TEnumerable<T>); overload;
+    procedure AddRange(const Collection: ICollection<T>); overload;
 
     procedure Insert(Index: Integer; const Value: T); inline;
     procedure InsertRange(Index: Integer; const Values: array of T); overload;
     procedure InsertRange(Index: Integer; const Collection: IEnumerable<T>); overload;
-    procedure InsertRange(Index: Integer; const Collection: TEnumerable<T>); overload;
+    procedure InsertRange(Index: Integer; const Collection: ICollection<T>); overload;
 
     procedure Delete(Index: Integer); inline;
     procedure DeleteRange(AIndex, ACount: Integer);
@@ -1907,7 +1912,8 @@ type
     function InternalPop(const Action: TCollectionNotification): T;
   public
     constructor Create; overload;
-    constructor Create(const Collection: TEnumerable<T>); overload;
+    constructor Create(const Collection: IEnumerable<T>); overload;
+    constructor Create(const Collection: ICollection<T>); overload;
 
     procedure Push(const Value: T); inline;
     function Pop: T; inline;
@@ -1925,7 +1931,8 @@ type
     function InternalDequeue(const Action: TCollectionNotification): T;
   public
     constructor Create; overload;
-    constructor Create(const Collection: TEnumerable<T>); overload;
+    constructor Create(const Collection: IEnumerable<T>); overload;
+    constructor Create(const Collection: ICollection<T>); overload;
 
     procedure Enqueue(const Value: T); inline;
     function Dequeue: T; inline;
@@ -1997,7 +2004,8 @@ type
   public
     constructor Create(AOwnsObjects: Boolean = True); overload;
     constructor Create(const AComparer: IComparer<T>; AOwnsObjects: Boolean = True); overload;
-    constructor Create(const Collection: TEnumerable<T>; AOwnsObjects: Boolean = True); overload;
+    constructor Create(const Collection: IEnumerable<T>; AOwnsObjects: Boolean = True); overload;
+    constructor Create(const Collection: ICollection<T>; AOwnsObjects: Boolean = True); overload;
     property OwnsObjects: Boolean read FOwnsObjects write SetOwnsObjects;
   end;
 
@@ -2010,7 +2018,8 @@ type
     procedure SetNotifyMethods; override;
   public
     constructor Create(AOwnsObjects: Boolean = True); overload;
-    constructor Create(const Collection: TEnumerable<T>; AOwnsObjects: Boolean = True); overload;
+    constructor Create(const Collection: IEnumerable<T>; AOwnsObjects: Boolean = True); overload;
+    constructor Create(const Collection: ICollection<T>; AOwnsObjects: Boolean = True); overload;
     procedure Pop;
     property OwnsObjects: Boolean read FOwnsObjects write SetOwnsObjects;
   end;
@@ -2024,7 +2033,8 @@ type
     procedure SetNotifyMethods; override;
   public
     constructor Create(AOwnsObjects: Boolean = True); overload;
-    constructor Create(const Collection: TEnumerable<T>; AOwnsObjects: Boolean = True); overload;
+    constructor Create(const Collection: IEnumerable<T>; AOwnsObjects: Boolean = True); overload;
+    constructor Create(const Collection: ICollection<T>; AOwnsObjects: Boolean = True); overload;
     procedure Dequeue;
     property OwnsObjects: Boolean read FOwnsObjects write SetOwnsObjects;
   end;
@@ -18060,12 +18070,27 @@ begin
   inherited Create(ACapacity);
 end;
 
-constructor TDictionary<TKey,TValue>.Create(const Collection: TEnumerable<TPair<TKey,TValue>>);
+constructor TDictionary<TKey,TValue>.Create(const Collection: IEnumerable<TPair<TKey,TValue>>);
 begin
   Create(Collection, nil);
 end;
 
-constructor TDictionary<TKey,TValue>.Create(const Collection: TEnumerable<TPair<TKey,TValue>>;
+constructor TDictionary<TKey,TValue>.Create(const Collection: IEnumerable<TPair<TKey,TValue>>;
+  const AComparer: IEqualityComparer<TKey>);
+var
+  Item: TPair<TKey,TValue>;
+begin
+  Create(0, AComparer);
+  for Item in Collection do
+    AddOrSetValue(Item.Key, Item.Value);
+end;
+
+constructor TDictionary<TKey,TValue>.Create(const Collection: ICollection<TPair<TKey,TValue>>);
+begin
+  Create(Collection, nil);
+end;
+
+constructor TDictionary<TKey,TValue>.Create(const Collection: ICollection<TPair<TKey,TValue>>;
   const AComparer: IEqualityComparer<TKey>);
 var
   Item: TPair<TKey,TValue>;
@@ -18284,7 +18309,16 @@ begin
   inherited;
 end;
 
-constructor TRapidDictionary<TKey,TValue>.Create(const Collection: TEnumerable<TPair<TKey,TValue>>);
+constructor TRapidDictionary<TKey,TValue>.Create(const Collection: IEnumerable<TPair<TKey,TValue>>);
+var
+  Item: TPair<TKey,TValue>;
+begin
+  inherited Create;
+  for Item in Collection do
+    AddOrSetValue(Item.Key, Item.Value);
+end;
+
+constructor TRapidDictionary<TKey,TValue>.Create(const Collection: ICollection<TPair<TKey,TValue>>);
 var
   Item: TPair<TKey,TValue>;
 begin
@@ -19418,7 +19452,13 @@ begin
     FComparer := AComparer;
 end;
 
-constructor TList<T>.Create(const Collection: TEnumerable<T>);
+constructor TList<T>.Create(const Collection: IEnumerable<T>);
+begin
+  Create;
+  InsertRange(0, Collection);
+end;
+
+constructor TList<T>.Create(const Collection: ICollection<T>);
 begin
   Create;
   InsertRange(0, Collection);
@@ -19944,7 +19984,7 @@ begin
   end;
 end;
 
-procedure TList<T>.AddRange(const Collection: TEnumerable<T>);
+procedure TList<T>.AddRange(const Collection: ICollection<T>);
 var
   Item: T;
   Index: NativeInt;
@@ -19983,7 +20023,7 @@ begin
   end;
 end;
 
-procedure TList<T>.InsertRange(Index: Integer; const Collection: TEnumerable<T>);
+procedure TList<T>.InsertRange(Index: Integer; const Collection: ICollection<T>);
 var
   Item: T;
 begin
@@ -22648,7 +22688,16 @@ begin
   inherited Create;
 end;
 
-constructor TStack<T>.Create(const Collection: TEnumerable<T>);
+constructor TStack<T>.Create(const Collection: IEnumerable<T>);
+var
+  Item: T;
+begin
+  Create;
+  for Item in Collection do
+    Push(Item);
+end;
+
+constructor TStack<T>.Create(const Collection: ICollection<T>);
 var
   Item: T;
 begin
@@ -23049,7 +23098,16 @@ begin
   inherited Create;
 end;
 
-constructor TQueue<T>.Create(const Collection: TEnumerable<T>);
+constructor TQueue<T>.Create(const Collection: IEnumerable<T>);
+var
+  Item: T;
+begin
+  Create;
+  for Item in Collection do
+    Enqueue(Item);
+end;
+
+constructor TQueue<T>.Create(const Collection: ICollection<T>);
 var
   Item: T;
 begin
@@ -23705,7 +23763,13 @@ begin
   inherited Create(AComparer);
 end;
 
-constructor TObjectList<T>.Create(const Collection: TEnumerable<T>; AOwnsObjects: Boolean);
+constructor TObjectList<T>.Create(const Collection: IEnumerable<T>; AOwnsObjects: Boolean);
+begin
+  FOwnsObjects := AOwnsObjects;
+  inherited Create(Collection);
+end;
+
+constructor TObjectList<T>.Create(const Collection: ICollection<T>; AOwnsObjects: Boolean);
 begin
   FOwnsObjects := AOwnsObjects;
   inherited Create(Collection);
@@ -23767,7 +23831,13 @@ begin
   inherited Create;
 end;
 
-constructor TObjectStack<T>.Create(const Collection: TEnumerable<T>; AOwnsObjects: Boolean);
+constructor TObjectStack<T>.Create(const Collection: IEnumerable<T>; AOwnsObjects: Boolean);
+begin
+  FOwnsObjects := AOwnsObjects;
+  inherited Create(Collection);
+end;
+
+constructor TObjectStack<T>.Create(const Collection: ICollection<T>; AOwnsObjects: Boolean);
 begin
   FOwnsObjects := AOwnsObjects;
   inherited Create(Collection);
@@ -23834,7 +23904,13 @@ begin
   inherited Create;
 end;
 
-constructor TObjectQueue<T>.Create(const Collection: TEnumerable<T>; AOwnsObjects: Boolean);
+constructor TObjectQueue<T>.Create(const Collection: IEnumerable<T>; AOwnsObjects: Boolean);
+begin
+  FOwnsObjects := AOwnsObjects;
+  inherited Create(Collection);
+end;
+
+constructor TObjectQueue<T>.Create(const Collection: ICollection<T>; AOwnsObjects: Boolean);
 begin
   FOwnsObjects := AOwnsObjects;
   inherited Create(Collection);
